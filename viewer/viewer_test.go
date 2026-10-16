@@ -101,7 +101,7 @@ func mesh(t *testing.T) (*store.Store, string) {
 
 func follow(t *testing.T, url string) (*Viewer, *httptest.Server) {
 	t.Helper()
-	v, err := Open(Options{Client: &client.Client{URLs: []string{url}, Token: obsTok, Warn: os_discard{}}, Dir: t.TempDir()})
+	v, err := Open(Options{Nodes: []string{url}, Token: obsTok, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestTheGuardKeepsThePageToItsKeyItsHostAndReadOnly(t *testing.T) {
 		t.Errorf("wrong key: %d", r.StatusCode)
 	}
 	r := do("GET", "/?key="+key, "viewer.test:1", false)
-	if r.StatusCode != http.StatusSeeOther || r.Header.Get("Location") != "/" || !strings.Contains(r.Header.Get("Set-Cookie"), "HttpOnly") || !strings.Contains(r.Header.Get("Set-Cookie"), "SameSite=Strict") {
+	if r.StatusCode != http.StatusSeeOther || r.Header.Get("Location") != "./" || !strings.Contains(r.Header.Get("Set-Cookie"), "HttpOnly") || !strings.Contains(r.Header.Get("Set-Cookie"), "SameSite=Strict") {
 		t.Errorf("the key sets a strict cookie and leaves the address bar: %d %v", r.StatusCode, r.Header)
 	}
 	for _, m := range []string{"POST", "PUT", "DELETE"} {

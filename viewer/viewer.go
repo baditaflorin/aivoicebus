@@ -9,6 +9,7 @@ package viewer
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"time"
 
@@ -19,8 +20,12 @@ import (
 
 // Options configure Open.
 type Options struct {
-	// Client reaches the nodes. Give it an observer token: the viewer only reads.
-	Client *client.Client
+	// Nodes are the node URLs to follow ("http://10.0.0.5:7777"), and Token the mesh's observer token:
+	// the viewer only reads. No nodes: a viewer that follows nothing (a demo, or a test).
+	Nodes []string
+	Token string
+	// Timeout bounds one request to a node, a whole page of the feed included (default 20 seconds).
+	Timeout time.Duration
 	// Dir holds the replica's log. It holds every message in clear text: a private directory the
 	// caller removes when done, unless it means to keep an archive.
 	Dir string
@@ -59,7 +64,14 @@ func Open(o Options) (*Viewer, error) {
 	if o.Title == "" {
 		o.Title = "aivoicebus viewer"
 	}
-	return &Viewer{st: st, c: o.Client, every: o.Every, title: o.Title}, nil
+	var c *client.Client
+	if len(o.Nodes) > 0 {
+		if o.Timeout <= 0 {
+			o.Timeout = 20 * time.Second
+		}
+		c = &client.Client{URLs: o.Nodes, Token: o.Token, Timeout: o.Timeout, Warn: io.Discard}
+	}
+	return &Viewer{st: st, c: c, every: o.Every, title: o.Title}, nil
 }
 
 // maxRounds bounds one Pull: a node answers a page at a time, and a long log takes several.

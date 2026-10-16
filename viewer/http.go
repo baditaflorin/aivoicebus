@@ -156,7 +156,10 @@ func guard(o HTTPOptions, next http.Handler) http.Handler {
 					return
 				}
 				http.SetCookie(w, &http.Cookie{Name: cookieName, Value: o.Key, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
-				http.Redirect(w, r, "/", http.StatusSeeOther) // the key leaves the address bar and the history
+				// The key leaves the address bar and the history. Written by hand, not with http.Redirect,
+				// which would make "./" absolute and send a viewer mounted under a path to the site root.
+				w.Header().Set("Location", "./")
+				w.WriteHeader(http.StatusSeeOther)
 				return
 			}
 			c, err := r.Cookie(cookieName)

@@ -56,7 +56,11 @@ func viewCmd(args []string, s Streams) error {
 	} else if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	v, err := viewer.Open(viewer.Options{Client: c, Dir: filepath.Join(dir, "replica"), Every: *every})
+	opts := viewer.Options{Dir: filepath.Join(dir, "replica"), Every: *every}
+	if c != nil { // checked above: the nodes answer and the token is the one meant
+		opts.Nodes, opts.Token = c.URLs, c.Token
+	}
+	v, err := viewer.Open(opts)
 	if err != nil {
 		return err
 	}

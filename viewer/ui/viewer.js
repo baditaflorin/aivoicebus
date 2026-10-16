@@ -163,7 +163,7 @@ async function loadThread() {
     return;
   }
   /** @type {ThreadMessage[]} */
-  const ms = await get("/api/thread?id=" + encodeURIComponent(state.thread));
+  const ms = await get("api/thread?id=" + encodeURIComponent(state.thread));
   pane.hidden = false;
   byId("main-layout").classList.remove("no-thread");
   clear(list);
@@ -179,7 +179,7 @@ async function loadThread() {
 /** @param {boolean} force */
 async function load(force) {
   /** @type {Status} */
-  const st = await get("/api/status");
+  const st = await get("api/status");
   const status = byId("status");
   clear(status);
   status.appendChild(el("span", "dot"));
@@ -192,7 +192,7 @@ async function load(force) {
   state.rev = st.rev;
 
   /** @type {Session[]} */
-  const sessions = await get("/api/sessions");
+  const sessions = await get("api/sessions");
   state.sessions = sessions;
   const cards = byId("sessions");
   clear(cards);
@@ -216,7 +216,7 @@ async function load(force) {
   }
 
   /** @type {Conversation[]} */
-  const convs = await get("/api/conversations" + (state.session ? "?session=" + encodeURIComponent(state.session) : ""));
+  const convs = await get("api/conversations" + (state.session ? "?session=" + encodeURIComponent(state.session) : ""));
   const list = byId("convs");
   clear(list);
   const shownConvs = convs.filter((c) => state.showHidden || !c.hidden);
