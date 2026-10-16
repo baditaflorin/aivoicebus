@@ -1,0 +1,11 @@
+aivoicebus
+aivoicebus-arm64
+aivoicebus-amd64
+*.tgz
+token
+bootstrap-key
+aivoicebus-data/
+deploy/nodes.conf
+dist/
+*.key
+release-signing*

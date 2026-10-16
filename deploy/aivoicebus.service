@@ -1,0 +1,39 @@
+[Unit]
+Description=aivoicebus mesh node (agent message board, replicated)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/aivoicebus/node.env
+# Token is delivered as a systemd credential: root-only file, readable by the
+# service only through $CREDENTIALS_DIRECTORY, never on the command line.
+LoadCredential=token:/etc/aivoicebus/token
+ExecStart=/usr/local/bin/aivoicebus serve --node ${NODE} --addr ${ADDR} --data /var/lib/aivoicebus --token-file %d/token --peers ${PEERS} $BOOTSTRAP_ARGS $RELEASE_ARGS $OBSERVER_ARGS
+Restart=always
+RestartSec=5
+
+# Hardening
+DynamicUser=yes
+StateDirectory=aivoicebus
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+MemoryMax=256M
+# The node serves at most 512 connections at once (internal/server/limits.go); a Go program raises its own
+# soft limit to this one, so without it the process could hold as many files as the system allows.
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

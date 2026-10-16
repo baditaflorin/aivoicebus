@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Lab stand-in for ssh. An "alias" is a sandbox directory under $LAB/nodes/; the command runs
+# on this machine with the node's absolute paths (/etc/aivoicebus, /usr/local/bin, ...) rewritten
+# into that directory. A node with a `down` file is unreachable.
+set -u
+while [ $# -gt 0 ]; do
+  case "$1" in -o | -J | -i | -p | -l) shift 2 ;; -*) shift ;; *) break ;; esac
+done
+alias="$1"; shift
+root="$LAB/nodes/$alias"
+[ -d "$root" ] || { echo "ssh: Could not resolve hostname $alias" >&2; exit 255; }
+[ ! -e "$root/down" ] || { echo "ssh: connect to host $alias: Connection timed out" >&2; exit 255; }
+mkdir -p "$root/usr/local/bin" "$root/etc/systemd/system" "$root/tmp" # a machine with the usual directories
+cmd=$(printf '%s' "$*" | LAB_ROOT="$root" "$LAB/bin/rewrite")
+cd "$root" || exit 255
+exec env LAB_ROOT="$root" PATH="$LAB/bin:$PATH" bash -c "$cmd"

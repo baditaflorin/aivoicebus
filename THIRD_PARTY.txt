@@ -1,0 +1,5 @@
+AiVoiceBus has no third-party Go modules (go.mod has no require lines), so a binary contains only the
+code in this repository and the Go standard library and runtime it was built with.
+
+The Go standard library and runtime: Copyright 2009 The Go Authors, BSD-3-Clause.
+The licence text is at https://go.dev/LICENSE and ships with every Go distribution.

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# macOS `shasum -a 256` for Linux images that lack it.
+[ "$1" = "-a" ] && shift 2
+exec sha256sum "$@"

@@ -1,0 +1,4 @@
+# The releases scripts/compat.sh must have been run against before `release.sh sign` accepts the
+# pass record: every release a node may still run, one version per line. Append each release when
+# it is cut. Releases at or above the one being signed are ignored.
+# Empty until a second release exists: 0.1.0 is the first.

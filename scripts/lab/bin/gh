@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Lab stand-in for the GitHub CLI: records its arguments, one per line (the last call in gh.args, every
+# call as one line in gh.calls), and publishes nothing. It answers the queries `release.sh attach` makes
+# from files the lab writes: gh.isdraft (true/false; absent means no such release), gh.assets (asset
+# names) and gh.sums (the SHA256SUMS asset).
+printf '%s\n' "$@" >"$LAB/gh.args"
+printf '%s\n' "$*" >>"$LAB/gh.calls"
+# and the release notes it was given (--notes-file FILE), which the caller deletes afterwards
+prev=
+for a in "$@"; do [ "$prev" = --notes-file ] && cp "$a" "$LAB/gh.notes"; prev=$a; done
+if [ "${1:-}" = release ] && [ "${2:-}" = view ]; then
+  case "$*" in
+    *isDraft*) [ -f "$LAB/gh.isdraft" ] && cat "$LAB/gh.isdraft" || exit 1 ;;
+    *assets*) [ -f "$LAB/gh.assets" ] && cat "$LAB/gh.assets" || exit 1 ;;
+  esac
+fi
+if [ "${1:-}" = release ] && [ "${2:-}" = download ]; then
+  [ -f "$LAB/gh.sums" ] && cat "$LAB/gh.sums" || exit 1
+fi
+exit 0

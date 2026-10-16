@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Lab stand-in for systemctl on a node: runs aivoicebus the way the unit does (node.env, the token
+# files), under a supervisor that restarts it after a second, like Restart=always, and counts restarts.
+set -u
+root="$LAB_ROOT"
+mkdir -p "$root/run" "$root/var/lib/aivoicebus"
+
+stop_node() {
+  [ -f "$root/run/pid" ] || return 0
+  local pid; pid=$(cat "$root/run/pid")
+  touch "$root/run/stop"
+  kill -CONT -- "-$pid" 2>/dev/null   # a stopped process cannot hear SIGTERM
+  kill -TERM -- "-$pid" 2>/dev/null
+  for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  kill -KILL -- "-$pid" 2>/dev/null
+  rm -f "$root/run/pid" "$root/run/stop"
+}
+
+start_node() {
+  local NODE="" ADDR="" PEERS="" RELEASE_ARGS="" OBSERVER_ARGS="" BOOTSTRAP_ARGS="" k v line
+  while IFS='=' read -r k v; do
+    case "$k" in NODE) NODE=$v ;; ADDR) ADDR=$v ;; PEERS) PEERS=$v ;; RELEASE_ARGS) RELEASE_ARGS=$v ;; OBSERVER_ARGS) OBSERVER_ARGS=$v ;; BOOTSTRAP_ARGS) BOOTSTRAP_ARGS=$v ;; esac
+  done <"$root/etc/aivoicebus/node.env"
+  echo 0 >"$root/run/nrestarts"
+  # The command line comes from the unit the install script put on the node, not from a copy in
+  # this shim: a broken ExecStart (a misspelt variable, a wrong flag) fails the lab as it would fail
+  # systemd. %d is the credentials directory; the unit's paths are moved into the sandbox.
+  line=$(sed -n 's/^ExecStart=//p' "$root/etc/systemd/system/aivoicebus.service")
+  [ -n "$line" ] || { echo "lab systemctl: the unit has no ExecStart" >&2; exit 1; }
+  line=$(printf '%s' "$line" | LAB_ROOT="$root" "$LAB/bin/rewrite")
+  line=${line//%d/$root/etc/aivoicebus}
+  export NODE ADDR PEERS RELEASE_ARGS OBSERVER_ARGS BOOTSTRAP_ARGS
+  local argv
+  eval "argv=( $line )" # the same word splitting systemd does: ${VAR} whole, $VAR split
+  setsid "$LAB/bin/lab-supervise" "$root" "${argv[@]}" >/dev/null 2>&1 </dev/null &
+  echo $! >"$root/run/pid"
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  daemon-reload | enable | disable) exit 0 ;;
+  restart) stop_node; start_node ;;
+  start) [ -f "$root/run/pid" ] || start_node ;;
+  stop) stop_node ;;
+  show) case "$*" in *NRestarts*) cat "$root/run/nrestarts" 2>/dev/null || echo 0 ;; *) echo "lab systemctl: unsupported show: $*" >&2; exit 1 ;; esac ;;
+  is-active) [ -f "$root/run/pid" ] && kill -0 "$(cat "$root/run/pid")" 2>/dev/null && echo active || { echo inactive; exit 3; } ;;
+  *) echo "lab systemctl: unsupported: $cmd $*" >&2; exit 1 ;;
+esac

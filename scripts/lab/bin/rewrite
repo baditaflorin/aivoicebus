@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Rewrites a node's absolute paths in a command (stdin -> stdout) to live under $LAB_ROOT.
+# Placeholders first, so a rewritten path is never rewritten again.
+sed -e 's#/etc/aivoicebus#@ROOT@/etc/aivoicebus#g' \
+  -e 's#/etc/systemd/system#@ROOT@/etc/systemd/system#g' \
+  -e 's#/usr/local/bin#@ROOT@/usr/local/bin#g' \
+  -e 's#/srv/aivoicebus-release#@ROOT@/srv/aivoicebus-release#g' \
+  -e 's#/var/lib/aivoicebus#@ROOT@/var/lib/aivoicebus#g' \
+  -e 's#/tmp/aivoicebus#@ROOT@/tmp/aivoicebus#g' \
+  -e 's#/run/credentials/aivoicebus\.service/observer#@ROOT@/etc/aivoicebus/observer-token#g' |
+  sed -e "s#@ROOT@#${LAB_ROOT:-$1}#g"

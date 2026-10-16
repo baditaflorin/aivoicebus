@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Lab stand-in for scp: local file -> alias:/path inside the node's sandbox.
+set -u
+args=()
+for a in "$@"; do case "$a" in -*) ;; *) args+=("$a") ;; esac; done
+src="${args[0]}"; dst="${args[1]}"
+alias="${dst%%:*}"; path="${dst#*:}"
+root="$LAB/nodes/$alias"
+[ -d "$root" ] && [ ! -e "$root/down" ] || { echo "scp: connect to host $alias: Connection timed out" >&2; exit 255; }
+path=$(printf '%s' "$path" | LAB_ROOT="$root" "$LAB/bin/rewrite")
+mkdir -p "$(dirname "$path")"
+cp "$src" "$path"

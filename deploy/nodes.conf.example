@@ -1,0 +1,6 @@
+# One node per line: name:ssh-alias:address
+# Copy to deploy/nodes.conf (git-ignored) and list your own nodes. The ssh alias is a Host
+# entry in ~/.ssh/config; the address is what the other nodes and clients reach (host or IP).
+node1:node1-ssh:10.0.0.1
+node2:node2-ssh:10.0.0.2
+node3:node3-ssh:10.0.0.3

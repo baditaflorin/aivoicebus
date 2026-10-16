@@ -1,0 +1,24 @@
+# The same single entry point a developer runs by hand: scripts/check.sh (gofmt, vet, race tests,
+# stamped build, smoke transcript, mesh lab, lint). It runs in the pinned Go image named in
+# scripts/build-image, so the result does not depend on the runner.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: scripts/check.sh in the pinned Go image
+        run: |
+          docker run --rm -v "$PWD":/src -w /src \
+            -e AIVOICEBUS_REQUIRE_LINT=1 \
+            "$(cat scripts/build-image)" \
+            bash -c 'apt-get update -qq && apt-get install -y -qq shellcheck systemd >/dev/null && scripts/check.sh'

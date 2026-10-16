@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Runs a command and restarts it a second after it exits, counting restarts: Restart=always.
+root="$1"; shift
+while true; do
+  "$@" >>"$root/var/serve.log" 2>&1
+  [ ! -f "$root/run/stop" ] || exit 0
+  echo $(($(cat "$root/run/nrestarts") + 1)) >"$root/run/nrestarts"
+  sleep 1
+done

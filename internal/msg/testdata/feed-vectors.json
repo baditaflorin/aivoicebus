@@ -1,0 +1,875 @@
+{
+ "version": 1,
+ "doc": [
+ "Shared contract vectors for what the dashboard (and any other consumer of the feed) reads from a node: the replication",
+ "records of /v1/sync, the roster of /v1/roster, /v1/health, message expiry and the vocabulary of priorities, kinds and",
+ "ack vias. The node (internal/msg, internal/store) and the dashboard read this same file; retraction has its own,",
+ "retract-vectors.json. A reader that does not know a top-level key must ignore it.",
+ "records: 'record' is one /v1/sync element. 'valid' is what a node's replication check (msg.Record.ValidateReplicated)",
+ "says, 'reason' a word of why not. A record that is not valid is served as an ack 'quarantined' by 'aivoicebus/quarantine'.",
+ "'canonical' says decoding then encoding gives the same JSON back (no field renamed or dropped).",
+ "expiry: 'msg' and 'now' give 'expired' and 'expires_at' (empty = never expires), evaluated by the reader.",
+ "roster: msg.MergeRosters over 'lists' gives 'expect'. health: the fields of 'json' that 'expect' names, decoded.",
+ "acks: how a reader classifies an ack id (receipt, retraction, or a claimed retraction that is not valid).",
+ "To change anything here is a protocol change: tell the dashboard's maintainers before the node release."
+ ],
+ "vocabulary": {
+ "priorities": [
+  "fyi",
+  "ask",
+  "urgent"
+ ],
+ "default_priority": "ask",
+ "kinds": [
+  "question",
+  "answer"
+ ],
+ "ack_via": [
+  "hook",
+  "hook-count",
+  "inbox",
+  "cli"
+ ],
+ "quarantine": {
+  "id": "quarantined",
+  "by": "aivoicebus/quarantine"
+ }
+ },
+ "records": [
+ {
+  "name": "plain-message",
+  "why": "the smallest message a client sends",
+  "record": {
+   "origin": "node-a",
+   "seq": 1,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "every-optional-field",
+  "why": "what a dashboard may see on a message: re, prio, exp, kind, reach, from_title (the sender's session title when it sent it)",
+  "record": {
+   "origin": "node-a",
+   "seq": 2,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z",
+    "re": "89abcdef01",
+    "prio": "urgent",
+    "kind": "question",
+    "reach": 3,
+    "from_title": "Fix the hub login",
+    "exp": "2026-10-15T09:00:00Z"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "answer",
+  "why": "an answer names the question it closes in re",
+  "record": {
+   "origin": "node-a",
+   "seq": 3,
+   "msg": {
+    "id": "89abcdef01",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "done",
+    "at": "2026-10-14T09:00:00Z",
+    "re": "0123456789",
+    "kind": "answer"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "fyi",
+  "why": "fyi is only counted at session start",
+  "record": {
+   "origin": "node-a",
+   "seq": 4,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z",
+    "prio": "fyi"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "ack-read-receipt",
+  "why": "how a message reached the reader and what it cost in context",
+  "record": {
+   "origin": "node-a",
+   "seq": 5,
+   "ack": {
+    "id": "0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z",
+    "via": "hook",
+    "chars": 312
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "ack-from-an-old-client",
+  "why": "via and chars are absent, not null",
+  "record": {
+   "origin": "node-a",
+   "seq": 6,
+   "ack": {
+    "id": "0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "ack-hook-count",
+  "why": "an fyi message that was only counted",
+  "record": {
+   "origin": "node-a",
+   "seq": 7,
+   "ack": {
+    "id": "0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z",
+    "via": "hook-count"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "retraction",
+  "why": "an ordinary ack whose id is retract:<message id>: hide that message, do not count a read",
+  "record": {
+   "origin": "node-a",
+   "seq": 8,
+   "ack": {
+    "id": "retract:0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "retraction-leak",
+  "why": "the sender says the text held a credential",
+  "record": {
+   "origin": "node-a",
+   "seq": 9,
+   "ack": {
+    "id": "retract-leak:0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "a-via-this-release-does-not-know",
+  "why": "via is a short label, not a closed list: replication takes it",
+  "record": {
+   "origin": "node-a",
+   "seq": 10,
+   "ack": {
+    "id": "0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z",
+    "via": "future-way"
+   }
+  },
+  "valid": true,
+  "canonical": true
+ },
+ {
+  "name": "unknown-fields-are-ignored",
+  "why": "a reader ignores keys it does not know; they are not kept on re-encoding",
+  "record": {
+   "origin": "node-a",
+   "seq": 11,
+   "msg": {
+    "id": "0123456789",
+    "from": "a/b",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "x",
+    "at": "2026-10-14T09:00:00Z",
+    "future": {
+     "x": 1
+    }
+   },
+   "extra": true
+  },
+  "valid": true,
+  "canonical": false
+ },
+ {
+  "name": "neither-msg-nor-ack",
+  "why": "a record holds exactly one of the two",
+  "record": {
+   "origin": "node-a",
+   "seq": 12
+  },
+  "valid": false,
+  "reason": "exactly one",
+  "canonical": false
+ },
+ {
+  "name": "both-msg-and-ack",
+  "why": "a record holds exactly one of the two",
+  "record": {
+   "origin": "node-a",
+   "seq": 13,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z"
+   },
+   "ack": {
+    "id": "0123456789",
+    "by": "laptop/claude.a1b2",
+    "at": "2026-10-14T09:05:00Z"
+   }
+  },
+  "valid": false,
+  "reason": "exactly one",
+  "canonical": false
+ },
+ {
+  "name": "an-unknown-priority",
+  "why": "a node stores such a record only as a placeholder (ack id quarantined)",
+  "record": {
+   "origin": "node-a",
+   "seq": 14,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z",
+    "prio": "high"
+   }
+  },
+  "valid": false,
+  "reason": "priority",
+  "canonical": true
+ },
+ {
+  "name": "an-unknown-kind",
+  "why": "as above",
+  "record": {
+   "origin": "node-a",
+   "seq": 15,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z",
+    "kind": "note"
+   }
+  },
+  "valid": false,
+  "reason": "kind",
+  "canonical": true
+ },
+ {
+  "name": "reach-out-of-range",
+  "why": "as above",
+  "record": {
+   "origin": "node-a",
+   "seq": 16,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z",
+    "reach": 100001
+   }
+  },
+  "valid": false,
+  "reason": "reach",
+  "canonical": true
+ },
+ {
+  "name": "a-sender-with-a-newline",
+  "why": "a header field with a control character would forge extra lines for a reader",
+  "record": {
+   "origin": "node-a",
+   "seq": 17,
+   "msg": {
+    "id": "0123456789",
+    "from": "a/b\nforged: header",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z"
+   }
+  },
+  "valid": false,
+  "reason": "from",
+  "canonical": true
+ },
+ {
+  "name": "an-empty-origin",
+  "why": "an origin is a key of the version vector and cannot be empty",
+  "record": {
+   "origin": "",
+   "seq": 18,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z"
+   }
+  },
+  "valid": false,
+  "reason": "origin",
+  "canonical": true
+ },
+ {
+  "name": "an-ack-by-nobody",
+  "why": "an ack needs the identity that read",
+  "record": {
+   "origin": "node-a",
+   "seq": 19,
+   "ack": {
+    "id": "0123456789",
+    "by": "",
+    "at": "2026-10-14T09:05:00Z"
+   }
+  },
+  "valid": false,
+  "reason": "ack by",
+  "canonical": true
+},
+ {
+  "name": "from-title-too-long",
+  "why": "a session title is bounded (320 bytes, at most 80 characters of up to four bytes); a reader shows every title cleaned again",
+  "record": {
+   "origin": "node-a",
+   "seq": 20,
+   "msg": {
+    "id": "0123456789",
+    "from": "laptop/claude.a1b2",
+    "to": "all",
+    "thread": "0123456789",
+    "body": "hello",
+    "at": "2026-10-14T09:00:00Z",
+    "from_title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  "valid": false,
+  "reason": "from_title",
+  "canonical": true
+ }
+ ],
+ "expiry": [
+ {
+  "name": "one-session-never-expires",
+  "why": "a message to one exact session waits for it",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "laptop/claude.a1b2"
+  },
+  "now": "2030-01-01T00:00:00Z",
+  "expired": false,
+  "expires_at": ""
+ },
+ {
+  "name": "everyone-ask-three-days",
+  "why": "a bulletin without a ttl lives 72 hours",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "all"
+  },
+  "now": "2026-10-17T09:00:01Z",
+  "expired": true,
+  "expires_at": "2026-10-17T09:00:00Z"
+ },
+ {
+  "name": "everyone-ask-not-yet",
+  "why": "expired only after the expiry, not at it",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "all"
+  },
+  "now": "2026-10-17T09:00:00Z",
+  "expired": false,
+  "expires_at": "2026-10-17T09:00:00Z"
+ },
+ {
+  "name": "everyone-fyi-one-day",
+  "why": "fyi lives 24 hours",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "all",
+   "prio": "fyi"
+  },
+  "now": "2026-10-15T09:00:01Z",
+  "expired": true,
+  "expires_at": "2026-10-15T09:00:00Z"
+ },
+ {
+  "name": "a-selector-urgent-three-days",
+  "why": "urgent is not fyi",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "@repo=x",
+   "prio": "urgent"
+  },
+  "now": "2026-10-14T10:00:00Z",
+  "expired": false,
+  "expires_at": "2026-10-17T09:00:00Z"
+ },
+ {
+  "name": "a-tool-is-a-bulletin",
+  "why": "host/tool reaches every session of the tool, now and later",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "laptop/claude"
+  },
+  "now": "2026-10-18T00:00:00Z",
+  "expired": true,
+  "expires_at": "2026-10-17T09:00:00Z"
+ },
+ {
+  "name": "a-whole-host-is-a-bulletin",
+  "why": "",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "laptop"
+  },
+  "now": "2026-10-14T10:00:00Z",
+  "expired": false,
+  "expires_at": "2026-10-17T09:00:00Z"
+ },
+ {
+  "name": "an-explicit-exp-wins",
+  "why": "even for one session",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "laptop/claude.a1b2",
+   "exp": "2026-10-14T10:00:00Z"
+  },
+  "now": "2026-10-14T10:00:01Z",
+  "expired": true,
+  "expires_at": "2026-10-14T10:00:00Z"
+ },
+ {
+  "name": "an-explicit-exp-beats-the-default",
+  "why": "a longer life than the default is the sender's right",
+  "msg": {
+   "id": "0123456789",
+   "from": "a/b",
+   "thread": "0123456789",
+   "body": "x",
+   "at": "2026-10-14T09:00:00Z",
+   "to": "all",
+   "exp": "2026-11-01T00:00:00Z"
+  },
+  "now": "2026-10-20T00:00:00Z",
+  "expired": false,
+  "expires_at": "2026-11-01T00:00:00Z"
+ }
+ ],
+ "roster": [
+ {
+  "name": "newest-sighting-wins",
+  "why": "each session once, as last seen on any node",
+  "lists": [
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:00:00Z"
+    }
+   ],
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:30:00Z"
+    }
+   ]
+  ],
+  "expect": [
+   {
+    "me": "a/claude.1",
+    "seen": "2026-10-14T09:30:00Z"
+   }
+  ]
+ },
+ {
+  "name": "labels-from-the-newest-report-that-had-any",
+  "why": "a node that knows a session only from a message it sent has no labels; they do not erase others'",
+  "lists": [
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:00:00Z",
+     "labels": {
+      "repo": "x"
+     }
+    },
+    {
+     "me": "b/codex.2",
+     "seen": "2026-10-14T09:10:00Z"
+    }
+   ],
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:30:00Z"
+    },
+    {
+     "me": "b/codex.2",
+     "seen": "2026-10-14T09:05:00Z",
+     "labels": {
+      "repo": "y"
+     }
+    }
+   ]
+  ],
+  "expect": [
+   {
+    "me": "a/claude.1",
+    "seen": "2026-10-14T09:30:00Z",
+    "labels": {
+     "repo": "x"
+    }
+   },
+   {
+    "me": "b/codex.2",
+    "seen": "2026-10-14T09:10:00Z",
+    "labels": {
+     "repo": "y"
+    }
+   }
+  ]
+ },
+ {
+  "name": "newer-labels-replace-older-in-any-list-order",
+  "why": "a session that moved to another repo",
+  "lists": [
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:30:00Z",
+     "labels": {
+      "repo": "new",
+      "branch": "b"
+     }
+    }
+   ],
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:00:00Z",
+     "labels": {
+      "repo": "old"
+     }
+    }
+   ]
+  ],
+  "expect": [
+   {
+    "me": "a/claude.1",
+    "seen": "2026-10-14T09:30:00Z",
+    "labels": {
+     "repo": "new",
+     "branch": "b"
+    }
+   }
+  ]
+ },
+ {
+  "name": "sorted-by-identity",
+  "why": "the merged roster is ordered by me, bytewise",
+  "lists": [
+   [
+    {
+     "me": "b/x",
+     "seen": "2026-10-14T09:00:00Z"
+    },
+    {
+     "me": "a/x",
+     "seen": "2026-10-14T09:00:00Z"
+    }
+   ]
+  ],
+  "expect": [
+   {
+    "me": "a/x",
+    "seen": "2026-10-14T09:00:00Z"
+   },
+   {
+    "me": "b/x",
+    "seen": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ {
+  "name": "nothing",
+  "why": "no node answered",
+  "lists": [],
+  "expect": []
+},
+ {
+  "name": "the-newest-title-wins",
+  "why": "a session's title is the one of its most recent sighting that had one; a sighting without a title keeps it",
+  "lists": [
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:00:00Z",
+     "title": "Old name"
+    }
+   ],
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T09:30:00Z",
+     "title": "Fix the hub login"
+    }
+   ],
+   [
+    {
+     "me": "a/claude.1",
+     "seen": "2026-10-14T10:00:00Z"
+    }
+   ]
+  ],
+  "expect": [
+   {
+    "me": "a/claude.1",
+    "seen": "2026-10-14T10:00:00Z",
+    "title": "Fix the hub login"
+   }
+  ]
+ }
+ ],
+ "health": [
+ {
+  "name": "a-0.7-node",
+  "why": "every field a 0.7+ node reports",
+  "json": {
+   "node": "node-a",
+   "version": "0.8.1",
+   "now": "2026-10-14T09:00:00Z",
+   "log": {
+    "node-a": 517,
+    "build": 40
+   },
+   "messages": 120,
+   "acks": 300,
+   "sessions": 9,
+   "quarantined": 0,
+   "retracted": 2,
+   "peers": [
+    {
+     "url": "http://10.0.0.2:7788",
+     "ok": true,
+     "last_ok": "2026-10-14T08:59:58Z",
+     "lag": 0,
+     "skew_ms": -12,
+     "version": "0.8.1",
+     "pulled": 40,
+     "failures": 1
+    }
+   ]
+  },
+  "expect": {
+   "node": "node-a",
+   "version": "0.8.1",
+   "messages": 120,
+   "acks": 300,
+   "sessions": 9,
+   "quarantined": 0,
+   "retracted": 2,
+   "log": {
+    "node-a": 517,
+    "build": 40
+   },
+   "peers": 1,
+   "peer_ok": [
+    true
+   ]
+  }
+ },
+ {
+  "name": "a-0.6-node-has-no-retracted",
+  "why": "absent means 0, and an unknown key is ignored",
+  "json": {
+   "node": "node-b",
+   "version": "0.6.0",
+   "now": "2026-10-14T09:00:00Z",
+   "log": {},
+   "messages": 0,
+   "acks": 0,
+   "sessions": 0,
+   "quarantined": 3,
+   "peers": [],
+   "future_field": "x"
+  },
+  "expect": {
+   "node": "node-b",
+   "version": "0.6.0",
+   "messages": 0,
+   "acks": 0,
+   "sessions": 0,
+   "quarantined": 3,
+   "retracted": 0,
+   "log": {},
+   "peers": 0,
+   "peer_ok": []
+  }
+ },
+ {
+  "name": "a-peer-that-failed",
+  "why": "error is present only when the last pull failed",
+  "json": {
+   "node": "n",
+   "version": "0.8.1",
+   "now": "2026-10-14T09:00:00Z",
+   "log": {},
+   "messages": 0,
+   "acks": 0,
+   "sessions": 0,
+   "quarantined": 0,
+   "peers": [
+    {
+     "url": "http://x",
+     "ok": false,
+     "error": "timeout",
+     "lag": 5,
+     "skew_ms": 0,
+     "version": "",
+     "pulled": 0,
+     "failures": 9
+    }
+   ]
+  },
+  "expect": {
+   "node": "n",
+   "version": "0.8.1",
+   "messages": 0,
+   "acks": 0,
+   "sessions": 0,
+   "quarantined": 0,
+   "retracted": 0,
+   "log": {},
+   "peers": 1,
+   "peer_ok": [
+    false
+   ]
+  }
+ }
+ ],
+ "acks": [
+ {
+  "id": "3f2a9c01de",
+  "class": "receipt"
+ },
+ {
+  "id": "retract:3f2a9c01de",
+  "class": "retract",
+  "target": "3f2a9c01de"
+ },
+ {
+  "id": "retract-leak:3f2a9c01de",
+  "class": "retract",
+  "target": "3f2a9c01de",
+  "leak": true
+ },
+ {
+  "id": "retract:retract:3f2a9c01de",
+  "class": "claimed-not-valid",
+  "why": "a retraction is not retractable; ignore it, it is no read receipt"
+ },
+ {
+  "id": "retract:short",
+  "class": "claimed-not-valid",
+  "why": "the prefix is taken, the id is not a message id"
+ },
+ {
+  "id": "Retract:3f2a9c01de",
+  "class": "receipt",
+  "why": "the prefix is exact"
+ },
+ {
+  "id": "quarantined",
+  "class": "receipt",
+  "why": "with by aivoicebus/quarantine it is a placeholder for a record that failed the replication check: ignore it"
+ }
+ ]
+}
