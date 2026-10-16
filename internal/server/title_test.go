@@ -16,9 +16,9 @@ func TestANodeCleansTitlesNamesTheSenderAndNeverStoresACredentialInOne(t *testin
 	srv := httptest.NewServer(NewHandler(s, tokA))
 	defer srv.Close()
 
-	code, body := call(t, srv, tokA, "POST", "/v1/send", `{"from":"h/claude.a1b2","to":"all","body":"hi","from_title":"Fix the\nlogin‮"}`)
+	code, body := call(t, srv, tokA, "POST", "/v1/send", `{"from":"h/claude.a1b2","to":"all","body":"hi","from_title":"Fix the\nlogin`+"\u202e"+`","from_model":"Claude-Opus-5-5"}`)
 	var m msg.Message
-	if code != 200 || json.Unmarshal([]byte(body), &m) != nil || m.FromTitle != "Fix the login" {
+	if code != 200 || json.Unmarshal([]byte(body), &m) != nil || m.FromTitle != "Fix the login" || m.FromModel != "claude-opus-5-5" {
 		t.Fatalf("%d %s", code, body)
 	}
 	// the sender is in the roster under that name, though it never read

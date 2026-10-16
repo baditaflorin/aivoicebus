@@ -238,8 +238,8 @@ func TestAnAbbreviatedReIsRefusedForUrgentAndAttachmentsButResolvedFirstOtherwis
 }
 
 func TestPlanViewAndSentViewShowAPeersIdentityWithoutRawControls(t *testing.T) {
-	b, _ := json.Marshal(planView(outbox.Plan{Msg: msg.Message{From: "a/b", To: "x\u0085/c‮d"}}))
-	if strings.Contains(string(b), "\u0085") || strings.Contains(string(b), "‮") || strings.Contains(string(b), `\u0085`) || strings.Contains(string(b), `‮`) {
+	b, _ := json.Marshal(planView(outbox.Plan{Msg: msg.Message{From: "a/b", To: "x\u0085/c\u202ed"}}))
+	if strings.Contains(string(b), "\u0085") || strings.Contains(string(b), "\u202e") || strings.Contains(string(b), `\u0085`) || strings.Contains(string(b), ``+"\u202e"+``) {
 		t.Errorf("%s", b)
 	}
 }

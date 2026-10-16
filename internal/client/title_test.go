@@ -16,7 +16,8 @@ func TestTheClientDeclaresTheSessionsTitleAndSendsASnapshot(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(config.TitleEnv, "")
 	config.SaveTitle("h/claude.a1b2", "Fix the\nlogin")
-	var inboxTitle, sentTitle string
+	config.SaveModel("h/claude.a1b2", "Claude-Opus-5-5")
+	var inboxTitle, sentTitle, sentModel string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/inbox":
@@ -26,7 +27,7 @@ func TestTheClientDeclaresTheSessionsTitleAndSendsASnapshot(t *testing.T) {
 			b, _ := io.ReadAll(r.Body)
 			var m msg.Message
 			json.Unmarshal(b, &m)
-			sentTitle = m.FromTitle
+			sentTitle, sentModel = m.FromTitle, m.FromModel
 			w.Write(b)
 		}
 	}))
@@ -38,8 +39,8 @@ func TestTheClientDeclaresTheSessionsTitleAndSendsASnapshot(t *testing.T) {
 	if _, err := c.Send(msg.Message{From: "h/claude.a1b2", To: "all", Body: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	if inboxTitle != "Fix the login" || sentTitle != "Fix the login" {
-		t.Errorf("inbox %q, send %q", inboxTitle, sentTitle)
+	if inboxTitle != "Fix the login" || sentTitle != "Fix the login" || sentModel != "claude-opus-5-5" {
+		t.Errorf("inbox %q, send %q, model %q", inboxTitle, sentTitle, sentModel)
 	}
 	// another session on the machine has its own (none here), and AIVOICEBUS_TITLE=off sends none
 	sentTitle = "unset"

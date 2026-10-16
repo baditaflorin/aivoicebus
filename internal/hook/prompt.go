@@ -79,6 +79,7 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline time.Du
 	c.Timeout = deadline - 150*time.Millisecond
 	c.HedgeDelay = 120 * time.Millisecond
 	c.Warn = io.Discard
+	sessionModel(in, me, 256<<10)
 	c.Labels = identity.Labels(in.CWD)
 	c.Title = sessionTitle(in, me, 256<<10)
 	note.ask(c)

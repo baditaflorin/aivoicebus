@@ -449,6 +449,9 @@ func (c *Client) Send(m msg.Message) (msg.Message, error) {
 	if m.FromTitle == "" {
 		m.FromTitle = c.titleFor(m.From) // the sender's session name now, kept with the message
 	}
+	if m.FromModel == "" {
+		m.FromModel = msg.CleanModel(config.Model(m.From)) // and the model it runs
+	}
 	var out msg.Message
 	err := c.quorum("/v1/send", m, &out)
 	return out, err

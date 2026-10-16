@@ -18,36 +18,44 @@ const TitleEnv = "AIVOICEBUS_TITLE"
 // and nothing reads one after the session has gone.
 const titleKeep = 30 * 24 * time.Hour
 
-func titleDir() string {
-	d := Dir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "titles")
-}
+// ModelEnv sets a session's model by hand, for tools whose model the hook cannot read; "off" (or
+// "none") declares none.
+const ModelEnv = "AIVOICEBUS_MODEL"
 
-// titleFile names the cache file of one identity: a hash, so an identity can never name a path.
-func titleFile(me string) string {
-	d := titleDir()
+// sessionFile names the cache file of one identity in the cache kind ("titles", "models"): a hash,
+// so an identity can never name a path.
+func sessionFile(kind, me string) string {
+	d := Dir()
 	if d == "" || me == "" {
 		return ""
 	}
 	h := sha256.Sum256([]byte(me))
-	return filepath.Join(d, hex.EncodeToString(h[:12]))
+	return filepath.Join(d, kind, hex.EncodeToString(h[:12]))
 }
+
+func titleFile(me string) string { return sessionFile("titles", me) }
 
 // Title is the title to declare for the session me: AIVOICEBUS_TITLE when it is set ("off" and
 // "none" give ""), else the one the session-start hook last saved for me, else "". The text is the
 // caller's to clean (msg.CleanTitle); config knows nothing of the wire.
-func Title(me string) string {
-	if v := strings.TrimSpace(os.Getenv(TitleEnv)); v != "" {
+func Title(me string) string { return sessionValue(TitleEnv, "titles", me) }
+
+// Model is Title for the model the session runs: AIVOICEBUS_MODEL, else what a hook saved for me.
+// The caller cleans it (msg.CleanModel).
+func Model(me string) string { return sessionValue(ModelEnv, "models", me) }
+
+// SaveModel is SaveTitle for the model.
+func SaveModel(me, model string) { saveSessionValue(ModelEnv, "models", me, model) }
+
+func sessionValue(env, kind, me string) string {
+	if v := strings.TrimSpace(os.Getenv(env)); v != "" {
 		switch strings.ToLower(v) {
 		case "off", "none":
 			return ""
 		}
 		return v
 	}
-	p := titleFile(me)
+	p := sessionFile(kind, me)
 	if p == "" {
 		return ""
 	}
@@ -63,8 +71,10 @@ func Title(me string) string {
 // SaveTitle records title as the current title of the session me, privately (a directory only the
 // user can read, files mode 0600), replacing the last one, and forgets the titles of sessions not
 // seen for a month. An empty title removes the file. Best effort: a title is a convenience.
-func SaveTitle(me, title string) {
-	p := titleFile(me)
+func SaveTitle(me, title string) { saveSessionValue(TitleEnv, "titles", me, title) }
+
+func saveSessionValue(env, kind, me, title string) {
+	p := sessionFile(kind, me)
 	if p == "" {
 		return
 	}
@@ -72,7 +82,7 @@ func SaveTitle(me, title string) {
 		_ = os.Remove(p)
 		return
 	}
-	if cur := Title(me); cur == title && os.Getenv(TitleEnv) == "" {
+	if cur := sessionValue(env, kind, me); cur == title && os.Getenv(env) == "" {
 		return // unchanged: the hook runs on every prompt, and a rewrite is a disk write for nothing
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {

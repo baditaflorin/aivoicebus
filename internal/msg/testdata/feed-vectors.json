@@ -56,7 +56,7 @@
  },
  {
   "name": "every-optional-field",
-  "why": "what a dashboard may see on a message: re, prio, exp, kind, reach, from_title (the sender's session title when it sent it)",
+  "why": "what a dashboard may see on a message: re, prio, exp, kind, reach, from_title and from_model (the sender's session title and model when it sent it)",
   "record": {
    "origin": "node-a",
    "seq": 2,
@@ -72,6 +72,7 @@
     "kind": "question",
     "reach": 3,
     "from_title": "Fix the hub login",
+    "from_model": "claude-opus-5-5",
     "exp": "2026-10-15T09:00:00Z"
    }
   },

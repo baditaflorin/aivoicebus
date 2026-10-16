@@ -63,6 +63,8 @@ characters and differ from the shared token.
 - `ack.via` is `hook` (shown at session start), `hook-count` (an fyi, only counted),
   `inbox`, `cli`, or absent for acks from older clients. `ack.chars` is how many
   characters the delivery put into the reader's context (0 when unknown).
+- `msg.from_model` is the model the sender's session ran when it sent the message (a lowercase id
+  such as `claude-opus-5-5`, absent when not known); a roster entry's `labels.model` is its latest.
 - `msg.from_title` is the sender's session title when it sent the message (absent when it had none),
   and `/v1/roster` entries carry `title`, the session's latest. Both are self-declared text of at
   most 80 characters (320 bytes on the wire); clean them again and show them quoted, as untrusted

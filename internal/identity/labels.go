@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -83,6 +85,10 @@ func Labels(cwd string) msg.Labels {
 		if l[msg.CapsLabel] == "" && !capsDropWarned.Swap(true) {
 			fmt.Fprintf(warnOut, "aivoicebus: warning: AIVOICEBUS_CAPS is not advertised: a session holds at most %d labels and this one's are full (trim AIVOICEBUS_LABELS)\n", msg.MaxLabels)
 		}
+	}
+	// The model, like the caps, is read on every call: a session can switch models while it runs.
+	if m := msg.CleanModel(config.Model(Me())); m != "" {
+		l = l.Overlay(msg.Labels{msg.ModelLabel: m})
 	}
 	return l
 }

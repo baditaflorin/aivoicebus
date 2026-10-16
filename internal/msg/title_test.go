@@ -12,7 +12,7 @@ func TestCleanTitle(t *testing.T) {
 		"Fix the hub login redirect":     "Fix the hub login redirect",
 		"  spaced   out\ttitle\n":        "spaced out title",
 		"line one\nline two":             "line one line two",
-		"zero​width‮override":            "zerowidthoverride", // invisible and bidi characters are dropped, not turned into spaces
+		"zero​width\u202eoverride":       "zerowidthoverride", // invisible and bidi characters are dropped, not turned into spaces
 		"esc\x1b[31mred\x1b[0m":          "esc [31mred [0m",   // controls become spaces; the rest is inert text
 		"ㅤ⠀":                             "",                  // only blank letters: nothing readable
 		"":                               "",

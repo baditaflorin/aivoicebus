@@ -15,7 +15,7 @@ func TestTitleIsQuotedCleanedAndCut(t *testing.T) {
 		"Fix the login":          `"Fix the login"`,
 		`say "hi" now`:           `"say 'hi' now"`,
 		"two\nlines":             `"two lines"`,
-		"a‮b":                    `"ab"`,
+		"a\u202eb":               `"ab"`,
 		strings.Repeat("w", 200): `"` + strings.Repeat("w", TitleRunes) + `…"`,
 	} {
 		if got := Title(in); got != want {
@@ -52,7 +52,7 @@ func TestAHostileTitleCannotBreakOutOfItsHeaderLine(t *testing.T) {
 }
 
 func TestSanitisedJSONViewsCleanTheTitleToo(t *testing.T) {
-	m := SanitiseMessage(msg.Message{FromTitle: "a‮b\nc"})
+	m := SanitiseMessage(msg.Message{FromTitle: "a\u202eb\nc"})
 	if m.FromTitle != "ab c" {
 		t.Errorf("%q", m.FromTitle)
 	}

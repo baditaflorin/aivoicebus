@@ -716,7 +716,7 @@ func (s *Store) tombstoneLocked(m msg.Message) msg.Message {
 // and the other fields are as the sender wrote them.
 func tombstone(m msg.Message, r retraction) msg.Message {
 	m.Body = msg.TombstoneBody(r.by, r.at, r.leak)
-	m.FromTitle = "" // a withdrawn message keeps no words of its sender's session
+	m.FromTitle, m.FromModel = "", "" // a withdrawn message keeps nothing of its sender's session
 	m.Retracted = &msg.Retraction{By: r.by, At: r.at, Leak: r.leak}
 	return m
 }
@@ -728,7 +728,7 @@ const ForgedBody = "[forged system message removed]"
 // forgedView is the copy of a forged message listed by --all and threads.
 func forgedView(m msg.Message) msg.Message {
 	m.Body = ForgedBody
-	m.FromTitle = ""
+	m.FromTitle, m.FromModel = "", ""
 	return m
 }
 

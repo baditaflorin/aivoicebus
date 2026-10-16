@@ -5,13 +5,13 @@
 "use strict";
 
 /**
- * @typedef {{me: string, title?: string, tool: string, machine: string, repo?: string, branch?: string,
+ * @typedef {{me: string, title?: string, tool: string, model?: string, machine: string, repo?: string, branch?: string,
  *   last_seen: string, sent: number, received: number, threads: number, hidden?: string}} Session
  * @typedef {{me: string, title?: string}} Participant
  * @typedef {{thread: string, subject?: string, participants: Participant[], audience?: string[],
  *   messages: number, first: string, last: string, last_from: string, withdrawn?: number,
  *   threads?: string[], hidden?: boolean}} Conversation
- * @typedef {{id: string, from: string, from_title?: string, to: string, re?: string, body: string,
+ * @typedef {{id: string, from: string, from_title?: string, from_model?: string, to: string, re?: string, body: string,
  *   at: string, prio?: string, kind?: string, retracted?: object, read_by: number, recipients: string[]}} ThreadMessage
  * @typedef {{title: string, rev: number, demo: boolean, sessions: number, messages: number,
  *   last_pull: string|null, error: string}} Status
@@ -95,6 +95,7 @@ function card(s) {
   b.appendChild(el("div", "ident", s.me));
   const chips = el("div", "chips");
   if (s.tool) chips.appendChild(el("span", "chip", s.tool));
+  if (s.model) chips.appendChild(el("span", "chip model", s.model));
   if (s.machine) chips.appendChild(el("span", "chip", s.machine));
   if (s.repo) chips.appendChild(el("span", "chip repo", s.branch ? s.repo + " @ " + s.branch : s.repo));
   b.appendChild(chips);
@@ -142,6 +143,7 @@ function message(m) {
   if (m.from_title) head.appendChild(el("span", "ident", m.from));
   head.appendChild(el("span", "", "→ " + (m.recipients && m.recipients.length ? m.recipients.join(", ") : m.to)));
   head.appendChild(el("span", "", clock(m.at)));
+  if (m.from_model) head.appendChild(el("span", "tag model", m.from_model));
   if (m.retracted) head.appendChild(el("span", "tag withdrawn", "withdrawn"));
   if (m.kind) head.appendChild(el("span", "tag", m.kind));
   if (m.prio && m.prio !== "ask") head.appendChild(el("span", "tag", m.prio));

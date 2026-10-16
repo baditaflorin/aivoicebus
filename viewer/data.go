@@ -15,6 +15,7 @@ type Session struct {
 	Me       string    `json:"me"`
 	Title    string    `json:"title,omitempty"`
 	Tool     string    `json:"tool"`
+	Model    string    `json:"model,omitempty"` // the model it runs, as it declared it (its model label, else its latest message)
 	Machine  string    `json:"machine"`
 	Repo     string    `json:"repo,omitempty"`
 	Branch   string    `json:"branch,omitempty"`
@@ -22,6 +23,9 @@ type Session struct {
 	Sent     int       `json:"sent"`
 	Received int       `json:"received"` // messages addressed to exactly this session
 	Threads  int       `json:"threads"`  // conversations it took part in
+
+	modelAt        time.Time // when the message the model came from was sent
+	modelFromLabel bool      // the roster's label decides; messages only fill in
 	// Hidden says why the page leaves the card out by default: "automation" (a probe, a check or a
 	// test identity, see Automated) or "no messages" (it was only ever seen, never wrote or was written
 	// to by name). Empty: shown. The page has a toggle; nothing is dropped from the data.
@@ -134,6 +138,9 @@ func Sessions(roster []msg.RosterEntry, ms []msg.Message) []Session {
 			s.Machine = clean(v, maxLabel)
 		}
 		s.Repo, s.Branch = clean(e.Labels["repo"], maxLabel), clean(e.Labels["branch"], maxLabel)
+		if m := msg.CleanModel(e.Labels[msg.ModelLabel]); m != "" {
+			s.Model, s.modelFromLabel = m, true
+		}
 	}
 	threads := map[string]map[string]bool{}
 	note := func(me, thread string) {
@@ -150,6 +157,9 @@ func Sessions(roster []msg.RosterEntry, ms []msg.Message) []Session {
 		s.Sent++
 		if m.At.After(s.LastSeen) {
 			s.LastSeen = m.At
+		}
+		if mm := msg.CleanModel(m.FromModel); mm != "" && !m.At.Before(s.modelAt) && !s.modelFromLabel {
+			s.Model, s.modelAt = mm, m.At // the roster does not say: the latest message does
 		}
 		if s.Title == "" {
 			if t := msg.CleanTitle(m.FromTitle); t != "" {

@@ -164,10 +164,13 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	// The session's labels (repo, branch, tool, machine) are derived once, from
 	// the directory the tool works in, and exported like the identity, so later
 	// commands in the session declare the same labels wherever they run.
+	sessionModel(in, me, 4<<20) // saved first, so the labels below carry the model the transcript names now
 	labels := identity.Labels(in.CWD)
 	delete(labels, msg.CapsLabel) // capabilities are not pinned: they follow AIVOICEBUS_CAPS as it changes
-	if os.Getenv("AIVOICEBUS_LABELS") == "" && len(labels) > 0 {
-		exportToSession("export AIVOICEBUS_LABELS='" + labels.String() + "'")
+	exported := labels.Overlay(nil)
+	delete(exported, msg.ModelLabel) // nor the model: a session can switch models while it runs
+	if os.Getenv("AIVOICEBUS_LABELS") == "" && len(exported) > 0 {
+		exportToSession("export AIVOICEBUS_LABELS='" + exported.String() + "'")
 	}
 
 	c, err := client.FromEnv()

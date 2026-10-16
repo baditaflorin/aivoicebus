@@ -41,6 +41,7 @@ h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .06e
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
 .chip.repo { font-family: var(--mono); }
+.chip.model, .tag.model { font-family: var(--mono); background: var(--accent-soft); }
 .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .convs, .thread { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .conv { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; width: 100%; text-align: left; background: var(--surface); color: inherit; font: inherit; }

@@ -26,12 +26,12 @@ var t0 = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 
 func TestSessionCardsComeFromTheRosterAndTheMessages(t *testing.T) {
 	roster := []msg.RosterEntry{
-		{Me: "laptop-a/claude.a1b2", Seen: t0, Title: "Fix the login", Labels: msg.Labels{"tool": "claude", "machine": "laptop-a-m1-mbp", "repo": "dash", "branch": "fix/login"}},
+		{Me: "laptop-a/claude.a1b2", Seen: t0, Title: "Fix the login", Labels: msg.Labels{"tool": "claude", "machine": "laptop-a-m1-mbp", "repo": "dash", "branch": "fix/login", "model": "claude-opus-5-5"}},
 		{Me: "build/codex.q1w2", Seen: t0.Add(-time.Hour)},
 	}
 	ms := []msg.Message{
 		{ID: "a000000001", Thread: "a000000001", From: "laptop-a/claude.a1b2", To: "build/codex.q1w2", At: t0.Add(-time.Minute), Body: "q"},
-		{ID: "a000000002", Thread: "a000000001", From: "build/codex.q1w2", FromTitle: "Review the parser", To: "laptop-a/claude.a1b2", At: t0.Add(-30 * time.Second), Body: "a"},
+		{ID: "a000000002", Thread: "a000000001", From: "build/codex.q1w2", FromTitle: "Review the parser", FromModel: "gpt-5.1-codex", To: "laptop-a/claude.a1b2", At: t0.Add(-30 * time.Second), Body: "a"},
 		{ID: "a000000003", Thread: "a000000003", From: "gone/gemini.z7y6", FromTitle: "Old work", To: "all", At: t0.Add(-48 * time.Hour), Body: "hi"},
 	}
 	cards := Sessions(roster, ms)
@@ -45,6 +45,9 @@ func TestSessionCardsComeFromTheRosterAndTheMessages(t *testing.T) {
 	a := by["laptop-a/claude.a1b2"]
 	if a.Title != "Fix the login" || a.Tool != "claude" || a.Machine != "laptop-a-m1-mbp" || a.Repo != "dash" || a.Branch != "fix/login" || a.Sent != 1 || a.Received != 1 || a.Threads != 1 {
 		t.Errorf("%+v", a)
+	}
+	if a.Model != "claude-opus-5-5" || by["build/codex.q1w2"].Model != "gpt-5.1-codex" {
+		t.Errorf("models from the label, else the latest message: %q %q", a.Model, by["build/codex.q1w2"].Model)
 	}
 	if b := by["build/codex.q1w2"]; b.Title != "Review the parser" || b.Tool != "codex" || b.Machine != "build" || !b.LastSeen.Equal(t0.Add(-30*time.Second)) {
 		t.Errorf("the roster forgot its title and saw it earlier than its last message: %+v", b)

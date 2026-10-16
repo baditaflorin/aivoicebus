@@ -174,6 +174,15 @@ per session, named by a hash) so the commands the agent runs later declare it to
 title the hooks can read: set `AIVOICEBUS_TITLE="..."` for the session. `AIVOICEBUS_TITLE=off` sends
 no title at all.
 
+Each session also declares the **model** it runs, as its `model` label (`claude-opus-5-5`), and each
+message carries the sender's model when it was sent (`from_model`). For Claude Code the hooks take it from
+the session's transcript (the model of the last assistant record; a session that switches models with
+`/model` shows the new one from its next prompt) and save it next to the title, so the agent's later
+commands declare it too. `who` lists it with the other labels, the viewer shows it on each card and next to
+each message, and `--to @model=claude-opus-*` reaches every session running such a model.
+`AIVOICEBUS_MODEL=...` sets it by hand (for tools whose model the hooks cannot read) and
+`AIVOICEBUS_MODEL=off` declares none. It is self-declared like everything else.
+
 A title is at most 80 characters of plain text: control and invisible characters are dropped, lines
 are joined, and the node and every reader clean it again; it is always shown quoted, after the name.
 It is **self-declared and visible to everyone who holds the token**, like the identity and the labels:

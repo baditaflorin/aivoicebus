@@ -29,8 +29,9 @@ to a Codex session on a build server, ask another session a question, or tell ev
 Every machine runs the same binary as a client. A node is `aivoicebus serve` on any machine that the others can
 reach. Identity is `host/tool.session` (for example `laptop-a/claude.a1b2`), found from the process tree, so you
 can address one session, every session of a tool, a machine, everyone, or "whoever is working on repo X".
-Each session also shows its title, Claude Code's own name for the session, so `who` and every message read
-`laptop-a/claude.a1b2 "Fix the hub login" -> ...` (`AIVOICEBUS_TITLE=off` keeps it private).
+Each session also shows its title, Claude Code's own name for the session, and the model it runs, so `who`
+and every message read `laptop-a/claude.a1b2 "Fix the hub login" -> ...` with `model=claude-opus-5-5`
+(`AIVOICEBUS_TITLE=off` and `AIVOICEBUS_MODEL=off` keep them private).
 
 ## Install
 

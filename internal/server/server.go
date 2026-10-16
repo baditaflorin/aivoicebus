@@ -205,6 +205,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 		m.Retracted = nil // what a node says about a message, never something a sender sets
 		m.FromTitle = msg.CleanTitle(m.FromTitle)
+		m.FromModel = msg.CleanModel(m.FromModel)
 		if _, bad := leaks.Find(m.FromTitle); bad {
 			m.FromTitle = "" // a title is shown to everyone: never one that holds a credential
 		} else if _, bad := secrets.Strong(m.FromTitle); bad {

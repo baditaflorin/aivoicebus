@@ -57,6 +57,9 @@ type Message struct {
 	// the session then), so an old conversation keeps its names after the roster has forgotten the
 	// session. Self-declared and cleaned by CleanTitle; empty when the session had none or opted out.
 	FromTitle string `json:"from_title,omitempty"`
+	// FromModel is the model the sender's session ran when it sent the message (CleanModel), so an
+	// old conversation still says which model wrote what. Self-declared; empty when not known.
+	FromModel string `json:"from_model,omitempty"`
 
 	// Retracted is set by a node on a copy of a message its sender withdrew (see retract.go),
 	// whose Body is then a tombstone. Response only: it is never stored or replicated, and a

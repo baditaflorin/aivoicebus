@@ -59,6 +59,8 @@ func (m *Message) validateReplicated() error {
 		return errors.New("body is too long")
 	case len(m.FromTitle) > replMaxTitle || !utf8.ValidString(m.FromTitle):
 		return errors.New("from_title is too long or not text")
+	case len(m.FromModel) > replMaxModel || !utf8.ValidString(m.FromModel):
+		return errors.New("from_model is too long or not text")
 	}
 	switch m.Prio {
 	case "", PrioFYI, PrioAsk, PrioUrgent:

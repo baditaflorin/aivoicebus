@@ -284,6 +284,7 @@ func SanitiseMessage(m msg.Message) msg.Message {
 	m.From, m.To, m.Thread, m.Re = Sanitise(m.From), Sanitise(m.To), Sanitise(m.Thread), Sanitise(m.Re)
 	m.Body, m.Prio, m.Kind = Sanitise(m.Body), Sanitise(m.Prio), Sanitise(m.Kind)
 	m.FromTitle = msg.CleanTitle(Sanitise(m.FromTitle))
+	m.FromModel = msg.CleanModel(m.FromModel)
 	return m
 }
 

@@ -55,7 +55,7 @@ func TestTheTitleSurvivesARestartAndTravelsByGossip(t *testing.T) {
 		t.Errorf("by gossip: %q", got)
 	}
 	// a peer's word is cleaned again
-	peer.MergePresence([]msg.RosterEntry{{Me: "h/x", Seen: time.Now(), Title: "evil‮\nname"}})
+	peer.MergePresence([]msg.RosterEntry{{Me: "h/x", Seen: time.Now(), Title: "evil\u202e\nname"}})
 	if got := rosterTitle(peer, "h/x"); got != "evil name" {
 		t.Errorf("%q", got)
 	}
@@ -69,7 +69,7 @@ func TestTheTitleSurvivesARestartAndTravelsByGossip(t *testing.T) {
 
 func TestAMessageKeepsItsTitleAndAWithdrawnOneLosesIt(t *testing.T) {
 	s, _ := Open(t.TempDir(), "n1")
-	m, err := s.Send(msg.Message{From: "h/claude.a1b2", FromTitle: "Fix the login", To: "r/codex.q1w2", Body: "hello"})
+	m, err := s.Send(msg.Message{From: "h/claude.a1b2", FromTitle: "Fix the login", FromModel: "claude-opus-5-5", To: "r/codex.q1w2", Body: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +81,8 @@ func TestAMessageKeepsItsTitleAndAWithdrawnOneLosesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, x := range s.Thread(m.ID) {
-		if x.ID == m.ID && x.FromTitle != "" {
-			t.Errorf("a tombstone keeps the sender's title: %q", x.FromTitle)
+		if x.ID == m.ID && (x.FromTitle != "" || x.FromModel != "") {
+			t.Errorf("a tombstone keeps the sender's title or model: %q %q", x.FromTitle, x.FromModel)
 		}
 	}
 }
