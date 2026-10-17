@@ -51,6 +51,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"status", "did it get through: who read a message and when, who took a task, how many replies"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
+	{"tokens", "what aivoicebus cost on this machine: context it put into each session (estimated) and the worker's runs (reported tokens)"},
 	{"pause", "the kill switch: workers stop and take no task, schedules hold, sessions are told to stop (all, or a machine; --for 1h)"},
 	{"resume", "lift the pauses this machine sent (a person at a terminal)"},
 	{"cancel", "take back a task you sent: a worker running it stops the run (and everything it started) within seconds"},

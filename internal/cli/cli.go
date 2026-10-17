@@ -12,6 +12,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
@@ -82,6 +83,7 @@ func init() {
 		"approve":     approveCmd,
 		"cancel":      cancelCmd,
 		"pause":       pauseCmd,
+		"tokens":      tokensCmd,
 		"resume":      resumeCmd,
 		"approver":    approverCmd,
 		"deny":        denyCmd,
@@ -110,7 +112,15 @@ func Run(args []string, s Streams) int {
 		fmt.Fprintln(s.Err, "error:", fmt.Errorf("unknown command %q", args[0]))
 		return 1
 	}
+	var counted *countingWriter
+	if agentReads[args[0]] && os.Getenv("AIVOICEBUS_AGENT") != "" { // an agent session ran it: its output is context
+		counted = &countingWriter{w: s.Out}
+		s.Out = counted
+	}
 	err := cmd(args[1:], s)
+	if counted != nil {
+		config.NoteUsage(identity.Me(), "cli:"+args[0], counted.n)
+	}
 	code := exitCode(err)
 	var ee exitError
 	switch {
@@ -123,6 +133,20 @@ func Run(args []string, s Streams) int {
 		fmt.Fprintln(s.Err, "error:", view.Sanitise(err.Error()))
 	}
 	return code
+}
+
+// agentReads are the commands whose output an agent reads into its context.
+var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true}
+
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
 }
 
 // parseFlags parses args into fs; flag errors are printed by the flag package

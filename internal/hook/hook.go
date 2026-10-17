@@ -62,6 +62,13 @@ func Run(args []string, stdin io.Reader, out io.Writer) {
 	if _, err := os.Stat(OptOutFile); err == nil {
 		return
 	}
+	cw := &countWriter{w: out}
+	out = cw
+	event := "hook:start"
+	if hookEvent(args) == "prompt" {
+		event = "hook:prompt"
+	}
+	defer func() { config.NoteUsage(identity.Me(), event, cw.n) }() // what this run put into the session's context
 	if tool := toolArg(args); tool == "gemini" || tool == "codex" {
 		// Gemini CLI reads a hook's stdout as JSON only: text goes into the conversation as
 		// hookSpecificOutput.additionalContext (anything else would be shown as a system message).
@@ -362,6 +369,18 @@ var trustedKeys = release.TrustedKeys
 // written its output and with a short timeout, so it costs a session start at most
 // a fraction of a second, once a day.
 func refreshNodes() { discovery.RefreshIfDue(trustedKeys(), time.Now(), discovery.StartBudget) }
+
+// countWriter counts what passes through it.
+type countWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
+}
 
 // jsonWriter turns each Write into one toolJSON object. A hook run writes its output in one call,
 // and only then acknowledges what it showed, so the wrapping must happen in that call, not later.

@@ -368,6 +368,15 @@ says. `watch --once` looks once (exit 1 when a task is stuck), and the worker ru
 with `--watch 15m` (`worker install --agent codex --watch 15m`), so a machine that runs a worker
 needs nothing else.
 
+**What it costs.** `aivoicebus tokens [--since 24h] [--json]` says what aivoicebus cost on this
+machine: per session, the context it put in (the hooks' output, MCP tool results, and the read
+commands an agent ran: `inbox`, `wait`, `thread` and the like), as characters and an estimate of
+about 4 characters a token; and the worker's runs, with the tokens (and cost) the agents reported.
+The counts come from `~/.config/aivoicebus/usage.jsonl` (mode 0600, rotated at 2 MiB; counts only,
+never the text; `AIVOICEBUS_USAGE=off` keeps none) and `worker.log`. (It found the MCP `who` putting
+20 000 characters into a session for one call: it now lists the 25 sessions seen most recently with
+their repo, branch, model and rooms; `labels: true` shows every label.)
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
