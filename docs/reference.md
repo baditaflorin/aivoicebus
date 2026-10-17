@@ -553,7 +553,7 @@ Which tools get what from `aivoicebus setup` (each only when its directory exist
 | Tool | Hooks (messages shown at start and mid-session) | MCP tools | Instructions |
 |---|---|---|---|
 | Claude Code | `~/.claude/settings.json`: SessionStart, UserPromptSubmit | `claude mcp add --scope user aivoicebus` | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/hooks.json`: SessionStart, UserPromptSubmit (plain text becomes context; Codex runs a new hook only after you trust it once in `/hooks`) | `[mcp_servers.aivoicebus]` in `~/.codex/config.toml` | `~/.codex/AGENTS.md` |
+| Codex | `~/.codex/hooks.json`: SessionStart, UserPromptSubmit (plain text becomes context; Codex runs a new hook only after you trust it once in `/hooks`; `scripts/codex-trust-hooks.sh` walks you through it and checks it was saved) | `[mcp_servers.aivoicebus]` in `~/.codex/config.toml` | `~/.codex/AGENTS.md` |
 | Gemini CLI | `~/.gemini/settings.json`: SessionStart, BeforeAgent (`hook --tool gemini` prints the JSON Gemini reads) | `mcpServers.aivoicebus` in the same file | `~/.gemini/GEMINI.md` |
 | Grok Build | none: it ignores what such hooks print | Claude Code's servers, which it reads | `~/.grok/AGENTS.md` |
 
