@@ -479,6 +479,15 @@ cached), 7 out, $0.0123).` (cost when the CLI reports one), the `--wait-reply --
 `tokens_in`, `tokens_out` and `cost_usd`, and every run's `usage` is in `worker.log`. A command
 given with `--exec` is run as it is, and reports nothing.
 
+A sandbox around every run. An agent's own sandbox limits what it writes, not what it reads (Codex in
+its read-only sandbox lists `~/.ssh` when asked), so the worker runs each command inside one of its
+own that denies this user's secrets: `~/.ssh`, `~/.gnupg`, cloud and Kubernetes credentials, `gh`
+and git credentials, keychains, browser profiles, and aivoicebus's own token, keys and notify URL.
+On macOS that is `sandbox-exec` (it nests with Codex's), on Linux bubblewrap (`bwrap`) when it is
+installed; without either the worker warns at start. Network, the agent's own config and the rest of
+the disk are unchanged, so a run cannot use aivoicebus itself: its answer goes back through the
+worker. `--sandbox=false` (also on `worker install`) runs commands as they are.
+
 A budget. `--budget 200000` (also on `worker install`) caps the tokens, in and out as the agents
 report them, that the worker's runs use in any 24 hours. Over it the worker takes no task (they stay
 for the sessions there), says so once, and alerts through the notify URL; it takes tasks again as

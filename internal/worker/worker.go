@@ -51,6 +51,9 @@ type Worker struct {
 	// Write, when set, lets the agent change files: each task runs in a new git worktree of
 	// Write.Repo on its own branch, only after Write.Approver approved it (see write.go).
 	Write *WriteMode
+	// Sandbox runs each command without access to this user's secrets (SecretPaths), when the
+	// system has a way to (Sandboxed).
+	Sandbox bool
 	// Budget is how many tokens (in and out, as the agents report them) the worker's runs may use
 	// in any 24 hours: over it, it takes no task until older runs fall out of the window. 0 is none.
 	Budget int
@@ -298,7 +301,12 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	if w.Format != FormatText {
 		limits.MaxOutput = max(limits.MaxOutput, 4<<20) // JSON events are bulky: keep them whole to read; the answer is cut below
 	}
-	r := Exec(taskCtx, w.Argv, m.Body, env, limits)
+	argv := w.Argv
+	if w.Sandbox {
+		home, _ := os.UserHomeDir()
+		argv, _, _ = Sandboxed(argv, home)
+	}
+	r := Exec(taskCtx, argv, m.Body, env, limits)
 	if w.Format != FormatText {
 		r.Stdout, r.Usage = ParseOutput(w.Format, r.Stdout)
 		if len(r.Stdout) > w.Limits.MaxOutput {
