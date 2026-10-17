@@ -62,6 +62,7 @@ func workerCmd(args []string, s Streams) error {
 	every := fs.Duration("every", 15*time.Second, "how often the queue is read")
 	allowUnsigned := fs.Bool("allow-unsigned", false, "also take tasks that carry no signature (senders on clients older than 0.7.0); a bad signature or a changed key is never taken")
 	settle := fs.Duration("settle", 2*time.Second, "after claiming, how long to wait for a claim made elsewhere at the same moment")
+	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -152,6 +153,20 @@ func workerCmd(args []string, s Streams) error {
 		return err
 	}
 	w.Replaced = binaryReplaced()
+	if *watch > 0 {
+		wc, err := client.FromEnv() // the machine's own sends, not the worker's identity
+		if err != nil {
+			return err
+		}
+		var last time.Time
+		w.Tick = func() {
+			if time.Since(last) < time.Minute {
+				return
+			}
+			last = time.Now()
+			_, _ = watchOnce(wc, *watch, s.Out)
+		}
+	}
 	err = w.Loop(ctx, *every)
 	if errors.Is(err, worker.ErrReplaced) {
 		fmt.Fprintln(s.Err, "aivoicebus worker: "+err.Error()+" (a service does this by itself)")

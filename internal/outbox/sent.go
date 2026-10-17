@@ -165,3 +165,18 @@ func SentBy(who string) map[string]bool {
 	}
 	return ids
 }
+
+// SentRef is one message this machine sent lately, as sent.json remembers it.
+type SentRef struct {
+	ID, From, To string
+	At           time.Time
+}
+
+// SentFrom lists what the machine host sent lately (the last few, at most a day old), oldest first.
+func SentFrom(host string) []SentRef {
+	var out []SentRef
+	for _, e := range readSent(clock())[host] {
+		out = append(out, SentRef{ID: e.ID, From: e.From, To: e.To, At: e.At})
+	}
+	return out
+}

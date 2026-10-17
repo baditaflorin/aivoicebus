@@ -144,6 +144,7 @@ func workerInstall(args []string, s Streams) error {
 	timeout := fs.Duration("timeout", 10*time.Minute, "kill a run after this long")
 	maxAge := fs.Duration("max-age", time.Hour, "leave alone a task older than this")
 	allowUnsigned := fs.Bool("allow-unsigned", false, "also take unsigned tasks (senders older than 0.7.0)")
+	watchFor := fs.Duration("watch", 0, "also alert when a task this machine sent waits untaken this long (see `aivoicebus watch`)")
 	dry := fs.Bool("dry-run", false, "print the service file and change nothing")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -198,6 +199,9 @@ func workerInstall(args []string, s Streams) error {
 	}
 	if *allowUnsigned {
 		argv = append(argv, "--allow-unsigned")
+	}
+	if *watchFor > 0 {
+		argv = append(argv, "--watch", watchFor.String())
 	}
 	urls := strings.Join(config.URLs(), ",")
 	if urls == "" {

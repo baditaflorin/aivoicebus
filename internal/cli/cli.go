@@ -77,6 +77,7 @@ func init() {
 		"worker":    workerCmd,
 
 		"trust-codex": trustCodexCmd,
+		"watch":       watchCmd,
 	}
 }
 

@@ -305,6 +305,17 @@ the text, and sends any after it as part of the text.
 side's last word (one line each), and whether the thread is open or ended, instead of every
 message: what a session woken on a long conversation needs first.
 
+**Hear about a stuck task without asking.** `aivoicebus watch --after 15m` looks every minute at
+the tasks this machine sent lately (the last ten, at most a day old) and, once per task, says so
+when one has waited that long with nobody claiming or answering it (a withdrawn or expired one does
+not count). Give it somewhere to say it: `aivoicebus watch notify set https://ntfy.sh/YOUR-TOPIC`
+keeps the URL in `~/.config/aivoicebus/notify-url` (mode 0600, never printed: such URLs are often
+secrets), and every alert is POSTed there as plain text, the way ntfy and most webhook relays take
+it; `watch notify test` sends one. An alert names the task, its target and its age, never what it
+says. `watch --once` looks once (exit 1 when a task is stuck), and the worker runs the same check
+with `--watch 15m` (`worker install --agent codex --watch 15m`), so a machine that runs a worker
+needs nothing else.
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
