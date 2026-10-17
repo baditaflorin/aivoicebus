@@ -538,6 +538,62 @@ func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	return ms, err
 }
 
+// InboxWait is Inbox held open by the node until something arrives that it had not got at gen,
+// for at most wait (msg.FeatureInboxWait). With hasGen false it answers at once, and either way it
+// returns the node's change counter for the next call. It asks the nodes in order and returns the
+// first answer; any failure is returned as is, and the caller can fall back to Inbox.
+func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bool, wait time.Duration) ([]msg.Message, uint64, error) {
+	q := "/v1/inbox?me=" + url.QueryEscape(me)
+	if l := c.Labels.String(); l != "" {
+		q += "&" + msg.ParamLabels + "=" + url.QueryEscape(l)
+	}
+	if t := c.titleFor(me); t != "" {
+		q += "&" + msg.ParamTitle + "=" + url.QueryEscape(t)
+	}
+	if hasGen && wait >= time.Second {
+		q += fmt.Sprintf("&wait=%d&gen=%d", int(wait/time.Second), gen)
+	}
+	var last error = ErrNoURL
+	for _, base := range c.URLs {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+q, nil)
+		if err != nil {
+			return nil, 0, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+		resp, err := (&http.Client{Timeout: wait + 15*time.Second}).Do(req)
+		if err != nil {
+			last = err
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		resp.Body.Close()
+		if err != nil {
+			last = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, 0, fmt.Errorf("%s answered %s", base, resp.Status)
+		}
+		var ms []msg.Message
+		if err := json.Unmarshal(body, &ms); err != nil {
+			return nil, 0, fmt.Errorf("%s: %v", base, err)
+		}
+		g, err := strconv.ParseUint(resp.Header.Get(msg.HeaderGen), 10, 64)
+		if err != nil {
+			return nil, 0, fmt.Errorf("%s does not hold reads open (no %s)", base, msg.HeaderGen)
+		}
+		return ms, g, nil
+	}
+	return nil, 0, last
+}
+
+// Receipts asks the nodes whether message id got through (see msg.Receipts).
+func (c *Client) Receipts(id string) (msg.Receipts, error) {
+	var r msg.Receipts
+	err := c.do(c.URLs, "GET", "/v1/receipts?id="+url.QueryEscape(id), nil, &r)
+	return r, err
+}
+
 // titleFor is the cleaned title this client declares for the session me: the one set on the client,
 // else the session's own (AIVOICEBUS_TITLE, or what the session-start hook saved). "" declares none.
 func (c *Client) titleFor(me string) string {

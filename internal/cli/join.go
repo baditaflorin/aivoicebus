@@ -36,13 +36,13 @@ func join(args []string, s Streams) error {
 	urls := fs.String("url", "", "node URLs (comma-separated); default: the ones already configured here")
 	tools := fs.String("tools", "", "tools to configure: claude,codex,gemini (default: all that are installed)")
 	replace := fs.Bool("replace-token", false, "ask for the token again even if one is saved (when the mesh refuses it)")
-	trust := fs.Bool("trust-url", false, "allow node URLs this machine has no signed node list for; you will be asked to type each host to confirm")
+	trust := fs.Bool("trust-url", false, "allow node URLs this machine has no signed node list for; you will be asked to type each host:port to confirm")
 	dry := fs.Bool("dry-run", false, "show what would be done; write and send nothing")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return errors.New("usage: aivoicebus join [--url URLS] [--trust-url] [--tools LIST] [--replace-token] [--dry-run]  (the token is asked for, or piped in: pbpaste | aivoicebus join --trust-url --url ...; a node this machine has no signed list for is confirmed by typing its host at a terminal)")
+		return errors.New("usage: aivoicebus join [--url URLS] [--trust-url] [--tools LIST] [--replace-token] [--dry-run]  (the token is asked for, or piped in: pbpaste | aivoicebus join --trust-url --url ...; a node this machine has no signed list for is confirmed by typing its host:port at a terminal)")
 	}
 	line := func(status, name, detail string) { fmt.Fprintf(s.Out, "%-12s %-22s %s\n", status, name, detail) }
 	fail := func(stage string, err error) error {
@@ -74,7 +74,7 @@ func join(args []string, s Streams) error {
 		line("would ask", "nodes", "you to type "+strings.Join(confirm, ", ")+" to confirm the token may be sent there")
 	default:
 		for _, h := range confirm {
-			ok, err := confirmHost(fmt.Sprintf("The mesh token will be sent to %s. Type that host name to confirm: ", h), h)
+			ok, err := confirmHost(fmt.Sprintf("The mesh token will be sent to %s. Type it exactly as shown (host:port) to confirm: ", h), h)
 			if err != nil {
 				return fail("nodes", err)
 			}
@@ -242,7 +242,7 @@ func needConfirmation(urls, old []string, trust bool, w io.Writer) ([]string, er
 		}
 	}
 	if len(untrusted) > 0 && !trust {
-		return nil, fmt.Errorf("%s is not in this machine's signed node list, and the token must not go to an address nobody vouched for; if it really is your node, repeat with --trust-url (you will be asked to type the host)", strings.Join(untrusted, ", "))
+		return nil, fmt.Errorf("%s is not in this machine's signed node list, and the token must not go to an address nobody vouched for; if it really is your node, repeat with --trust-url (you will be asked to type its host:port)", strings.Join(untrusted, ", "))
 	}
 	if len(fresh) > 0 {
 		fmt.Fprintf(w, "warning: this machine is configured for %s; join would send the token to %s instead\n", strings.Join(old, ","), strings.Join(urls, ","))

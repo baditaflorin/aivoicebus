@@ -90,7 +90,16 @@ func (v *Viewer) Handler(o HTTPOptions) http.Handler {
 		var out []ThreadMessage
 		for _, t := range threads {
 			for _, m := range view.SanitiseMessages(v.st.Thread(t)) {
-				out = append(out, ThreadMessage{Message: m, ReadBy: v.st.Readers(m.ID)})
+				tm := ThreadMessage{Message: m, ReadBy: v.st.Readers(m.ID)}
+				if rc, ok := v.st.Receipts(m.ID); ok {
+					for _, r := range rc.Reads {
+						tm.Readers = append(tm.Readers, view.Name(r.By, maxName))
+					}
+					if rc.Owner != nil {
+						tm.TakenBy = view.Name(rc.Owner.By, maxName)
+					}
+				}
+				out = append(out, tm)
 			}
 		}
 		writeJSON(w, Collapse(out))

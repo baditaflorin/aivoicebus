@@ -314,6 +314,7 @@ Read this only when you need to message another agent.
 
 # setup and doctor, in a scratch HOME
 $ aivoicebus setup --dry-run --url http://127.0.0.1:<PORT>
+would change install                copy of <BIN> -> <TMP>/home/.local/bin/aivoicebus
 would change env                    <TMP>/home/.config/aivoicebus/env
 would change shell                  <TMP>/home/.zshrc
 skipped      token                  no token file (AIVOICEBUS_TOKEN in the environment still works)
@@ -324,6 +325,7 @@ skipped      gemini instructions    no ~/.gemini (tool not installed); setup add
 would change state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
 [exit 0]
 $ aivoicebus setup --yes --url http://127.0.0.1:<PORT>
+changed      install                copy of <BIN> -> <TMP>/home/.local/bin/aivoicebus
 changed      env                    <TMP>/home/.config/aivoicebus/env
 changed      shell                  <TMP>/home/.zshrc
 skipped      token                  no token file (AIVOICEBUS_TOKEN in the environment still works)
@@ -335,7 +337,7 @@ changed      state                  release <VER>, hook dd5d1a1e, snippet 145e2e
 [exit 0]
 $ aivoicebus doctor --offline
 ok    binary                 aivoicebus <VER> (commit <C>, <PLATFORM>)
-FAIL  install                no binary at <TMP>/home/.local/bin/aivoicebus (the hook runs it from there)
+WARN  install                running <BIN>; the installed copy is <TMP>/home/.local/bin/aivoicebus
 ok    identity               air/codex  (AIVOICEBUS_ME is set; it overrides the whole identity)
 ok    env                    <TMP>/home/.config/aivoicebus/env
 ok    shell                  <TMP>/home/.zshrc
@@ -344,7 +346,7 @@ ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
 ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
-[exit 1]
+[exit 0]
 $ aivoicebus doctor --offline
 ok    binary                 aivoicebus <VER> (commit <C>, <PLATFORM>)
 WARN  install                running <BIN>; the installed copy is <TMP>/home/.local/bin/aivoicebus
@@ -358,6 +360,7 @@ ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
 [exit 0]
 $ aivoicebus setup
+ok           install                <TMP>/home/.local/bin/aivoicebus
 ok           env                    <TMP>/home/.config/aivoicebus/env
 ok           shell                  <TMP>/home/.zshrc
 ok           token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
@@ -379,7 +382,7 @@ ok    hook runs              last run ok
 ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
-ok    node features          smoke: files,quarantine,retract,retract-dry-run,tasks
+ok    node features          smoke: files,inbox-wait,quarantine,receipts,retract,retract-dry-run,tasks
 [exit 0]
 $ aivoicebus uninstall --dry-run
 would change claude hook            <TMP>/home/.claude/settings.json

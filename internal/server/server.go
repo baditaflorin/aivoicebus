@@ -279,7 +279,29 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		if who.Host != "" { // the machine a token is bound to is not for the client to declare
 			labels["machine"] = hostOf(me)
 		}
-		inbox := s.InboxFor(me, r.URL.Query().Get("all") == "1", labels)
+		all := r.URL.Query().Get("all") == "1"
+		// A long poll (wait=S&gen=G, see msg.FeatureInboxWait): when nothing has changed on this node
+		// since the reader's last look (gen), hold the read until something does, at most S seconds.
+		// The session counts as listening meanwhile, so `who` and `ping` can say so.
+		if wait, err := strconv.Atoi(r.URL.Query().Get("wait")); err == nil && wait > 0 && !all {
+			d := min(time.Duration(wait)*time.Second, msg.MaxInboxWait)
+			g, changed := s.Gen()
+			if seen, err := strconv.ParseUint(r.URL.Query().Get("gen"), 10, 64); err == nil && seen == g {
+				s.InboxFor(me, false, labels) // registers the session before it is marked listening
+				s.NoteWaiting(me, time.Now().Add(d))
+				t := time.NewTimer(d)
+				select {
+				case <-changed:
+				case <-t.C:
+				case <-r.Context().Done():
+				}
+				t.Stop()
+				s.NoteWaiting(me, time.Time{})
+			}
+		}
+		g, _ := s.Gen() // before the read: something arriving in between is then both in it and newer
+		inbox := s.InboxFor(me, all, labels)
+		w.Header().Set(msg.HeaderGen, strconv.FormatUint(g, 10))
 		if t := msg.CleanTitle(r.URL.Query().Get(msg.ParamTitle)); t != "" {
 			if _, bad := secrets.Strong(t); !bad {
 				s.NoteTitle(me, t) // after the read, which keeps the last title when none is declared
@@ -344,6 +366,19 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	// Who and the roster are display views: join probes are left out unless ?all=1 asks for every
 	// identity (the sender's own safety checks, which count recipients, must not miss a session that
 	// merely named itself like a probe), and gossip (?since) always carries everything.
+	mux.HandleFunc("/v1/receipts", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
+		id := r.URL.Query().Get("id")
+		if !msg.ValidRef(id) {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		rc, ok := s.Receipts(id)
+		if !ok {
+			http.Error(w, "message not found on this node", http.StatusNotFound)
+			return
+		}
+		js(w, rc)
+	}))
 	mux.HandleFunc("/v1/who", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		out := s.Who()
 		if r.URL.Query().Get("all") != "1" {

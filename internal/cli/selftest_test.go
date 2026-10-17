@@ -291,7 +291,7 @@ func TestMeshAndDoctorShowAdvertisedFeatures(t *testing.T) {
 	a := meshNode(t, "node-a", "0.9.0", 0, server.NewPeerBoard(nil))
 	pointAt(t, a)
 	code, out, e := run(t, "", "mesh")
-	if code != 0 || !strings.Contains(out, "FEATURES") || !strings.Contains(out, "quarantine,retract,retract-dry-run") {
+	if code != 0 || !strings.Contains(out, "FEATURES") || !strings.Contains(out, "quarantine,receipts,retract,retract-dry-run") || !strings.Contains(out, "inbox-wait") {
 		t.Fatalf("%d\n%s%s", code, out, e)
 	}
 	_, out, _ = run(t, "", "doctor")

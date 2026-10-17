@@ -127,8 +127,10 @@ Read this only when you need to message another agent.
   answer in that thread, and prints it. Answer with `aivoicebus reply --re <id> --wait-reply 10m
   "..."` and so on; `aivoicebus reply --re <id> --end "..."` (`--kind end`) closes the conversation and stops the
   other side's wait. `aivoicebus wait [--thread T] [--from WHO] [--for 10m]` waits for anything
-  (exit 6 when nothing came). `aivoicebus ping <machine>` says who is there and when each session
-  was last seen.
+  (exit 6 when nothing came). `aivoicebus ping <machine>` says who is there, when each session
+  was last seen, and which ones are listening right now (in a wait: they read a message within a
+  second). `aivoicebus status <id>` says whether a message got through: who read it and when, who
+  took a task, how many replies it has.
 - Read: `aivoicebus inbox` (`--ack` marks read, `--all` includes read and expired ones,
   marked). `aivoicebus who` lists the agents seen in the last 24h (`--within 3d`, or
   `--all` for everyone ever seen). Never poll in a loop (`--watch`) from an agent

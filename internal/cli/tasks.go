@@ -198,7 +198,11 @@ func pingCmd(args []string, s Streams) error {
 			continue
 		}
 		n++
-		fmt.Fprintf(s.Out, "%-40s seen %s ago%s\n", view.Name(e.Me, msg.MaxIdentity), now.Sub(e.Seen).Round(time.Second), view.TitleSuffix(e.Title))
+		state := "seen " + now.Sub(e.Seen).Round(time.Second).String() + " ago"
+		if e.Listening {
+			state = "listening now (in a wait: a message reaches it within a second)"
+		}
+		fmt.Fprintf(s.Out, "%-40s %s%s\n", view.Name(e.Me, msg.MaxIdentity), state, view.TitleSuffix(e.Title))
 	}
 	if n == 0 {
 		fmt.Fprintf(s.Out, "nobody at %s was seen in the last %s; a task waits for the next session there: aivoicebus task %s \"...\"\n", view.Name(target, msg.MaxIdentity), within.String(), view.Name(target, msg.MaxIdentity))

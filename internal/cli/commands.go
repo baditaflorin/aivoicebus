@@ -525,17 +525,20 @@ func who(args []string, s Streams) error {
 	cutoff := time.Now().Add(-span)
 	hidden, shown := 0, 0
 	rows := []msg.RosterEntry{} // what --json prints and --tools groups
-	show := func(me string, seen time.Time, labels msg.Labels, title string) {
+	show := func(me string, seen time.Time, labels msg.Labels, title string, listening bool) {
 		if !*all && seen.Before(cutoff) {
 			hidden++
 			return
 		}
 		shown++
 		if *asJSON || *tools {
-			rows = append(rows, msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title})
+			rows = append(rows, msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening})
 			return
 		}
 		line := fmt.Sprintf("%-32s last seen %s", view.Name(me, 64), seen.Local().Format("01-02 15:04"))
+		if listening {
+			line += "  [listening now]"
+		}
 		if t := view.Title(title); t != "" {
 			line += "  " + t
 		}
@@ -550,7 +553,7 @@ func who(args []string, s Streams) error {
 	case err == nil:
 		for _, e := range roster {
 			if sel == nil || sel.Match(e.Labels) {
-				show(e.Me, e.Seen, e.Labels, e.Title)
+				show(e.Me, e.Seen, e.Labels, e.Title, e.Listening)
 			}
 		}
 	case client.IsNotFound(err):
@@ -563,7 +566,7 @@ func who(args []string, s Streams) error {
 			return err
 		}
 		for _, k := range slices.Sorted(maps.Keys(w)) {
-			show(k, w[k], nil, "")
+			show(k, w[k], nil, "", false)
 		}
 	default:
 		return err

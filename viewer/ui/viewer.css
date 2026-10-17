@@ -63,6 +63,9 @@ h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .06e
 .msg-head .ident { margin: 0; }
 .tag { font-size: 11px; border-radius: 4px; padding: 0 5px; background: var(--chip); color: var(--text); }
 .tag.withdrawn { color: var(--withdrawn); }
+.tag.open { outline: 1px dashed currentColor; }
+.tag.taken { font-weight: 600; }
+.readers { text-decoration: underline dotted; cursor: help; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; font-family: var(--sans); }
 .msg.withdrawn .body { color: var(--muted); font-style: italic; }
 .empty { color: var(--muted); padding: 10px 2px; }

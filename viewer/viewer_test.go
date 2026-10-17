@@ -281,3 +281,35 @@ func TestTheDemoBoardHasSessionsConversationsAndAWithdrawnMessage(t *testing.T) 
 		t.Errorf("%d sessions, %d conversations, %d withdrawn: %+v", len(sessions), len(convs), withdrawn, sessions)
 	}
 }
+
+// A task's thread says who took it, and every message says who read it.
+func TestTheThreadViewSaysWhoTookATaskAndWhoReadIt(t *testing.T) {
+	v, err := Open(Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Demo(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	hs := httptest.NewServer(v.Handler(HTTPOptions{Key: key}))
+	defer hs.Close()
+	var convs []Conversation
+	getJSON(t, hs, "/api/conversations", &convs)
+	found := false
+	for _, c := range convs {
+		var thread []ThreadMessage
+		getJSON(t, hs, "/api/thread?id="+c.Thread, &thread)
+		for _, m := range thread {
+			if m.Kind != msg.KindTask {
+				continue
+			}
+			found = true
+			if m.TakenBy != "build-1/codex.q1w2" || m.ReadBy != 1 || len(m.Readers) != 1 || m.Readers[0] != "build-1/codex.q1w2" {
+				t.Errorf("task in the thread view: %+v", m)
+			}
+		}
+	}
+	if !found {
+		t.Error("the demo board has no task")
+	}
+}

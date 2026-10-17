@@ -91,6 +91,10 @@ const fanoutWindow = 2 * time.Minute
 type ThreadMessage struct {
 	msg.Message
 	ReadBy int `json:"read_by"`
+	// Readers are the sessions that read it (its sender excluded), earliest first.
+	Readers []string `json:"readers,omitempty"`
+	// TakenBy is, for a task, the session that took it ("" while nobody has).
+	TakenBy string `json:"taken_by,omitempty"`
 	// Recipients are the sessions this text went to: one, or all the copies of a fan-out.
 	Recipients []string `json:"recipients"`
 }
@@ -331,6 +335,7 @@ func Collapse(ms []ThreadMessage) []ThreadMessage {
 				if o.Re == "" && o.Retracted == nil && o.From == m.From && o.Body == m.Body && m.At.Sub(o.At) <= fanoutWindow {
 					o.Recipients = append(o.Recipients, m.To)
 					o.ReadBy += m.ReadBy
+					o.Readers = append(o.Readers, m.Readers...)
 					joined = true
 					break
 				}

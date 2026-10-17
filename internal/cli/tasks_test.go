@@ -158,3 +158,54 @@ func TestFlagsAfterTheTextAreFlags(t *testing.T) {
 		t.Errorf("text on both sides: %d %q", code, e)
 	}
 }
+
+func TestStatusSaysWhoReadItAndWhoTookIt(t *testing.T) {
+	mesh(t)
+	present(t, sa)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	_, out, _ := run(t, "", "task", "lap", "check the disk")
+	id, _ := sentID(t, out)
+	if _, st, _ := run(t, "", "status", id); !strings.Contains(st, "not read yet") || !strings.Contains(st, "not taken yet") {
+		t.Fatalf("status before anyone read it:\n%s", st)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	run(t, "", "claim", id, "--settle", "0s")
+	run(t, "", "reply", "--re", id, "disk is fine")
+	t.Setenv("AIVOICEBUS_ME", boss)
+	_, st, _ := run(t, "", "status", id)
+	if !strings.Contains(st, "read by 1") || !strings.Contains(st, sb) || !strings.Contains(st, "taken by "+sb) || !strings.Contains(st, "repl") {
+		t.Fatalf("status after the claim:\n%s", st)
+	}
+	if code, _, _ := run(t, "", "status", "0000000000"); code != exitNotFound {
+		t.Errorf("unknown id: %d", code)
+	}
+}
+
+// A wait on a node that holds reads open answers within a second of the message arriving.
+func TestWaitIsAnsweredAsSoonAsTheMessageArrives(t *testing.T) {
+	mesh(t)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	c, err := client.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender, err := client.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(time.Second)
+		sender.Send(msg.Message{From: sb, To: boss, Body: "here", Thread: "t-fast-1"})
+	}()
+	start := time.Now()
+	got, err := waitFor(c, boss, tasks.Filter{Thread: "t-fast-1"}, 20*time.Second, 10*time.Second)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("wait: %v %v", got, err)
+	}
+	// It would take up to 10s (the polling interval given) without the held read.
+	if took := time.Since(start); took > 4*time.Second {
+		t.Errorf("the wait took %s: the node did not hold the read open", took)
+	}
+}

@@ -68,7 +68,10 @@ func setup(args []string, s Streams) error {
 			return err
 		}
 	}
-	steps, err := agentcfg.Setup(agentcfg.Options{URL: *url, Tools: list, DryRun: *dry})
+	// The hooks run ~/.local/bin/aivoicebus, so put this binary there when nothing usable is (as
+	// join and doctor --fix do); an installed one is left alone: updating it is `update`'s job.
+	exe, exeErr := executable()
+	steps, err := agentcfg.Setup(agentcfg.Options{URL: *url, Tools: list, DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr})
 	if *asJSON {
 		if err != nil {
 			return err // a failure is the error object on stderr and nothing on stdout
@@ -90,7 +93,8 @@ func confirmFirstSetup(s Streams, url string, tools []string, asJSON bool) error
 	if _, err := os.Stat(agentcfg.Paths{Home: home}.State()); err == nil {
 		return nil
 	}
-	plan, _ := agentcfg.Setup(agentcfg.Options{URL: url, Tools: tools, DryRun: true})
+	exe, exeErr := executable()
+	plan, _ := agentcfg.Setup(agentcfg.Options{URL: url, Tools: tools, DryRun: true, InstallExe: exe, InstallExeErr: exeErr})
 	if !anyChanged(plan) {
 		return nil
 	}

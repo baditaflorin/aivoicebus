@@ -119,6 +119,9 @@ type RosterEntry struct {
 	Labels Labels    `json:"labels,omitempty"`
 	// Title is what the session's tool last called it (see CleanTitle); empty when it declared none.
 	Title string `json:"title,omitempty"`
+	// Listening is set by the node a session is waiting on right now (in `aivoicebus wait` or
+	// --wait-reply): a message to it is read within a second. Not gossiped; MergeRosters ORs it.
+	Listening bool `json:"listening,omitempty"`
 }
 
 // MergeRosters combines the rosters several nodes reported into one: each session
@@ -145,6 +148,7 @@ func MergeRosters(lists ...[]RosterEntry) []RosterEntry {
 			if e.Title != "" && !e.Seen.Before(titleAt[e.Me]) {
 				cur.Title, titleAt[e.Me] = e.Title, e.Seen
 			}
+			cur.Listening = cur.Listening || e.Listening
 			byMe[e.Me] = cur
 		}
 	}

@@ -30,7 +30,13 @@ type Store struct {
 	log  map[string][]msg.Record    // origin -> records, index = seq-1
 	msgs []msg.Message              // all known messages in arrival order
 	acks map[string]map[string]bool // id -> by -> true
-	nAck int                        // how many (id, by) receipts acks holds
+	// ackAt is when each reader first acknowledged a message and how it was shown to them, for receipts.
+	ackAt map[string]map[string]msg.Receipt
+	// gen counts applied records; changed is closed and replaced at each one, so a reader waiting
+	// for news (a long-polled inbox) wakes as soon as anything arrives.
+	gen     uint64
+	changed chan struct{}
+	nAck    int // how many (id, by) receipts acks holds
 
 	// retr holds the retractions the log carries (see msg/retract.go): message id -> who claimed it
 	// -> the earliest time they did and whether any claim flagged a credential. Claims are kept
@@ -216,6 +222,9 @@ type seenInfo struct {
 	at     time.Time
 	labels msg.Labels
 	title  string // what the session's tool last called it (msg.CleanTitle); "" when it declared none
+	// waitingUntil is when the inbox read the session is waiting in (a long poll) ends: until then
+	// it is listening right now. Kept on this node only.
+	waitingUntil time.Time
 }
 
 // Option customises Open.
@@ -232,7 +241,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	}
 	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
-		acks: map[string]map[string]bool{}, retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
+		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
 		sends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit,
 		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit}
 	for _, o := range opts {
@@ -423,6 +432,9 @@ func (s *Store) applyLocked(r msg.Record) bool {
 		return false
 	}
 	s.log[r.Origin] = append(s.log[r.Origin], r)
+	s.gen++
+	close(s.changed)
+	s.changed = make(chan struct{})
 	if r.Msg != nil {
 		s.addMsgLocked(*r.Msg)
 	}
@@ -847,6 +859,17 @@ func (s *Store) addAck(a msg.Ack) {
 		s.nAck++
 	}
 	s.acks[a.ID][a.By] = true
+	if s.ackAt[a.ID] == nil {
+		s.ackAt[a.ID] = map[string]msg.Receipt{}
+	}
+	if cur, ok := s.ackAt[a.ID][a.By]; !ok || a.At.Before(cur.At) || (cur.Via == msg.ViaHookCount && a.Via != msg.ViaHookCount) {
+		// the earliest read, except that being read in full counts over being only counted
+		at := a.At
+		if ok && cur.Via != msg.ViaHookCount && cur.At.Before(at) {
+			at = cur.At
+		}
+		s.ackAt[a.ID][a.By] = msg.Receipt{By: a.By, At: at, Via: a.Via}
+	}
 	switch {
 	case a.Via == msg.ViaHookCount && first:
 		if s.countOnly[a.ID] == nil {
@@ -1102,7 +1125,7 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	s.seen[me] = seenInfo{at: now, labels: labels, title: s.seen[me].title} // a read that declares no title keeps the last one
+	s.seen[me] = seenInfo{at: now, labels: labels, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil} // a read that declares no title keeps the last one
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
@@ -1285,8 +1308,9 @@ func (s *Store) Roster() []msg.RosterEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	byMe := map[string]msg.RosterEntry{}
+	now := s.now()
 	for k, v := range s.seen {
-		byMe[k] = msg.RosterEntry{Me: k, Seen: v.at, Labels: v.labels, Title: v.title}
+		byMe[k] = msg.RosterEntry{Me: k, Seen: v.at, Labels: v.labels, Title: v.title, Listening: v.waitingUntil.After(now)}
 	}
 	for from, at := range s.lastSent {
 		e := byMe[from]
@@ -1432,7 +1456,7 @@ func (s *Store) MergePresence(entries []msg.RosterEntry) int {
 		cur, known := s.seen[e.Me]
 		switch {
 		case !known:
-			s.seen[e.Me] = seenInfo{at: at, labels: e.Labels, title: title}
+			s.seen[e.Me] = seenInfo{at: at, labels: e.Labels, title: title, waitingUntil: s.seen[e.Me].waitingUntil}
 		case at.After(cur.at):
 			labels := e.Labels
 			if len(labels) == 0 {
@@ -1441,7 +1465,7 @@ func (s *Store) MergePresence(entries []msg.RosterEntry) int {
 			if title == "" {
 				title = cur.title
 			}
-			s.seen[e.Me] = seenInfo{at: at, labels: labels, title: title}
+			s.seen[e.Me] = seenInfo{at: at, labels: labels, title: title, waitingUntil: s.seen[e.Me].waitingUntil}
 		case (len(cur.labels) == 0 && len(e.Labels) > 0) || (cur.title == "" && title != ""): // an older sighting that at least says what they work on, or what they call the session
 			if len(cur.labels) == 0 {
 				cur.labels = e.Labels

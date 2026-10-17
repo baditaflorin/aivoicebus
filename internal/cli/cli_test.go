@@ -162,9 +162,12 @@ func TestSetupAndDoctorThroughTheCLI(t *testing.T) {
 		t.Fatalf("env file: %q", b)
 	}
 
-	// no installed binary and no token yet: doctor must fail
+	// setup installed the binary the hooks run; there is no token yet: doctor must fail on that alone
+	if fi, err := os.Stat(filepath.Join(home, ".local/bin/aivoicebus")); err != nil || fi.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("setup did not install the binary: %v", err)
+	}
 	code, out, _ = run(t, "", "doctor", "--offline")
-	if code != 1 || !strings.Contains(out, "FAIL  install") || !strings.Contains(out, "FAIL  token") {
+	if code != 1 || strings.Contains(out, "FAIL  install") || !strings.Contains(out, "FAIL  token") {
 		t.Fatalf("doctor on an unfinished install: %d\n%s", code, out)
 	}
 	// provide them; doctor now passes (the test binary is not the installed one, which only warns)

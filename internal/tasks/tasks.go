@@ -153,10 +153,40 @@ var ErrTimeout = errors.New("nothing arrived")
 func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every time.Duration) ([]msg.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
+	deadline, _ := ctx.Deadline()
+	// A node that holds reads open (msg.FeatureInboxWait) answers as soon as something arrives;
+	// with an older one this asks every `every`.
+	held := false
+	if h, err := c.Health(); err == nil && h.Has(msg.FeatureInboxWait) {
+		held = true
+	}
+	var gen uint64
+	hasGen := false
 	for {
-		ms, err := c.Inbox(me, false)
-		if err != nil && !client.IsUnreachable(err) {
-			return nil, err
+		var ms []msg.Message
+		var err error
+		if held && hasGen && time.Until(deadline) < time.Second {
+			<-ctx.Done() // too little time left to hold a read open: just let it run out
+			return nil, ErrTimeout
+		}
+		asked := time.Now()
+		if held {
+			hold := min(time.Until(deadline), msg.MaxInboxWait)
+			var g uint64
+			ms, g, err = c.InboxWait(ctx, me, gen, hasGen, hold)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, ErrTimeout
+				}
+				held = false // fall back to asking every `every`
+				continue
+			}
+			gen, hasGen = g, true
+		} else {
+			ms, err = c.Inbox(me, false)
+			if err != nil && !client.IsUnreachable(err) {
+				return nil, err
+			}
 		}
 		var got []msg.Message
 		for _, m := range ms {
@@ -173,6 +203,22 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 		if len(got) > 0 {
 			sort.SliceStable(got, func(i, j int) bool { return got[i].At.Before(got[j].At) })
 			return got, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ErrTimeout
+		}
+		if held && hasGen {
+			// The next read is held open by the node. One that came back at once with nothing for us
+			// (news for someone else, or a node that did not hold it) waits out the second, so a node
+			// that answers at once can never make this ask in a tight loop.
+			if quick := time.Second - time.Since(asked); quick > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, ErrTimeout
+				case <-time.After(quick):
+				}
+			}
+			continue
 		}
 		select {
 		case <-ctx.Done():

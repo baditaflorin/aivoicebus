@@ -12,7 +12,8 @@
  *   messages: number, first: string, last: string, last_from: string, withdrawn?: number,
  *   threads?: string[], hidden?: boolean}} Conversation
  * @typedef {{id: string, from: string, from_title?: string, from_model?: string, to: string, re?: string, body: string,
- *   at: string, prio?: string, kind?: string, retracted?: object, read_by: number, recipients: string[]}} ThreadMessage
+ *   at: string, prio?: string, kind?: string, retracted?: object, read_by: number, readers?: string[],
+ *   taken_by?: string, recipients: string[]}} ThreadMessage
  * @typedef {{title: string, rev: number, demo: boolean, sessions: number, messages: number,
  *   last_pull: string|null, error: string}} Status
  */
@@ -147,7 +148,14 @@ function message(m) {
   if (m.retracted) head.appendChild(el("span", "tag withdrawn", "withdrawn"));
   if (m.kind) head.appendChild(el("span", "tag", m.kind));
   if (m.prio && m.prio !== "ask") head.appendChild(el("span", "tag", m.prio));
-  if (m.read_by > 0) head.appendChild(el("span", "", "read by " + m.read_by));
+  if (m.kind === "task" && !m.retracted) {
+    head.appendChild(m.taken_by ? el("span", "tag taken", "taken by " + m.taken_by) : el("span", "tag open", "open: nobody took it yet"));
+  }
+  if (m.read_by > 0) {
+    const r = el("span", "readers", "read by " + m.read_by);
+    if (m.readers && m.readers.length) r.title = m.readers.join(", ");
+    head.appendChild(r);
+  }
   li.appendChild(head);
   li.appendChild(el("p", "body", m.body));
   return li;

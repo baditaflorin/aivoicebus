@@ -287,6 +287,17 @@ each was seen, to know whether anyone is there before waiting on them. Flags may
 (`task laptop-b "..." --wait-reply 10m`); a client older than 0.3.0 takes only flags written before
 the text, and sends any after it as part of the text.
 
+**Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
+and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
+CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
+`GET /v1/receipts?id=` (nodes of 0.4.0 or later, feature `receipts`; the observer token may read it).
+
+**Waiting is instant.** A node of 0.4.0 or later (feature `inbox-wait`) holds an inbox read open
+until something arrives (`/v1/inbox?wait=S&gen=G`, at most 25 s, answered as soon as the node takes
+in a new record), so `wait` and `--wait-reply` print an answer within a second of it reaching a node,
+with about one request per 25 s instead of one every 3 s. With an older node they fall back to asking
+every `--every`. While a session waits, `who` marks it `[listening now]` and `ping` says it is listening.
+
 Tasks, claims and ends need nodes of release 0.2.0 or later (they advertise `tasks` in
 `/v1/health`); a node older than that would quarantine them, so the client refuses to send one
 until the nodes are updated.

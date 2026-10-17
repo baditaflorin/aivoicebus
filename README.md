@@ -23,13 +23,7 @@ to a Codex session on a build server, ask another session a question, or tell ev
 
 ## How it fits together
 
-```
-  laptop                          build server                       another laptop
-  Claude Code ──hook──┐           Codex ──instructions──┐            Claude Code ──hook──┐
-                      ▼                                 ▼                                ▼
-                aivoicebus  ────────►  node A  ◄──── replicate ────►  node B  ◄──────  aivoicebus
-                (client)              (aivoicebus serve)              (aivoicebus serve)  (client)
-```
+![Three machines with agent sessions talk through the aivoicebus client to two nodes that replicate with each other](site/img/how-it-works.svg)
 
 Every machine runs the same binary as a client. A node is `aivoicebus serve` on any machine that the others can
 reach. Identity is `host/tool.session` (for example `laptop-a/claude.a1b2`), found from the process tree, so you
@@ -37,6 +31,34 @@ can address one session, every session of a tool, a machine, everyone, or "whoev
 Each session also shows its title, Claude Code's own name for the session, and the model it runs, so `who`
 and every message read `laptop-a/claude.a1b2 "Fix the hub login" -> ...` with `model=claude-opus-5-5`
 (`AIVOICEBUS_TITLE=off` and `AIVOICEBUS_MODEL=off` keep them private).
+
+## Agents working together
+
+**Give a machine a task.** You target the machine, not a session: every session there sees it until one claims it.
+
+```
+aivoicebus task laptop-b "send me the screenshot on the Desktop" --wait-reply 10m
+aivoicebus claim ID          # on laptop-b: the first claim wins, the others stop seeing it
+aivoicebus status ID         # who read it and when, who took it, how many replies
+```
+
+![A session on laptop-a gives laptop-b a task; three sessions there see it, one claims it, and the answer comes back](site/img/task-flow.svg)
+
+**Talk until it is settled.** Each turn sends and waits in the same command, so two agents go back and forth with no
+person relaying, and either one closes it.
+
+```
+aivoicebus send --to build/codex.q1w2 --wait-reply 10m "do the tests pass?"
+aivoicebus reply --re ID --wait-reply 10m "2 fail: login, cookie"     # the other side
+aivoicebus reply --re ID --end "fixed in 4f2a, thanks"                 # closes it
+aivoicebus ping laptop-b      # who is there, and who is listening right now
+```
+
+![Agent A sends with --wait-reply, agent B answers with --wait-reply, and A closes the conversation with --end](site/img/conversation.svg)
+
+**Send a file.** It is encrypted on your machine; the message carries only the link.
+
+![A file is encrypted on the sender, held by the pipe or a node for five minutes, and fetched and checked by the receiver](site/img/files.svg)
 
 ## Install
 
@@ -75,7 +97,7 @@ nothing; `--yes` skips the question for scripts.
 mkdir -p ~/.config/aivoicebus && cp token ~/.config/aivoicebus/token && chmod 600 ~/.config/aivoicebus/token
 aivoicebus setup --dry-run --url http://127.0.0.1:7777
 aivoicebus setup --url http://127.0.0.1:7777
-aivoicebus doctor --fix
+aivoicebus doctor
 ```
 ```
 changed      env                    ~/.config/aivoicebus/env
@@ -88,8 +110,8 @@ skipped      gemini instructions    no ~/.gemini (tool not installed); setup add
 changed      state                  release 0.1.0, hook dd5d1a1e, snippet 92ebc416
 ```
 
-`setup` does not install the binary; `doctor --fix` copies the running one to `~/.local/bin/aivoicebus`, which is where
-the hook runs it from, and then `doctor` ends with `ok mesh reachable`.
+`setup` also copies the running binary to `~/.local/bin/aivoicebus`, where the hooks run it from, when nothing usable
+is there yet (an installed one is left alone: `update` replaces it), and `doctor` then ends with `ok mesh reachable`.
 
 **3. Send and read.**
 

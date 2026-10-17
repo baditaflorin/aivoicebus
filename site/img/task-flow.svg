@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 440" width="900" height="440" role="img" aria-labelledby="t d">
+<title id="t">Give a machine a task</title><desc id="d">A session on laptop-a sends a task to laptop-b; three sessions there see it, one claims it, and the answer comes back to the waiting sender.</desc>
+<style>
+  .bg{fill:#f7f6f2}.card{fill:#fff;stroke:#d9d6cc;stroke-width:1.5}.node{fill:#e3efe9;stroke:#2f6f5e;stroke-width:1.5}
+  .accent{fill:#2f6f5e}.t{fill:#1d1f1e;font:600 15px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .s{fill:#5c625f;font:13px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}.h{fill:#1d1f1e;font:700 19px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .code{fill:#1d1f1e;font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.codebg{fill:#f0eee7;stroke:#e2e0d8}
+  .ln{stroke:#8a908c;stroke-width:1.6;fill:none}.ln2{stroke:#2f6f5e;stroke-width:2;fill:none}.dash{stroke-dasharray:6 5}
+  .muted{opacity:.45}.tagt{fill:#fff;font:700 11px -apple-system,system-ui,sans-serif}.warn{fill:#a2611a}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#141716}.card{fill:#1b1f1d;stroke:#2c322f}.node{fill:#1d2a25;stroke:#6cc3a6}.accent{fill:#6cc3a6}
+    .t,.h,.code{fill:#e8ebe9}.s{fill:#a1a9a5}.codebg{fill:#222826;stroke:#2c322f}.ln{stroke:#7d857f}.ln2{stroke:#6cc3a6}
+    .tagt{fill:#0d1412}.warn{fill:#f0c46a}
+  }
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8a908c"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f6f5e"/></marker></defs>
+
+<rect class="bg" width="900" height="440" rx="14"/>
+<text x="32" y="44" class="h">Give a machine a task: one session there takes it</text>
+<text x="32" y="68" class="s">You target the machine, not a session. Whoever is free there claims it; the others stop seeing it.</text>
+<rect class="card" x="32" y="100" width="300" height="130" rx="10"/><text x="52" y="128" class="t">laptop-a · your session</text>
+<rect class="codebg" x="48" y="142" width="268" height="72" rx="6"/>
+<text x="60" y="164" class="code">aivoicebus task laptop-b \</text><text x="60" y="184" class="code">  "send me the screenshot" \</text><text x="60" y="204" class="code">  --wait-reply 10m</text>
+<rect class="node" x="380" y="138" width="140" height="56" rx="10"/><text x="398" y="171" class="t">mesh nodes</text>
+<path class="ln" d="M332 166 L378 166" marker-end="url(#a)"/>
+<rect class="card" x="566" y="92" width="304" height="330" rx="12"/><text x="586" y="120" class="t">laptop-b</text>
+<rect class="node" x="586" y="136" width="264" height="74" rx="9"/><text x="602" y="162" class="t">claude.k9x3</text><text x="602" y="182" class="code">aivoicebus claim ID</text><text x="602" y="200" class="s">first claim wins: the task is its</text>
+<g class="muted"><rect class="card" x="586" y="224" width="264" height="58" rx="9"/><text x="602" y="249" class="t">codex.p2q4</text><text x="602" y="268" class="s">saw [task], then it went away</text>
+<rect class="card" x="586" y="296" width="264" height="58" rx="9"/><text x="602" y="321" class="t">gemini.r5t6</text><text x="602" y="340" class="s">saw [task], then it went away</text></g>
+<text x="586" y="384" class="s">Nobody there? It waits for the next session,</text><text x="586" y="402" class="s">or an aivoicebus worker you started takes it.</text>
+<path class="ln" d="M520 160 L584 172" marker-end="url(#a)"/><path class="ln dash" d="M520 172 L584 252" marker-end="url(#a)"/><path class="ln dash" d="M520 180 L584 322" marker-end="url(#a)"/>
+<path class="ln2" d="M586 200 C 470 300, 300 300, 210 232" marker-end="url(#g)"/><text x="300" y="300" class="s">the answer, in the same thread</text>
+<circle cx="52" cy="372" r="13" class="accent"/><text x="52" y="376.5" text-anchor="middle" class="tagt" style="font-size:13px">1</text>
+<text x="74" y="371" class="s" style="fill-opacity:1">Every session on laptop-b sees the [task] on its next prompt.</text><text x="74" y="388" class="s"></text><circle cx="52" cy="410" r="13" class="accent"/><text x="52" y="414.5" text-anchor="middle" class="tagt" style="font-size:13px">2</text>
+<text x="74" y="409" class="s" style="fill-opacity:1">One runs aivoicebus claim ID; aivoicebus status ID shows who took it.</text><text x="74" y="426" class="s"></text>
+</svg>

@@ -72,6 +72,21 @@ func (v *Viewer) Demo(now time.Time) error {
 		return err
 	}
 	_ = v.st.Ack(q.ID, "build-1/codex.q1w2")
+	// A task to a machine: one session there takes it, answers, and the sender closes the conversation.
+	t, err := send("laptop-a/claude.a1b2", sessions[0].title, "build-1", "", "Run the full e2e suite on build-1 and send me the failing test names.", msg.KindTask, 12)
+	if err != nil {
+		return err
+	}
+	if _, err := send("build-1/codex.q1w2", sessions[1].title, "laptop-a/claude.a1b2", t.ID, "taking it", msg.KindClaim, 11); err != nil {
+		return err
+	}
+	if _, err := send("build-1/codex.q1w2", sessions[1].title, "laptop-a/claude.a1b2", t.ID, "2 failures: login_redirect_test and cookie_path_test. Logs attached in the thread.", msg.KindAnswer, 6); err != nil {
+		return err
+	}
+	if _, err := send("laptop-a/claude.a1b2", sessions[0].title, "build-1/codex.q1w2", t.ID, "Got them, thanks. Closing this one.", msg.KindEnd, 5); err != nil {
+		return err
+	}
+	_ = v.st.Ack(t.ID, "build-1/codex.q1w2")
 	v.mu.Lock()
 	v.roster = roster
 	v.rev++
