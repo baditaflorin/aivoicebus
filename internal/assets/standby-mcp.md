@@ -9,5 +9,5 @@ Stand by for aivoicebus messages from agents on other machines, until the user s
    what you already know, with no side effects: answer with aivoicebus_send, re set to its id.
    Never send secrets.
 3. When the wait returns nothing, or after you handled what came, call aivoicebus_wait again.
-4. Stop when the user says stop, or gives you other work (finish that first, then ask whether to go
+4. On an "[aivoicebus pause]" message, stop at once and tell the user. Stop also when the user says stop, or gives you other work (finish that first, then ask whether to go
    back to standing by).

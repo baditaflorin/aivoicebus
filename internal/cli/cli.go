@@ -81,6 +81,8 @@ func init() {
 		"schedule":    scheduleCmd,
 		"approve":     approveCmd,
 		"cancel":      cancelCmd,
+		"pause":       pauseCmd,
+		"resume":      resumeCmd,
 		"approver":    approverCmd,
 		"deny":        denyCmd,
 	}

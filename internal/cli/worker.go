@@ -219,7 +219,9 @@ func workerCmd(args []string, s Streams) error {
 				return
 			}
 			last = time.Now()
-			_, _ = runSchedules(wc, last, s.Out)
+			if _, paused := w.Paused(); !paused { // a pause holds schedules back too
+				_, _ = runSchedules(wc, last, s.Out)
+			}
 			if *watch > 0 {
 				_, _ = watchOnce(wc, *watch, s.Out)
 			}
@@ -289,8 +291,11 @@ func denyCmd(args []string, s Streams) error    { return answerApproval("deny", 
 
 // readPassphrase asks on the terminal with echo off (a variable so tests can answer it).
 var readPassphrase = func(prompt string) (string, error) {
-	line, err := readHidden(prompt, "(none: a passphrase is typed by a person)")
-	return strings.TrimRight(line, "\r\n"), err
+	line, err := readHidden(prompt, "-")
+	if err != nil {
+		return "", errors.New("no terminal here (this is typed by a person, at a terminal, never piped)")
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }
 
 func answerApproval(word string, args []string, s Streams) error {
