@@ -26,6 +26,9 @@ const (
 	exitTimeout     = 6 // `wait` (or --wait): nothing arrived in the time given
 )
 
+// exitReplaced is `worker`'s code when its binary was replaced: a service restarts it (EX_TEMPFAIL).
+const exitReplaced = 75
+
 // exitCode is the code for an error a command returned.
 func exitCode(err error) int {
 	var ee exitError
