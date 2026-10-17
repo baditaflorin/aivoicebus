@@ -134,7 +134,7 @@ hello there
 answer
 [exit 0]
 $ aivoicebus thread
-error: usage: thread <id> [--json]
+error: usage: thread <id> [--json | --digest]
 [exit 2]
 # acks, who, whole-host and whole-tool targets
 $ aivoicebus inbox --ack
