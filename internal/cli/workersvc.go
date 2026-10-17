@@ -148,6 +148,7 @@ func workerInstall(args []string, s Streams) error {
 	repo := fs.String("repo", "", "with --write: the git repository")
 	approver := fs.String("approver", "", "with --write: who approves each task")
 	approveWithin := fs.Duration("approve-within", 30*time.Minute, "with --write: how long to wait for the approval")
+	approverKey := fs.String("approver-key", "", "with --write: the approver key's public half (`aivoicebus approver show`)")
 	watchFor := fs.Duration("watch", 0, "also alert when a task this machine sent waits untaken this long (see `aivoicebus watch`)")
 	dry := fs.Bool("dry-run", false, "print the service file and change nothing")
 	if err := parseFlags(fs, args, s); err != nil {
@@ -208,14 +209,14 @@ func workerInstall(args []string, s Streams) error {
 		argv = append(argv, "--watch", watchFor.String())
 	}
 	if *write {
-		if *repo == "" || *approver == "" {
-			return outbox.Usagef("--write needs --repo PATH and --approver WHO")
+		if *repo == "" || *approver == "" || *approverKey == "" {
+			return outbox.Usagef("--write needs --repo PATH, --approver WHO and --approver-key KEY (`aivoicebus approver show` where the approver is)")
 		}
 		abs, err := filepath.Abs(*repo)
 		if err != nil {
 			return err
 		}
-		argv = append(argv, "--write", "--repo", abs, "--approver", *approver)
+		argv = append(argv, "--write", "--repo", abs, "--approver", *approver, "--approver-key", *approverKey)
 		if *approveWithin != 30*time.Minute {
 			argv = append(argv, "--approve-within", approveWithin.String())
 		}

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +21,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
 
@@ -69,6 +72,7 @@ func workerCmd(args []string, s Streams) error {
 	repo := fs.String("repo", "", "with --write: the git repository a task's worktree is made from (its HEAD)")
 	approver := fs.String("approver", "", "with --write: who approves each task with `aivoicebus approve ID` (a machine, machine/tool or one session; signed)")
 	approveWithin := fs.Duration("approve-within", 30*time.Minute, "with --write: how long to wait for the approval before answering that it did not run")
+	approverKey := fs.String("approver-key", "", "with --write: the approver key's public half (`aivoicebus approver show` where the approver is); only decisions signed with it count")
 	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -134,8 +138,12 @@ func workerCmd(args []string, s Streams) error {
 		MaxAge: *maxAge, Settle: *settle, DryRun: *dry, Out: s.Out, AllowUnsigned: *allowUnsigned,
 	}
 	if *write {
-		if *repo == "" || *approver == "" {
-			return outbox.Usagef("--write needs --repo PATH (a git repository) and --approver WHO: no task changes files without someone saying yes")
+		if *repo == "" || *approver == "" || *approverKey == "" {
+			return outbox.Usagef("--write needs --repo PATH (a git repository), --approver WHO and --approver-key KEY (`aivoicebus approver init` there, then `approver show`): no task changes files without a person saying yes")
+		}
+		ak, err := base64.StdEncoding.DecodeString(*approverKey)
+		if err != nil || len(ak) != ed25519.PublicKeySize {
+			return outbox.Usagef("--approver-key is the base64 public key `aivoicebus approver show` prints")
 		}
 		if err := worker.CheckEntry(*approver); err != nil {
 			return outbox.Usagef("--approver: %v", err)
@@ -153,7 +161,7 @@ func workerCmd(args []string, s Streams) error {
 			return outbox.Usagef("--approve-within is at least 1m")
 		}
 		root, _ := os.Getwd()
-		wm := &worker.WriteMode{Repo: abs, Root: root, Approver: *approver, Within: *approveWithin}
+		wm := &worker.WriteMode{Repo: abs, Root: root, Approver: *approver, ApproverKey: ak, Within: *approveWithin}
 		if nu := notifyURL(); nu != "" {
 			wm.Notify = func(text string) { _ = tasks.Notify(nu, text) }
 		}
@@ -268,14 +276,92 @@ func workerAllowCmd(args []string, s Streams) error {
 	return usage
 }
 
-// approveCmd and denyCmd answer a write-mode worker's "[approval needed]" message: a signed reply
-// saying approve or deny, which is all the worker reads there.
+// approveCmd and denyCmd answer a write-mode worker's "[approval needed]" message with a decision
+// signed by the approver key, which needs its passphrase typed on a terminal: a person's step that
+// an agent on the same machine cannot take, though it can sign anything with the machine key.
 func approveCmd(args []string, s Streams) error { return answerApproval("approve", args, s) }
 func denyCmd(args []string, s Streams) error    { return answerApproval("deny", args, s) }
+
+// readPassphrase asks on the terminal with echo off (a variable so tests can answer it).
+var readPassphrase = func(prompt string) (string, error) {
+	line, err := readHidden(prompt, "(none: a passphrase is typed by a person)")
+	return strings.TrimRight(line, "\r\n"), err
+}
 
 func answerApproval(word string, args []string, s Streams) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return outbox.Usagef("usage: %s ID   (the id of the worker's [approval needed] message)", word)
 	}
-	return sendWith([]string{"--re", args[0], "--ack", word}, s, true)
+	c, err := client.FromEnv()
+	if err != nil {
+		return err
+	}
+	ids := outbox.NewIDResolver(c, identity.Me())
+	ids.Say = s.Err
+	id, err := ids.Resolve(args[0])
+	if err != nil {
+		return err
+	}
+	ms, err := c.Thread(id)
+	if err != nil {
+		return err
+	}
+	var req msg.Message
+	for _, m := range ms {
+		if m.ID == id {
+			req = m
+		}
+	}
+	if req.ID == "" || !strings.HasPrefix(req.Body, "[approval needed]") {
+		return outbox.Usagef("%s is not a worker's [approval needed] message", id)
+	}
+	fmt.Fprintln(s.Err, view.UntrustedBanner)
+	fmt.Fprintf(s.Err, "%s asks, about this task:\n%s\n\n", view.Name(req.From, msg.MaxIdentity), view.OneLine(req.Body, 900))
+	pass, err := readPassphrase(fmt.Sprintf("Approver passphrase, to %s it: ", word))
+	if err != nil {
+		return fmt.Errorf("%s needs a person at a terminal: %v", word, err)
+	}
+	key, err := config.OpenApprover(pass)
+	if err != nil {
+		return err
+	}
+	sig := ed25519.Sign(key, msg.ApprovalStatement(req.ID, word, req.From))
+	return sendWith([]string{"--re", req.ID, "--ack", msg.ApprovalBody(word, sig)}, s, true)
+}
+
+// approverCmd makes and shows the approver key.
+func approverCmd(args []string, s Streams) error {
+	usage := outbox.Usagef("usage: approver init | show")
+	if len(args) != 1 {
+		return usage
+	}
+	switch args[0] {
+	case "show":
+		pub, err := config.ApproverPublic()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(s.Out, base64.StdEncoding.EncodeToString(pub))
+		return nil
+	case "init":
+		p1, err := readPassphrase(fmt.Sprintf("New approver passphrase (at least %d characters; only you should know it): ", config.MinPassphrase))
+		if err != nil {
+			return fmt.Errorf("approver init needs a person at a terminal: %v", err)
+		}
+		p2, err := readPassphrase("Again: ")
+		if err != nil {
+			return err
+		}
+		if p1 != p2 {
+			return errors.New("the two passphrases differ; nothing was made")
+		}
+		pub, err := config.CreateApprover(p1)
+		if err != nil {
+			return err
+		}
+		b := base64.StdEncoding.EncodeToString(pub)
+		fmt.Fprintf(s.Out, "approver key made (%s, sealed with your passphrase). Give a write-mode worker its public half:\n  aivoicebus worker install --agent codex --write --repo PATH --approver %s --approver-key %s\n", config.ApproverPath(), identity.Me(), b)
+		return nil
+	}
+	return usage
 }

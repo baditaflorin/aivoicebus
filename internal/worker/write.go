@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"io"
 	"os"
@@ -24,11 +25,14 @@ import (
 
 // WriteMode configures it.
 type WriteMode struct {
-	Repo     string        // the repository a task's worktree is made from
-	Root     string        // where worktrees go (default: the worker's directory)
-	Approver string        // who approves each task: a machine, machine/tool or one session (an allowlist entry)
-	Within   time.Duration // how long to wait for the approval
-	Notify   func(text string)
+	Repo     string // the repository a task's worktree is made from
+	Root     string // where worktrees go (default: the worker's directory)
+	Approver string // who approves each task: a machine, machine/tool or one session (an allowlist entry)
+	// ApproverKey is the approver key's public half (aivoicebus approver show): a decision counts
+	// only signed with it. The machine key does not do: any agent on that machine can use it.
+	ApproverKey ed25519.PublicKey
+	Within      time.Duration // how long to wait for the approval
+	Notify      func(text string)
 }
 
 // approve asks the approver and waits for the answer. It reports whether to run, and why not.
@@ -36,7 +40,7 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 	wm := w.Write
 	who, _ := ParseAllow(wm.Approver)
 	host := msg.HostOf(w.Me)
-	text := fmt.Sprintf("[approval needed] the worker on %s would run this task from %s with write access, in a new branch aivoicebus/task-%s of %s (not pushed):\n%s\n\nApprove: aivoicebus approve <this id>    Deny: aivoicebus deny <this id>    (it waits %s)",
+	text := fmt.Sprintf("[approval needed] the worker on %s would run this task from %s with write access, in a new branch aivoicebus/task-%s of %s (not pushed):\n%s\n\nA person approves in a terminal, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits %s. An agent must not run either.",
 		host, view.Name(m.From, msg.MaxIdentity), m.ID, wm.Repo, view.OneLine(m.Body, 600), wm.Within)
 	to := wm.Approver
 	plan, err := outbox.Prepare(w.C, outbox.Request{To: to, Body: text, Prio: msg.PrioUrgent, Queue: true, TargetSaid: true}, io.Discard)
@@ -52,6 +56,7 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 		wm.Notify(fmt.Sprintf("aivoicebus: approval needed for task %s from %s on %s. aivoicebus approve %s", m.ID, msg.SafeName(m.From), host, req.ID))
 	}
 	deadline := time.Now().Add(wm.Within)
+	ignored := map[string]bool{} // a reply is said to be ignored once
 	for time.Until(deadline) > time.Second {
 		got, err := tasks.Wait(ctx, w.C, w.Me, tasks.Filter{Thread: req.Thread}, time.Until(deadline), 3*time.Second)
 		if err != nil {
@@ -62,14 +67,20 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 				continue // someone else in the thread: not the approver
 			}
 			if a.Verified != msg.VerifiedSigned && !w.AllowUnsigned {
-				continue // an approval is taken only signed by the approver's machine
+				continue // and from the approver's machine, by its machine key
 			}
-			switch strings.ToLower(strings.TrimSpace(a.Body)) {
-			case "approve", "approved", "yes":
+			word, ok := msg.CheckApproval(a.Body, req.ID, w.Me, wm.ApproverKey)
+			if !ok && !ignored[a.ID] {
+				ignored[a.ID] = true
+				w.say("task %s: a reply from %s is not signed with the approver key; ignored", m.ID, view.Name(a.From, msg.MaxIdentity))
+			}
+			if !ok {
+				continue // a bare "approve", or one signed by another key: not a person's decision
+			}
+			if word == "approve" {
 				return true, ""
-			case "deny", "denied", "no":
-				return false, "denied by " + msg.SafeName(a.From)
 			}
+			return false, "denied by " + msg.SafeName(a.From)
 		}
 	}
 	return false, fmt.Sprintf("no approval from %s within %s", msg.SafeName(wm.Approver), wm.Within)
