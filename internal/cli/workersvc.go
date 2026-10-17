@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
@@ -257,6 +258,7 @@ func workerInstall(args []string, s Streams) error {
 		return err
 	}
 	fmt.Fprintf(s.Out, "wrote %s: runs %s for tasks from %s\n", file, worker.QuoteCommand(argv[1:]), allowedText(allow))
+	config.Audit(identity.Me(), "worker install", worker.QuoteCommand(argv[1:]))
 	if err := svcStart(file); err != nil {
 		return fmt.Errorf("written, but not started: %v", err)
 	}

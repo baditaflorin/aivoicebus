@@ -274,6 +274,7 @@ func workerAllowCmd(args []string, s Streams) error {
 		if err := worker.AddAllow(args[1]); err != nil {
 			return outbox.Usagef("%v", err)
 		}
+		config.Audit(identity.Me(), "worker allow add", strings.ToLower(args[1]))
 		fmt.Fprintf(s.Out, "allowed %s: a worker on this machine runs its command on the tasks it sends (%s)\n", strings.ToLower(args[1]), worker.AllowPath())
 		fmt.Fprintln(s.Err, "[aivoicebus] Sender names are self-declared: whoever holds the shared token can send as any name, so on such a mesh the allowlist stops mistakes, not token holders. Machine tokens (deploy/machine-token.sh) bind a sender to its machine.")
 		return nil
@@ -285,6 +286,7 @@ func workerAllowCmd(args []string, s Streams) error {
 		if !found {
 			return outbox.NotFoundf("%s is not in the allowlist", args[1])
 		}
+		config.Audit(identity.Me(), "worker allow rm", strings.ToLower(args[1]))
 		fmt.Fprintf(s.Out, "removed %s\n", strings.ToLower(args[1]))
 		return nil
 	}
@@ -344,7 +346,11 @@ func answerApproval(word string, args []string, s Streams) error {
 		return err
 	}
 	sig := ed25519.Sign(key, msg.ApprovalStatement(req.ID, word, req.From))
-	return sendWith([]string{"--re", req.ID, "--ack", msg.ApprovalBody(word, sig)}, s, true)
+	if err := sendWith([]string{"--re", req.ID, "--ack", msg.ApprovalBody(word, sig)}, s, true); err != nil {
+		return err
+	}
+	config.Audit(identity.Me(), word, "approval request "+req.ID+" from "+req.From)
+	return nil
 }
 
 // approverCmd makes and shows the approver key.
@@ -377,6 +383,7 @@ func approverCmd(args []string, s Streams) error {
 		if err != nil {
 			return err
 		}
+		config.Audit(identity.Me(), "approver init", "approver key "+base64.StdEncoding.EncodeToString(pub))
 		b := base64.StdEncoding.EncodeToString(pub)
 		fmt.Fprintf(s.Out, "approver key made (%s, sealed with your passphrase). Give a write-mode worker its public half:\n  aivoicebus worker install --agent codex --write --repo PATH --approver %s --approver-key %s\n", config.ApproverPath(), identity.Me(), b)
 		return nil

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/hook"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -742,6 +743,7 @@ func cancelCmd(args []string, s Streams) error {
 	if err := retractCmd([]string{args[0]}, s); err != nil {
 		return err
 	}
+	config.Audit(identity.Me(), "cancel", "task "+args[0])
 	fmt.Fprintln(s.Out, "cancelled: a worker running it stops it within seconds and answers that it did; a session that took it sees it withdrawn")
 	return nil
 }

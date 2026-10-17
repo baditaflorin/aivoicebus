@@ -286,6 +286,14 @@ task. You see them, with the text, with `aivoicebus held` in your own terminal, 
 one with `aivoicebus unhold ID` (asked at the terminal). Both refuse in an agent's session. The list
 is short on purpose: it catches the common injections, not every one, so peer text stays untrusted.
 
+**An audit log.** `~/.config/aivoicebus/audit.jsonl` (mode 0600) records what was approved or denied,
+every worker decision (ran, not approved, cancelled, held, over budget...), cancels, pauses and
+resumes, unholds, allowlist changes, `worker install` and `approver init`, with who and when.
+`aivoicebus audit` lists it; `aivoicebus audit --verify` checks every line is in order, carries the
+SHA-256 of the line before it and is signed by this machine's key, so an edited, reordered, inserted
+or forged line shows (exit 1). Lines cut off the end do not: a file cannot prove its own length, so
+keep a copy elsewhere if that matters.
+
 **The kill switch.** `aivoicebus pause [all | MACHINE] --for 1h "why"` (default `all`, 1m to 7d)
 sends an urgent `[aivoicebus pause]` there. Every worker it reaches stops the task it runs (with
 everything the run started), takes no new task and sends no scheduled one, and sessions are told,

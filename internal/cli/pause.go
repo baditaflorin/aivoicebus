@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 )
@@ -48,6 +50,7 @@ func pauseCmd(args []string, s Streams) error {
 	if err := sendWith([]string{"--to", target, "--prio", msg.PrioUrgent, "--ttl", d.String(), "--force", "--queue", msg.PauseBody(until, reason)}, s, false); err != nil {
 		return err
 	}
+	config.Audit(identity.Me(), "pause", fmt.Sprintf("%s until %s: %s", target, until.UTC().Format(time.RFC3339), reason))
 	fmt.Fprintf(s.Out, "paused %s until %s: workers stop and take no task, schedules hold, sessions are told to stop. A person here lifts it: aivoicebus resume %s\n", target, until.Local().Format("01-02 15:04"), target)
 	return nil
 }
@@ -71,6 +74,7 @@ func resumeCmd(args []string, s Streams) error {
 	if err := sendWith([]string{"--to", target, "--prio", msg.PrioUrgent, "--force", "--queue", msg.ResumeBody("")}, s, false); err != nil {
 		return err
 	}
+	config.Audit(identity.Me(), "resume", target)
 	fmt.Fprintln(s.Out, "resumed: the pauses this machine sent are lifted")
 	return nil
 }

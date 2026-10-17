@@ -52,6 +52,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
 	{"tokens", "what aivoicebus cost on this machine: context it put into each session (estimated) and the worker's runs (reported tokens)"},
+	{"audit", "what was approved, run, stopped, released or allowed on this machine; --verify checks the chain and signatures"},
 	{"held", "what was held back from agents (a bad signature, or text that reads like instructions to an agent), with the text: the user's, in a terminal"},
 	{"unhold", "let agents see a held message (the user, at a terminal)"},
 	{"pause", "the kill switch: workers stop and take no task, schedules hold, sessions are told to stop (all, or a machine; --for 1h)"},
