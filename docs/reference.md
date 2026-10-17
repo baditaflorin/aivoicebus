@@ -305,6 +305,15 @@ the text, and sends any after it as part of the text.
 side's last word (one line each), and whether the thread is open or ended, instead of every
 message: what a session woken on a long conversation needs first.
 
+**Recurring tasks, with no person and no cron.** `aivoicebus schedule add nightly --at 02:00 build-1
+--tool codex "run the integration suite and report"` (or `--every 6h`, at least 5m) keeps the
+schedule in `~/.config/aivoicebus/schedules.json`; a worker on this machine sends it as a task when
+it is due (it looks once a minute), as `<machine>/scheduler`, marked `[scheduled nightly]`, and the
+receiving machine's worker or sessions take it as any other task (a worker's allowlist must name
+`<machine>/scheduler` or the machine; a worker on the same machine needs that entry too). `schedule list` shows each with when it last went, `schedule rm NAME` removes one, and
+`schedule run` sends whatever is due now (for a machine without a worker, from cron or by hand).
+`--at` is the local time, once a day; a schedule added after today's time first goes tomorrow.
+
 **Hear about a stuck task without asking.** `aivoicebus watch --after 15m` looks every minute at
 the tasks this machine sent lately (the last ten, at most a day old) and, once per task, says so
 when one has waited that long with nobody claiming or answering it (a withdrawn or expired one does

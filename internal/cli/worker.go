@@ -153,18 +153,21 @@ func workerCmd(args []string, s Streams) error {
 		return err
 	}
 	w.Replaced = binaryReplaced()
-	if *watch > 0 {
+	{
 		wc, err := client.FromEnv() // the machine's own sends, not the worker's identity
 		if err != nil {
 			return err
 		}
 		var last time.Time
-		w.Tick = func() {
+		w.Tick = func() { // once a minute: scheduled tasks that are due, and (--watch) stuck ones
 			if time.Since(last) < time.Minute {
 				return
 			}
 			last = time.Now()
-			_, _ = watchOnce(wc, *watch, s.Out)
+			_, _ = runSchedules(wc, last, s.Out)
+			if *watch > 0 {
+				_, _ = watchOnce(wc, *watch, s.Out)
+			}
 		}
 	}
 	err = w.Loop(ctx, *every)

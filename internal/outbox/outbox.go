@@ -49,6 +49,9 @@ type Request struct {
 	Attach                                bool // the body carries a log link (a file sets File)
 	TrustRole                             bool // use an unpinned role alias with a single claimant (--trust-role, AIVOICEBUS_TRUST_ROLES=1)
 	TargetSaid                            bool // the caller already told the sender whom a reply with no --to goes to
+	// From sends as another identity of this same machine (the scheduler's), signed with the
+	// machine's key like any send; "" is this session. Another machine's name is refused.
+	From string
 }
 
 // Plan is a checked message and what is known about it before it goes out.
@@ -80,6 +83,12 @@ type Plan struct {
 func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	var p Plan
 	me := identity.Me()
+	if r.From != "" {
+		if !msg.ValidIdentity(r.From) || msg.HostOf(r.From) != msg.HostOf(me) {
+			return p, Usagef("a message can be sent as another identity of this machine only, not %s", view.Name(r.From, msg.MaxIdentity))
+		}
+		me = r.From
+	}
 	body := strings.TrimSpace(r.Body)
 	to := strings.ToLower(strings.TrimSpace(r.To))
 	urgent := strings.EqualFold(r.Prio, msg.PrioUrgent)
