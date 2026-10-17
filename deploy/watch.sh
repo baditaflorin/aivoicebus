@@ -23,7 +23,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 . deploy/nodes.sh
-PORT=7777
+PORT="${AIVOICEBUS_PORT:-7777}"
 . deploy/ops.sh
 
 usage() { echo "usage: $0 --once --expect VERSION | --pid PID --expect VERSION --trip FILE [--state DIR]" >&2; exit 2; }

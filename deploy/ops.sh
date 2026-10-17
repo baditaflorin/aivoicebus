@@ -99,7 +99,7 @@ is_shared_token() {
 # gen_token <file>: 48 random characters, mode 600, never printed.
 gen_token() {
   (umask 077
-   until [ "$(wc -c <"$1" 2>/dev/null || echo 0)" -ge 40 ]; do
+   until [ "$( { wc -c <"$1"; } 2>/dev/null || echo 0)" -ge 40 ]; do
      head -c 36 /dev/urandom | base64 | tr -d '\n=+/' | head -c 48 >"$1"
    done)
 }

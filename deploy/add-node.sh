@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 CONF_FILE="${AIVOICEBUS_NODES_CONF:-deploy/nodes.conf}"
 export AIVOICEBUS_NODES_CONF="$CONF_FILE"
-PORT=7777
+PORT="${AIVOICEBUS_PORT:-7777}"
 . deploy/ops.sh
 TOKEN_FILE="${AIVOICEBUS_TOKEN_FILE:-$HOME/.config/aivoicebus/token}"
 

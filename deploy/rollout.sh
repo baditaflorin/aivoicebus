@@ -37,7 +37,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 . deploy/nodes.sh
 
-PORT=7777
+PORT="${AIVOICEBUS_PORT:-7777}"   # AIVOICEBUS_PORT: a node port other than 7777 (one already taken on the hosts)
 . deploy/ops.sh
 TOKEN_FILE="${AIVOICEBUS_TOKEN_FILE:-$HOME/.config/aivoicebus/token}"
 usage() { echo "usage: $0 <release dir> [--apply] [--canary NODE] [--soak SECONDS] [--expect VERSION] [--unsigned] [--force-lock]" >&2; exit 2; }
