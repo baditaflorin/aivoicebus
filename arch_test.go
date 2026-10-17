@@ -34,9 +34,11 @@ var allowed = map[string][]string{
 	"agentcfg":  {"assets", "config", "version"},
 	"discovery": {"client", "config", "release"},
 	"updater":   {"client", "release"},
-	"mcp":       {"client", "identity", "msg", "outbox", "view"},
+	"mcp":       {"client", "identity", "msg", "outbox", "tasks", "view"},
+	"tasks":     {"client", "msg", "outbox"},
+	"worker":    {"client", "config", "msg", "outbox", "tasks", "view"},
 	"outbox":    {"client", "config", "identity", "msg", "release", "secrets", "view"},
-	"cli":       {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "store", "updater", "version", "view"},
+	"cli":       {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "store", "tasks", "updater", "version", "view", "worker"},
 }
 
 func TestPackageDependenciesPointOneWay(t *testing.T) {

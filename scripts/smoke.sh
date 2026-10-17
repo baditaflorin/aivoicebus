@@ -158,6 +158,20 @@ step secret curl demo -- -v https://api.example.test/x
 step secret rm demo
 step secret list
 
+echo "# worker: runs nothing until a sender is allowed; a dry run; one pass; the answer"
+as smoke-a/claude.a1
+step task smoke-b "what is 6*7"
+as smoke-b/worker
+step worker --once --exec cat
+step worker allow add all
+step worker allow add smoke-a
+step worker allow list
+step worker --dry-run --exec cat
+step worker --once --settle 0s --exec cat
+step worker --once --settle 0s --exec cat
+as smoke-a/claude.a1
+step inbox --ack
+
 echo "# not configured"
 ( unset AIVOICEBUS_URL; export HOME="$T/empty"; mkdir -p "$HOME"; step who )
 echo "# wrong token"

@@ -69,6 +69,7 @@ func init() {
 		"queue":     queueCmd,
 		"wait":      waitCmd,
 		"ping":      pingCmd,
+		"worker":    workerCmd,
 	}
 }
 

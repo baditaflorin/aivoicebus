@@ -305,6 +305,13 @@ func LineFilter() func(line string) (string, bool) {
 	}
 }
 
+// Credential reports the kind of credential body holds, exactly as a send would refuse it: this
+// machine's own secrets matched exactly, else anything shaped like a credential.
+func Credential(body string) (kind string, found bool) {
+	f, found := credentialIn(body)
+	return f.Kind, found
+}
+
 func credentialIn(body string) (secrets.Finding, bool) {
 	if f, found := localSecrets().Find(body); found {
 		return f, true

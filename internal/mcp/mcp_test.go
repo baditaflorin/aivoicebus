@@ -104,7 +104,7 @@ func (s *session) call(name string, args map[string]any) (string, bool) {
 	return text, res["isError"].(bool)
 }
 
-func TestHandshakeListsTheSixTools(t *testing.T) {
+func TestHandshakeListsTheTools(t *testing.T) {
 	s, _ := start(t)
 	r := s.rpc("initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "x"}})
 	res := r["result"].(map[string]any)
@@ -129,7 +129,7 @@ func TestHandshakeListsTheSixTools(t *testing.T) {
 			t.Errorf("%v", tl)
 		}
 	}
-	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_inbox,aivoicebus_retract,aivoicebus_send,aivoicebus_thread,aivoicebus_who" {
+	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_inbox,aivoicebus_retract,aivoicebus_send,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
 		t.Errorf("%v", names)
 	}
 	for _, x := range list {
@@ -653,3 +653,38 @@ func TestWhoAndResolvedLinesSitUnderTheUntrustedBanner(t *testing.T) {
 }
 
 func first(text string, _ bool) string { return text }
+
+func TestClaimAndWaitTools(t *testing.T) {
+	s, st := start(t)
+	task, err := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "resize the image"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := s.call("aivoicebus_claim", map[string]any{"id": "abc"}); !isErr || !strings.Contains(text, "10-character") {
+		t.Errorf("short id: %v %q", isErr, text)
+	}
+	text, isErr := s.call("aivoicebus_claim", map[string]any{"id": task.ID, "note": "on it"})
+	if isErr || !strings.Contains(text, "is yours") || !strings.Contains(text, "UNTRUSTED") {
+		t.Fatalf("claim: %v %q", isErr, text)
+	}
+	if text, _ := s.call("aivoicebus_claim", map[string]any{"id": task.ID}); !strings.Contains(text, "already yours") {
+		t.Errorf("claim again: %q", text)
+	}
+	other, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "second"})
+	st.Send(msg.Message{From: "me/codex.x1", To: "desk/claude.z9", Kind: msg.KindClaim, Re: other.ID, Body: "mine"})
+	if text, isErr := s.call("aivoicebus_claim", map[string]any{"id": other.ID}); !isErr || !strings.Contains(text, "me/codex.x1") {
+		t.Errorf("a task someone else holds: %v %q", isErr, text)
+	}
+
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"thread": task.Thread, "seconds": 1}); !strings.Contains(text, "nothing arrived in 1s") {
+		t.Errorf("empty wait: %q", text)
+	}
+	st.Send(msg.Message{From: "desk/claude.z9", To: "me/mcp.test", Kind: msg.KindEnd, Re: task.ID, Thread: task.Thread, Body: "thanks, done"})
+	text, _ = s.call("aivoicebus_wait", map[string]any{"thread": task.Thread, "seconds": 3})
+	if !strings.Contains(text, "UNTRUSTED") || !strings.Contains(text, "thanks, done") || !strings.Contains(text, "ended the conversation") {
+		t.Errorf("wait: %q", text)
+	}
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"thread": task.Thread, "seconds": 1}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("what a wait returned is read: %q", text)
+	}
+}

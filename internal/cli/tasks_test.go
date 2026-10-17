@@ -7,6 +7,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 )
 
 const boss, sa, sb = "desk/claude.z9", "lap/claude.a1", "lap/codex.b2"
@@ -124,7 +125,7 @@ func TestWaitingForATaskAnswerSkipsTheClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	var progress []string
-	got, err := waitFor(c, boss, waitFilter{thread: thread, progress: func(m msg.Message) { progress = append(progress, m.Body) }}, 3*time.Second, time.Second)
+	got, err := waitFor(c, boss, tasks.Filter{Thread: thread, Progress: func(m msg.Message) { progress = append(progress, m.Body) }}, 3*time.Second, time.Second)
 	if err != nil || len(got) != 1 || got[0].Body != "done: 800x600" {
 		t.Fatalf("wait returned %+v %v", got, err)
 	}

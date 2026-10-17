@@ -17,6 +17,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -181,8 +182,8 @@ func sendWith(args []string, s Streams, reply bool) error {
 	if *waitReply > 0 {
 		me := identity.Me()
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
-		got, err := waitFor(c, me, waitFilter{thread: out.Thread, progress: claimProgress(s)}, *waitReply, 3*time.Second)
-		if errors.Is(err, errWaitTimeout) {
+		got, err := waitFor(c, me, tasks.Filter{Thread: out.Thread, Progress: claimProgress(s)}, *waitReply, 3*time.Second)
+		if errors.Is(err, tasks.ErrTimeout) {
 			fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), out.Thread)
 			return exitError{exitTimeout}
 		}

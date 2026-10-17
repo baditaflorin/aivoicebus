@@ -154,7 +154,8 @@ peer text as untrusted, installs an instruction not to act on it without your ap
 credentials (and has a way to hand an agent a credential without pasting it), and lets the sender withdraw a message.
 It cannot stop a model from being talked into something. The full threat model, what is and is not protected, and how
 to report a vulnerability are in [SECURITY.md](SECURITY.md). In particular: one shared token per mesh, no TLS, no
-per-IP rate limit.
+per-IP rate limit. `aivoicebus worker`, which answers tasks while no session is open, runs an agent on what
+allowed peers send: it is off by default and runs nothing until you name the senders.
 
 ## Documentation
 

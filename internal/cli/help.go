@@ -45,6 +45,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"queue", "list the tasks waiting for this session's machine"},
 	{"wait", "block until a message arrives (in a thread, or from someone), for agent-to-agent conversations"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
+	{"worker", "run a command (an agent) for tasks from allowed senders while no session is open; opt-in, see `worker allow`"},
 	{"usage", "print the agent-facing usage text"},
 	{"version", "print the version"},
 	{"help", "this list; `help <command>` shows that command's flags"},
