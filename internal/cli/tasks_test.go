@@ -470,3 +470,32 @@ func TestAnyGivesTheTaskToAListeningSession(t *testing.T) {
 		t.Errorf("--any with --fallback: %d", code)
 	}
 }
+
+// --max-turns: the node refuses the message past the limit, and an [end] still goes.
+func TestMaxTurnsEndsAConversation(t *testing.T) {
+	mesh(t)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, e := run(t, "", "send", "--to", sa, "--max-turns", "3", "shall we loop?")
+	if code != 0 {
+		t.Fatalf("send: %d %s", code, e)
+	}
+	id, _ := sentID(t, out)
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if code, _, e := run(t, "", "reply", "--re", id, "yes, once"); code != 0 {
+		t.Fatalf("turn 2: %s", e)
+	}
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if code, _, e := run(t, "", "reply", "--re", id, "and again"); code != 0 {
+		t.Fatalf("turn 3: %s", e)
+	}
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if code, _, e := run(t, "", "reply", "--re", id, "one more"); code == 0 || !strings.Contains(e, "turn limit") {
+		t.Errorf("turn 4 went through: %d %s", code, e)
+	}
+	if code, _, e := run(t, "", "reply", "--re", id, "--end", "done"); code != 0 {
+		t.Errorf("an end must go: %d %s", code, e)
+	}
+	if code, _, e := run(t, "", "reply", "--re", id, "--max-turns", "9", "x"); code != exitUsage {
+		t.Errorf("max-turns on a reply: %d %s", code, e)
+	}
+}

@@ -952,6 +952,13 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 			}
 		}
 	}
+	if m.Thread != m.ID {
+		m.MaxTurns = 0 // only the message that starts a thread sets its limit
+		if err := s.turnsLeftLocked(m); err != nil {
+			s.limited++
+			return msg.Message{}, err
+		}
+	}
 	if err := s.commitLocked(msg.Record{Msg: &m}); err != nil {
 		return m, err
 	}
@@ -1033,6 +1040,28 @@ func (s *Store) AckWith(a msg.Ack) error {
 // ErrReservedID is what Send says of a message whose chosen id is one a retraction notice has: such
 // an id is for the notice, and a message holding it would be taken for it.
 var ErrReservedID = errors.New("that message id is reserved for a retraction notice; leave the id out")
+
+// ErrTurnLimit is what Send says of one message too many in a thread that set max_turns.
+var ErrTurnLimit = errors.New("the conversation reached its turn limit")
+
+// turnsLeftLocked refuses m when its thread started with a turn limit that is used up. Claims do
+// not count, and an [end] always goes: closing a conversation is what the limit is for.
+func (s *Store) turnsLeftLocked(m msg.Message) error {
+	root, ok := s.byIDLocked(m.Thread)
+	if !ok || root.MaxTurns == 0 || m.Kind == msg.KindEnd || m.Kind == msg.KindClaim {
+		return nil
+	}
+	n := 0
+	for _, i := range s.threads[m.Thread] {
+		if s.msgs[i].Kind != msg.KindClaim {
+			n++
+		}
+	}
+	if n >= root.MaxTurns {
+		return fmt.Errorf("%w (%d messages): close it with `reply --end`, or start a new conversation", ErrTurnLimit, root.MaxTurns)
+	}
+	return nil
+}
 
 // ErrReplyToNotice is what Send says of a reply to a retraction notice, which is made up by nodes
 // and is no message to reply to.

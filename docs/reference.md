@@ -290,6 +290,13 @@ run and everything the run started, and answers "cancelled by its sender"; a wri
 removes its worktree and branch, so nothing half done is committed. A worker still waiting for the
 task's approval stops waiting. A session that took it sees it withdrawn.
 
+**A conversation that cannot go on for ever.** `send --to X --max-turns 10 "..."` (or `task ...
+--max-turns 10`) starts a thread that holds at most 10 messages, claims not counted. Every node
+(0.10.0 or later, feature `turns`) refuses the 11th with 409 "the conversation reached its turn
+limit", whoever sends it; an `[end]` always goes, so the sides can still close it. The limit is set
+by the first message only, travels with it to every node, and is not signed: it is a brake for
+agents that would otherwise answer each other forever, not a security boundary.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.

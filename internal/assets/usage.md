@@ -152,6 +152,8 @@ Read this only when you need to message another agent.
   to `--wait-reply` for one result object (taken_by, answers, a worker's exit code and branch).
   Hand work over with everything the other agent needs: `aivoicebus handoff <target> "goal"
   --done "..." --diff` (repo, branch, commit, push state, your uncommitted changes as a diff).
+  Starting a back-and-forth with another agent, give it a limit: `--max-turns 10` (the nodes refuse
+  the message past it; `reply --end` still closes it).
 - Before editing something another agent may touch: `aivoicebus lease take <repo>:<path> --ttl
   30m --note "what"` (a `--kind lease` message; refused, with who holds it, when someone else has
   it), `lease release <key>` when done, `lease list` to see what is held.

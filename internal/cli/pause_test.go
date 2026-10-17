@@ -2,6 +2,9 @@ package cli
 
 import (
 	"os"
+
+	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"strings"
 	"testing"
 	"time"
@@ -48,11 +51,17 @@ func TestPauseStopsWorkersAndOnlyThePausingMachineResumes(t *testing.T) {
 func TestPauseStopsARunningTask(t *testing.T) {
 	workerSetup(t, "desk")
 	sendTask(t, boss, "lap", "a long job")
+	c, _ := client.FromEnv()
+	t.Setenv("AIVOICEBUS_ME", wk) // set once, here: the worker below runs as the worker
 	done := make(chan string, 1)
-	go func() { _, out, _ := runWorker(t, "--exec", "sleep 60"); done <- out }()
+	go func() {
+		_, out, _ := run(t, "", "worker", "--once", "--settle", "0s", "--exec", "sleep 60")
+		done <- out
+	}()
 	time.Sleep(3 * time.Second)
-	t.Setenv("AIVOICEBUS_ME", boss)
-	run(t, "", "pause", "lap", "stop everything")
+	if _, err := c.Send(msg.Message{ID: msg.NewID(), From: boss, To: "lap", Prio: msg.PrioUrgent, Body: msg.PauseBody(time.Now().Add(time.Hour), "stop everything")}); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case out := <-done:
 		if !strings.Contains(out, "paused by") {
