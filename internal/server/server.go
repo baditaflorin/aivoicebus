@@ -25,13 +25,16 @@ import (
 type Option func(*handlerConfig)
 
 type handlerConfig struct {
-	releaseDir string
-	tokens     *TokenSet
-	node       string
-	version    string
-	board      *PeerBoard
-	metrics    *metrics
-	ready      func() bool
+	// requireSigned refuses a message that carries no valid signature (serve --require-signed):
+	// once every client signs (0.7.0 and later), an unsigned message is one that hides its machine.
+	requireSigned bool
+	releaseDir    string
+	tokens        *TokenSet
+	node          string
+	version       string
+	board         *PeerBoard
+	metrics       *metrics
+	ready         func() bool
 }
 
 // WithReleaseDir makes the node serve the release in dir (a manifest, its
@@ -61,6 +64,9 @@ func WithTokenSet(ts *TokenSet) Option {
 
 // WithNode names the node in /v1/health and /metrics.
 func WithNode(id string) Option { return func(c *handlerConfig) { c.node = id } }
+
+// WithRequireSigned refuses messages without a valid signature (join and selftest probes excepted).
+func WithRequireSigned(on bool) Option { return func(c *handlerConfig) { c.requireSigned = on } }
 
 // WithVersion overrides the release the node reports (tests; the default is this binary's).
 func WithVersion(v string) Option { return func(c *handlerConfig) { c.version = v } }
@@ -238,6 +244,12 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		if err := m.ValidateShape(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if cfg.requireSigned && !msg.IsProbe(m.From) {
+			if signed, valid := m.VerifySig(); !signed || !valid {
+				http.Error(w, "refused: this node takes only signed messages (serve --require-signed), and this one is unsigned or its signature does not verify: update the client (0.7.0 or later signs every message)", http.StatusForbidden)
+				return
+			}
 		}
 		// never store a credential, whichever client sent it: one of this node's own tokens
 		// (matched exactly) or anything shaped like one

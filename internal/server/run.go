@@ -30,6 +30,7 @@ type Options struct {
 	BootstrapKey    string
 	BootstrapMaxAge time.Duration
 	ReleaseDir      string    // serve this release directory at /v1/release/ (optional)
+	RequireSigned   bool      // refuse messages without a valid signature
 	Out             io.Writer // progress lines; nil discards them
 }
 
@@ -75,7 +76,7 @@ func Run(o Options) error {
 		return errors.New("--bootstrap-key must be at least 24 chars")
 	}
 	h := WithBootstrap(NewHandler(st, "", WithTokenSet(tokens), WithObserverToken(observer), WithReleaseDir(o.ReleaseDir),
-		WithNode(o.Node), WithPeerBoard(board), WithReady(Ready(st, board, len(peers)))), o.BootstrapKey, o.BootstrapFile, o.BootstrapMaxAge)
+		WithNode(o.Node), WithRequireSigned(o.RequireSigned), WithPeerBoard(board), WithReady(Ready(st, board, len(peers)))), o.BootstrapKey, o.BootstrapFile, o.BootstrapMaxAge)
 	srv := defaultLimits().server(o.Addr, h)
 	// A stop (systemd sends SIGTERM) writes the roster to disk first, so a restart
 	// or an upgrade does not forget who is around.

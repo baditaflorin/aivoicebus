@@ -317,3 +317,11 @@ systemd; it proves the scripts, not the unit. (`scripts/lint.sh` guards the unit
 `systemd-analyze verify` on a copy, and every hardening directive pinned to its value. That
 catches a dropped or mistyped line, not a sandbox that fails on a real host.) `scripts/check.sh`
 runs it on Linux; on a Mac it is skipped (run it on the build host).
+
+## Signed messages only
+
+Every client of 0.7.0 or later signs every message with its machine key. Once every machine runs
+one, start the nodes with `serve --require-signed` (or `AIVOICEBUS_REQUIRE_SIGNED=1` in the node's
+environment): a node then refuses, with 403, a message that carries no signature or whose
+signature does not verify. Join and selftest probes are exempt. Before switching it on, check that
+no machine still runs a client older than 0.7.0 (a reader flags an unsigned message as unsigned).
