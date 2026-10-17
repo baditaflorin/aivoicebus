@@ -541,3 +541,72 @@ func TestQuarantinePlaceholderIsWhatTheFeedVectorsSay(t *testing.T) {
 		t.Errorf("vectors say %+v, the store writes %q by %q", q, QuarantineID, QuarantineBy)
 	}
 }
+
+// Two sessions replying to each other fast is stopped at pairLimit; the counts survive a restart.
+func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := "lap/claude.a1", "box/codex.b2"
+	first, _ := s.Send(msg.Message{From: a, To: b, Body: "ping 0"})
+	var err2 error
+	n := 0
+	for i := 1; i <= 20 && err2 == nil; i++ {
+		from, to := a, b
+		if i%2 == 1 {
+			from, to = b, a
+		}
+		_, err2 = s.Send(msg.Message{From: from, To: to, Re: first.ID, Body: fmt.Sprintf("pong %d", i)})
+		if err2 == nil {
+			n++
+		}
+	}
+	var rl *RateLimitError
+	if !errors.As(err2, &rl) || rl.Scope != "pair" || n != pairLimit {
+		t.Fatalf("after %d replies: %v", n, err2)
+	}
+	for i := 0; i < 10; i++ { // fresh notes to the same session are not a loop
+		if _, err := s.Send(msg.Message{From: "ci/bot.c1", To: b, Body: fmt.Sprintf("build %d", i)}); err != nil {
+			t.Fatalf("note %d: %v", i, err)
+		}
+	}
+	s.FlushPresence()
+	r, _ := Open(dir, "n1")
+	if _, err := r.Send(msg.Message{From: a, To: b, Re: first.ID, Body: "after restart"}); !errors.As(err, &rl) {
+		t.Errorf("a restart forgot the loop: %v", err)
+	}
+}
+
+// The two sides of a loop may write through different nodes: replication brings each node the
+// other side's replies, and the brake holds there too (found live, 0.10 work).
+func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
+	na, _ := Open(t.TempDir(), "a")
+	nb, _ := Open(t.TempDir(), "b")
+	sync := func() {
+		na.Merge(nb.Since(na.VV(), 1000))
+		nb.Merge(na.Since(nb.VV(), 1000))
+	}
+	a, b := "lap/claude.a1", "box/codex.b2"
+	first, _ := na.Send(msg.Message{From: a, To: b, Body: "0"})
+	sync()
+	var err error
+	n := 0
+	for i := 1; i <= 20; i++ {
+		if i%2 == 1 {
+			_, err = nb.Send(msg.Message{From: b, To: a, Re: first.ID, Body: fmt.Sprint(i)}) // b writes through node b
+		} else {
+			_, err = na.Send(msg.Message{From: a, To: b, Re: first.ID, Body: fmt.Sprint(i)}) // a through node a
+		}
+		if err != nil {
+			break
+		}
+		n++
+		sync()
+	}
+	var rl *RateLimitError
+	if !errors.As(err, &rl) || rl.Scope != "pair" || n > pairLimit {
+		t.Fatalf("after %d replies across two nodes: %v", n, err)
+	}
+}

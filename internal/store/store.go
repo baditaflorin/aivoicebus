@@ -98,9 +98,16 @@ type Store struct {
 	refused     int64     // records dropped because their origin cannot be kept, since start
 	logw        io.Writer // one line per quarantined or refused record; nil says nothing
 
-	sends     map[string][]time.Time  // sender -> when it sent recently, oldest first
-	recent    map[[32]byte]recentSend // fingerprint of a recent message -> its id
-	sendLimit int                     // messages a sender may send per sendWindow
+	sends        map[string][]time.Time  // sender -> when it sent recently, oldest first
+	recent       map[[32]byte]recentSend // fingerprint of a recent message -> its id
+	sendLimit    int                     // messages a sender may send per sendWindow
+	machineLimit int                     // messages a machine may send per sendWindow (SetSendLimit raises it too)
+	hostSends    map[string][]time.Time  // per machine, for machineLimit
+	pairSends    map[string][]time.Time  // per pair of sessions, for pairLimit
+	// limitsDirty: the counts changed since they were last written to ratelimits.json, so a
+	// restart does not forget them (they were "courtesies that a restart forgets" before 0.10).
+	limitsDirty bool
+	limitsSaved time.Time
 
 	retracts     map[string][]time.Time // identity -> when its retractions were written recently, oldest first
 	retractLimit int                    // retractions an identity may write per sendWindow
@@ -189,12 +196,15 @@ const (
 )
 
 // Guards against an agent stuck in a loop. They are courtesies, not security (the
-// shared token lets anyone claim any sender), they live in memory, and a node
-// restart forgets them.
+// shared token lets anyone claim any sender); the send counts are kept in ratelimits.json,
+// so a restart does not forget them.
 const (
 	defaultSendLimit    = 20               // messages one sender may send per sendWindow
 	defaultRetractLimit = 60               // retractions one identity may write per sendWindow
 	sendWindow          = time.Hour        // the span the limit is counted over
+	machineLimit        = 300              // messages one machine may send per sendWindow, all its sessions together
+	pairLimit           = 8                // messages between the same two sessions per pairWindow
+	pairWindow          = 2 * time.Minute  // a loop answers in seconds; a person-paced conversation does not
 	dupWindow           = 10 * time.Minute // an identical message within this span is the same message
 	maxSenders          = 2000             // senders remembered for rate limiting
 	maxRecent           = 1024             // fingerprints remembered for duplicate detection
@@ -205,9 +215,16 @@ type RateLimitError struct {
 	Limit      int
 	RetryAfter time.Duration
 	What       string // what is counted, when it is not messages ("retractions")
+	Scope      string // "" (a sender, an hour), "machine" (an hour) or "pair" (two sessions, pairWindow)
 }
 
 func (e *RateLimitError) Error() string {
+	switch e.Scope {
+	case "pair":
+		return fmt.Sprintf("rate limit: %d messages between the same two sessions in %s is the most: this looks like two agents answering each other in a loop. Stop, and ask the user whether to go on (try again in %s).", e.Limit, pairWindow, e.RetryAfter.Round(time.Second)+time.Second)
+	case "machine":
+		return fmt.Sprintf("rate limit: %d messages an hour from one machine is the most, and this machine has sent them (whatever its sessions are called). Try again in %s, or ask the user.", e.Limit, max(e.RetryAfter.Round(time.Minute), time.Minute))
+	}
 	wait := e.RetryAfter.Round(time.Minute)
 	if wait < time.Minute {
 		wait = time.Minute
@@ -255,7 +272,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
-		sends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit,
+		sends: map[string][]time.Time{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
 		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit}
 	for _, o := range opts {
 		o(s)
@@ -279,6 +296,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		err = terr
 	}
 	s.loadPresence()
+	s.loadLimits()
 	return s, err
 }
 
@@ -337,6 +355,7 @@ func (s *Store) SetSendLimit(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sendLimit = n
+	s.machineLimit = max(machineLimit, n) // a node told to take more from a sender takes it from the machine too
 }
 
 // SetClock replaces the store's clock, so tests can move time.
@@ -862,6 +881,9 @@ func (s *Store) Merge(recs []msg.Record) (int, error) {
 				return n, err
 			}
 			n++
+			if r.Msg != nil {
+				s.notePairLocked(*r.Msg) // a loop's other side may write through another node
+			}
 		}
 	}
 	return n, nil
@@ -935,7 +957,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 			return p, nil
 		}
 	}
-	if err := s.allowSendLocked(m.From, now); err != nil {
+	if err := s.allowSendLocked(m.From, m.To, m.Re, now); err != nil {
 		s.limited++
 		return msg.Message{}, err
 	}
@@ -973,10 +995,95 @@ func (s *Store) byIDLocked(id string) (msg.Message, bool) {
 	return msg.Message{}, false
 }
 
-// allowSendLocked counts one send by from at now, or refuses it if from already
-// sent sendLimit messages within sendWindow.
-func (s *Store) allowSendLocked(from string, now time.Time) error {
-	return allowLocked(s.sends, from, s.sendLimit, "", now)
+// allowSendLocked counts one send by from to to at now, or refuses it: sendLimit an hour per
+// sender, machineLimit an hour per machine (a new session name does not start the count again),
+// and pairLimit replies within pairWindow between the same two sessions, either way (two agents
+// answering each other in a loop; a burst of fresh notes, a CI bot's say, is not one). Nothing is
+// counted unless all three allow it.
+func (s *Store) allowSendLocked(from, to, re string, now time.Time) error {
+	host := msg.HostOf(from)
+	pair := ""
+	back := ""
+	if re != "" && msg.ValidIdentity(to) && strings.Contains(to, ".") && !strings.HasPrefix(to, "@") { // a reply to one session
+		pair, back = from+"\x00"+to, to+"\x00"+from // counted per direction: a loop needs both sides
+	}
+	if wait, ok := under(s.sends, from, s.sendLimit, sendWindow, now); !ok {
+		return &RateLimitError{Limit: s.sendLimit, RetryAfter: wait}
+	}
+	if wait, ok := under(s.hostSends, host, s.machineLimit, sendWindow, now); !ok {
+		return &RateLimitError{Limit: s.machineLimit, RetryAfter: wait, Scope: "machine"}
+	}
+	if pair != "" {
+		mine, theirs := recent(s.pairSends[pair], pairWindow, now), recent(s.pairSends[back], pairWindow, now)
+		if mine >= 2 && theirs >= 2 && mine+theirs >= pairLimit {
+			wait, _ := under(s.pairSends, pair, 0, pairWindow, now)
+			return &RateLimitError{Limit: pairLimit, RetryAfter: wait, Scope: "pair"}
+		}
+		note(s.pairSends, pair, pairWindow, now)
+	}
+	note(s.sends, from, sendWindow, now)
+	note(s.hostSends, host, sendWindow, now)
+	s.limitsDirty = true
+	s.flushLimitsLocked(false)
+	return nil
+}
+
+// under reports whether who used fewer than limit within window at now, and if not, how long
+// until one use runs out of it.
+func under(used map[string][]time.Time, who string, limit int, window time.Duration, now time.Time) (time.Duration, bool) {
+	n, oldest := 0, time.Time{}
+	for _, t := range used[who] {
+		if t.After(now.Add(-window)) {
+			if n == 0 {
+				oldest = t
+			}
+			n++
+		}
+	}
+	if n >= limit {
+		return oldest.Add(window).Sub(now), false
+	}
+	return 0, true
+}
+
+// notePairLocked counts a reply that reached this node from a peer toward its pair, so a loop
+// whose two sides write through different nodes is seen whole. It refuses nothing: the message is
+// in already. Only replies of the last pairWindow count, at the time their own node gave them.
+func (s *Store) notePairLocked(m msg.Message) {
+	now := s.now()
+	if m.Re == "" || !msg.ValidIdentity(m.To) || !strings.Contains(m.To, ".") || strings.HasPrefix(m.To, "@") ||
+		m.At.Before(now.Add(-pairWindow)) || m.At.After(now.Add(maxClockAhead)) {
+		return
+	}
+	note(s.pairSends, m.From+"\x00"+m.To, pairWindow, m.At)
+	s.limitsDirty = true
+}
+
+// recent counts the uses in ts within window at now.
+func recent(ts []time.Time, window time.Duration, now time.Time) int {
+	n := 0
+	for _, t := range ts {
+		if t.After(now.Add(-window)) {
+			n++
+		}
+	}
+	return n
+}
+
+// note counts one use by who at now, forgetting what fell out of window, and keeps the map bounded.
+func note(used map[string][]time.Time, who string, window time.Duration, now time.Time) {
+	ts := used[who]
+	for len(ts) > 0 && !ts[0].After(now.Add(-window)) {
+		ts = ts[1:]
+	}
+	used[who] = append(ts, now)
+	if len(used) > maxSenders {
+		for k, v := range used {
+			if len(v) == 0 || !v[len(v)-1].After(now.Add(-window)) {
+				delete(used, k)
+			}
+		}
+	}
 }
 
 // allowLocked counts one use by who in used at now, or refuses it if who already used limit
@@ -1485,11 +1592,61 @@ func (s *Store) flushPresenceLocked(_ time.Time, force bool) {
 	}
 }
 
-// FlushPresence writes the roster to disk now (a graceful shutdown).
+// FlushPresence writes the roster to disk now (a graceful shutdown), and the rate-limit counts.
 func (s *Store) FlushPresence() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.flushPresenceLocked(s.now().UTC(), true)
+	s.flushLimitsLocked(true)
+}
+
+const limitsFile = "ratelimits.json"
+
+type limitsJSON struct {
+	Sends map[string][]time.Time `json:"sends"`
+	Hosts map[string][]time.Time `json:"hosts"`
+	Pairs map[string][]time.Time `json:"pairs"`
+}
+
+// loadLimits takes back the counts a previous run wrote, dropping what has run out.
+func (s *Store) loadLimits() {
+	b, err := os.ReadFile(filepath.Join(s.dir, limitsFile))
+	if err != nil {
+		return
+	}
+	var j limitsJSON
+	if json.Unmarshal(b, &j) != nil {
+		return
+	}
+	now := s.now()
+	keep := func(dst, src map[string][]time.Time, window time.Duration) {
+		for k, ts := range src {
+			for _, t := range ts {
+				if t.After(now.Add(-window)) && !t.After(now.Add(maxClockAhead)) {
+					dst[k] = append(dst[k], t)
+				}
+			}
+		}
+	}
+	keep(s.sends, j.Sends, sendWindow)
+	keep(s.hostSends, j.Hosts, sendWindow)
+	keep(s.pairSends, j.Pairs, pairWindow)
+}
+
+// flushLimitsLocked writes the counts at most every presenceFlushEvery unless force.
+func (s *Store) flushLimitsLocked(force bool) {
+	if !s.limitsDirty || (!force && time.Since(s.limitsSaved) < presenceFlushEvery) {
+		return
+	}
+	s.limitsSaved = time.Now()
+	b, err := json.Marshal(limitsJSON{Sends: s.sends, Hosts: s.hostSends, Pairs: s.pairSends})
+	if err != nil {
+		return
+	}
+	tmp := filepath.Join(s.dir, limitsFile+".tmp")
+	if os.WriteFile(tmp, b, 0o600) == nil && os.Rename(tmp, filepath.Join(s.dir, limitsFile)) == nil {
+		s.limitsDirty = false
+	}
 }
 
 // MergePresence takes in what a peer knows about sessions: for each, the later
