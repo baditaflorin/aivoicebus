@@ -207,6 +207,10 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a %s; update the nodes first", old, msg.TaskSince, m.Kind)
 		}
 	}
+	// Sign only when every node keeps the signature (see msg.SignSince); the client signs as it sends.
+	if !c.NoSign && nodeTooOldFor(c, msg.SignSince) != "" {
+		c.NoSign = true
+	}
 	if m.Kind == msg.KindLease {
 		if old := nodeTooOldFor(c, msg.LeaseSince); old != "" {
 			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a lease; update the nodes first", old, msg.LeaseSince)

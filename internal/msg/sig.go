@@ -25,6 +25,12 @@ import (
 // then "[sealed v1] " and base64 of an ephemeral public key, a nonce and AES-256-GCM ciphertext,
 // which nodes store and replicate like any text and only that machine can open.
 
+// SignSince is the first release whose nodes keep a message's key, box and sig. An older node drops
+// fields it does not know, and the copy it stores and relays would differ from everyone else's for
+// good, so a client signs only when every node it can see runs this release or later: during a
+// rolling upgrade messages go unsigned, and once the last node is updated they are all signed.
+const SignSince = "0.7.0"
+
 // Verification results a client sets on a message it read (response only: never stored).
 const (
 	VerifiedSigned   = "signed"   // a valid signature by the key pinned for the sender's machine (or seen for the first time)

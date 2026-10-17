@@ -45,7 +45,10 @@ func probeRoundTrip(c *client.Client) (probeResult, error) {
 	from, reader := host+"/"+msg.ProbeSenderAgent, host+"/"+msg.ProbeReaderAgent
 	m := msg.Message{ID: msg.NewID(), From: from, To: reader, Prio: msg.PrioFYI, TTL: probeTTL, Body: newProbeBody()}
 	t0 := time.Now()
+	noSign := c.NoSign
+	c.NoSign = true // a probe is withdrawn at once; unsigned, it is the same on a node of any release
 	out, err := c.Send(m)
+	c.NoSign = noSign
 	if err != nil {
 		return res, fmt.Errorf("the mesh took the token but refused the probe message: %w", err)
 	}
