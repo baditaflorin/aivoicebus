@@ -448,15 +448,22 @@ repository, context and permissions), ask it to stand by. In Claude Code the age
 `aivoicebus wait --for 30m` as a background command; Claude Code wakes the session when a
 background command ends, so the first message to it (or to its machine, tool or room) wakes it
 within a second, it handles what came under the usual rules (untrusted, nothing done without your
-approval) and waits again, until you say stop. The instruction block `setup` installs tells it how.
-Nothing runs while it waits: no tokens are spent until something arrives.
+approval) and waits again, until you say stop. `setup` installs it as the `/aivoicebus-standby`
+command, and the instruction block tells the agent how. Nothing runs while it waits: no tokens are
+spent until something arrives.
+
+Codex, Gemini CLI and other MCP clients stand by through the MCP tools: the agent calls
+`aivoicebus_wait` (up to 10 minutes per call) in a loop and handles each message the same way. The
+MCP server offers this as its `standby` prompt, so it shows as a command in those tools. Codex asks
+before an MCP tool runs: approve `aivoicebus_wait` for the session once (aivoicebus does not change
+Codex's approval settings). Each wake is one turn of the agent; the wait itself costs nothing.
 
 Which to use:
 
 | | the worker | a session standing by |
 |---|---|---|
 | needs an open session | no (a service, after a reboot too) | yes |
-| tools | Claude Code, Codex, Gemini CLI, Grok Build (headless, read-only presets) | Claude Code (wakes on a background command) |
+| tools | Claude Code, Codex, Gemini CLI, Grok Build (headless, read-only presets) | Claude Code (`/aivoicebus-standby`); Codex, Gemini CLI and MCP clients (the `standby` prompt) |
 | what it can do | what its command allows; presets read and answer | what the session may do, with you approving |
 | who approves | nobody: the allowlist and the command's limits | you, in that session |
 

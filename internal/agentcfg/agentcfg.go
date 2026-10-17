@@ -161,6 +161,7 @@ func Setup(o Options) ([]Step, error) {
 	in.toolHooks()
 	in.instructions()
 	in.mcpServers()
+	in.claudeStandby()
 	in.state()
 	for _, s := range in.steps {
 		if s.Status == Failed {

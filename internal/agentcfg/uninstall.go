@@ -37,6 +37,7 @@ func Uninstall(o RemoveOptions) ([]Step, error) {
 	in.removeHook()
 	in.removeToolHooks()
 	in.removeMCPServers()
+	in.removeClaudeStandby()
 	in.removeInstructions()
 	in.removeShell()
 	in.removeConfigFiles(o.Purge)
