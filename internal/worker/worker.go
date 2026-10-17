@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
@@ -49,7 +51,8 @@ type Worker struct {
 	// Tick runs at the start of every loop, between passes (the worker's --watch check). nil does nothing.
 	Tick func()
 
-	seen map[string]bool // tasks already reported as skipped, so a poll loop says so once
+	seen  map[string]bool
+	sayMu sync.Mutex // tasks already reported as skipped, so a poll loop says so once
 }
 
 // Entry is one line of the worker's log (~/.config/aivoicebus/worker.log, JSON lines). It never
@@ -115,6 +118,8 @@ func (w *Worker) now() time.Time {
 }
 
 func (w *Worker) say(format string, a ...any) {
+	w.sayMu.Lock() // the cancel watch says things while a run goes on
+	defer w.sayMu.Unlock()
 	if w.Out != nil {
 		fmt.Fprintf(w.Out, format+"\n", a...)
 	}
@@ -202,9 +207,18 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 		return false
 	}
 	limits := w.Limits
+	// The sender can take the task back (`aivoicebus cancel ID`) while it waits for approval or
+	// runs: the watch stops both, and a run is killed with everything it started.
+	taskCtx, stopTask := context.WithCancel(ctx)
+	defer stopTask()
+	cancelled := &atomic.Bool{}
+	go w.watchCancel(taskCtx, m.ID, cancelled, stopTask)
 	var wt *worktree
 	if w.Write != nil {
-		ok, why := w.approve(ctx, m)
+		ok, why := w.approve(taskCtx, m)
+		if cancelled.Load() {
+			ok, why = false, "cancelled by its sender"
+		}
 		if !ok {
 			w.say("task %s from %s: not run: %s", m.ID, who, why)
 			base.Outcome, base.Why = "not approved", why
@@ -226,9 +240,12 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	}
 	w.say("task %s from %s (allowed by %q): running %s", m.ID, who, entry, QuoteCommand(w.Argv))
 	env := append(withoutIdentity(w.Env), "AIVOICEBUS_TASK_ID="+m.ID, "AIVOICEBUS_TASK_FROM="+m.From, "AIVOICEBUS_TASK_THREAD="+m.Thread)
-	r := Exec(ctx, w.Argv, m.Body, env, limits)
+	r := Exec(taskCtx, w.Argv, m.Body, env, limits)
+	r.Cancelled = cancelled.Load()
 	body, withheld := w.answer(r)
-	if wt != nil {
+	if wt != nil && r.Cancelled {
+		body += "\n" + wt.discard(ctx) // nothing half done is committed
+	} else if wt != nil {
 		body += "\n" + wt.finish(ctx, m)                                     // commit what it changed on the branch, and say where
 		if kind, found := outbox.Credential(body); found && withheld == "" { // file names are the agent's words too
 			withheld = kind
@@ -242,6 +259,9 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	}
 	base.OutBytes, base.OutSHA, base.Truncated = len(r.Stdout)+len(r.Stderr), sum(r.Stdout+r.Stderr), r.Truncated
 	base.Outcome = "ran"
+	if r.Cancelled {
+		base.Outcome = "cancelled"
+	}
 	if withheld != "" {
 		base.Outcome, base.Why = "withheld", "the output looks like it holds a "+withheld
 	}
@@ -255,6 +275,31 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	}
 	w.log(base)
 	return true
+}
+
+// watchCancel stops the task when its sender withdraws it: it looks every two seconds until ctx ends.
+func (w *Worker) watchCancel(ctx context.Context, id string, cancelled *atomic.Bool, stop context.CancelFunc) {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		ms, err := w.C.Thread(id)
+		if err != nil {
+			continue
+		}
+		for _, x := range ms {
+			if x.ID == id && x.Retracted != nil {
+				cancelled.Store(true)
+				w.say("task %s: its sender took it back; stopping it", id)
+				stop()
+				return
+			}
+		}
+	}
 }
 
 // answer is the text sent back: what the run printed, under a line that says how it ended. It

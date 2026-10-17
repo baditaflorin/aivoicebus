@@ -276,6 +276,12 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**Take it back, and stop it.** `aivoicebus cancel ID` withdraws a task you sent (it is `retract`,
+named for what it does to a task). A worker that is running it notices within two seconds, kills the
+run and everything the run started, and answers "cancelled by its sender"; a write-mode run then
+removes its worktree and branch, so nothing half done is committed. A worker still waiting for the
+task's approval stops waiting. A session that took it sees it withdrawn.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.

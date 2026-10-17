@@ -135,6 +135,13 @@ func newWorktree(ctx context.Context, repo, root, id string) (*worktree, error) 
 	return &worktree{repo: repo, dir: dir, branch: branch}, nil
 }
 
+// discard removes the worktree and its branch: a cancelled run leaves nothing behind.
+func (wt *worktree) discard(ctx context.Context) string {
+	_, _ = git(context.Background(), wt.repo, "worktree", "remove", "--force", wt.dir)
+	_, _ = git(context.Background(), wt.repo, "branch", "-D", wt.branch)
+	return "[write mode] cancelled: the worktree and branch " + wt.branch + " were removed; nothing was committed."
+}
+
 // finish commits whatever the run changed on the branch, removes the worktree (the branch stays),
 // and says where the change is.
 func (wt *worktree) finish(ctx context.Context, m msg.Message) string {

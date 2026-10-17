@@ -730,3 +730,17 @@ func who(args []string, s Streams) error {
 	}
 	return nil
 }
+
+// cancelCmd takes a task back so that whoever runs it stops: a worker running it kills the run
+// within seconds (and a write-mode run commits nothing); a session that took it sees it withdrawn.
+// It is retract, said for what it does to a task.
+func cancelCmd(args []string, s Streams) error {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return outbox.Usagef("usage: cancel ID   (a task this session sent)")
+	}
+	if err := retractCmd([]string{args[0]}, s); err != nil {
+		return err
+	}
+	fmt.Fprintln(s.Out, "cancelled: a worker running it stops it within seconds and answers that it did; a session that took it sees it withdrawn")
+	return nil
+}
