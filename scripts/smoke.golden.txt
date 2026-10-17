@@ -453,11 +453,13 @@ $ aivoicebus worker allow list
 smoke-a
 [exit 0]
 $ aivoicebus worker --dry-run --exec cat
+[aivoicebus] warning: no sandbox on this system (no sandbox-exec, no bwrap): runs can read this user's secrets. Install bubblewrap, or say --sandbox=false to accept it.
 worker smoke-b/worker, dry run: nothing is claimed or run. Allowed senders: smoke-a
 would run task <ID> from smoke-a/claude.a1 (allowed by "smoke-a", 11 bytes on stdin): cat
   what is 6*7
 [exit 0]
 $ aivoicebus worker --once --settle 0s --exec cat
+[aivoicebus] warning: no sandbox on this system (no sandbox-exec, no bwrap): runs can read this user's secrets. Install bubblewrap, or say --sandbox=false to accept it.
 aivoicebus worker smoke-b/worker: runs cat (task text on stdin, at most 10m0s, 16000 bytes of output kept) for tasks from smoke-a.
 [aivoicebus] This runs an agent on input from peers. Every run is logged in <TMP>/home/.config/aivoicebus/worker.log.
 warning: only 1 node(s) took the write
@@ -467,6 +469,7 @@ warning: only 1 node(s) took the write
 task <ID>: exit 0 after 0s; answered smoke-a/claude.a1 (<ID>)
 [exit 0]
 $ aivoicebus worker --once --settle 0s --exec cat
+[aivoicebus] warning: no sandbox on this system (no sandbox-exec, no bwrap): runs can read this user's secrets. Install bubblewrap, or say --sandbox=false to accept it.
 aivoicebus worker smoke-b/worker: runs cat (task text on stdin, at most 10m0s, 16000 bytes of output kept) for tasks from smoke-a.
 [aivoicebus] This runs an agent on input from peers. Every run is logged in <TMP>/home/.config/aivoicebus/worker.log.
 (no task to run)
