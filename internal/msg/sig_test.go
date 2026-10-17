@@ -59,3 +59,17 @@ func TestSealOnlyTheRecipientCanOpen(t *testing.T) {
 		t.Error("BoxPublic")
 	}
 }
+
+func TestPhoneCodesMatchOnlyTheirHash(t *testing.T) {
+	const code = "0123456789abcdef0123456789abcdef"
+	body := "[approval needed] x\n" + PhoneCheckLine(code)
+	if !PhoneCodeMatches(body, code) || PhoneCodeMatches(body, "ffffffffffffffffffffffffffffffff") || PhoneCodeMatches(body, "short") || PhoneCodeMatches("no line", code) {
+		t.Error("PhoneCodeMatches")
+	}
+	if say, c, ok := ParsePhoneDecision(PhoneDecisionBody("deny", code)); !ok || say != "deny" || c != code {
+		t.Error("ParsePhoneDecision")
+	}
+	if _, _, ok := ParsePhoneDecision("phone approve " + code + " extra"); ok {
+		t.Error("extra words")
+	}
+}

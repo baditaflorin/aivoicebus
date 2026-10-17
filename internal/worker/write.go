@@ -3,6 +3,9 @@ package worker
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -32,7 +35,11 @@ type WriteMode struct {
 	// only signed with it. The machine key does not do: any agent on that machine can use it.
 	ApproverKey ed25519.PublicKey
 	Within      time.Duration // how long to wait for the approval
-	Notify      func(text string)
+	// Notify tells the person out of band (the notify URL); actions are ntfy action buttons ("" for
+	// none). With PhoneURL set too, the notification carries Approve and Deny buttons that POST a
+	// one-time code to PhoneURL/v1/decide (a node the phone reaches, on the tailnet).
+	Notify   func(text, actions string)
+	PhoneURL string
 }
 
 // approve asks the approver and waits for the answer. It reports whether to run, and why not.
@@ -43,6 +50,13 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 	text := fmt.Sprintf("[approval needed] the worker on %s would run this task from %s with write access, in a new branch aivoicebus/task-%s of %s (not pushed):\n%s\n\nA person approves in a terminal, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits %s. An agent must not run either.",
 		host, view.Name(m.From, msg.MaxIdentity), m.ID, wm.Repo, view.OneLine(m.Body, 600), wm.Within)
 	to := wm.Approver
+	code := ""
+	if wm.Notify != nil && wm.PhoneURL != "" {
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		code = hex.EncodeToString(b) // only in the notification; the request carries its hash
+		text += "\nOr on the phone: the Approve and Deny buttons of the notification.\n" + msg.PhoneCheckLine(code)
+	}
 	plan, err := outbox.Prepare(w.C, outbox.Request{To: to, Body: text, Prio: msg.PrioUrgent, Queue: true, TargetSaid: true}, io.Discard)
 	if err != nil {
 		return false, "the approval request could not be prepared: " + err.Error()
@@ -53,7 +67,12 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 	}
 	w.say("task %s: asked %s to approve (%s), waiting up to %s", m.ID, view.Name(to, msg.MaxIdentity), req.ID, wm.Within)
 	if wm.Notify != nil {
-		wm.Notify(fmt.Sprintf("aivoicebus: approval needed for task %s from %s on %s. aivoicebus approve %s", m.ID, msg.SafeName(m.From), host, req.ID))
+		actions := ""
+		if code != "" {
+			u := strings.TrimRight(wm.PhoneURL, "/") + "/v1/decide?id=" + req.ID + "&code=" + code + "&say="
+			actions = "http, Approve, " + u + "approve, method=POST, clear=true; http, Deny, " + u + "deny, method=POST, clear=true"
+		}
+		wm.Notify(fmt.Sprintf("aivoicebus: approval needed: task %s from %s on %s.\n%s", m.ID, msg.SafeName(m.From), host, view.OneLine(m.Body, 200)), actions)
 	}
 	deadline := time.Now().Add(wm.Within)
 	ignored := map[string]bool{} // a reply is said to be ignored once
@@ -63,6 +82,12 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 			break // timed out, or stopped
 		}
 		for _, a := range got {
+			if say, c, ok := msg.ParsePhoneDecision(a.Body); ok && code != "" && subtle.ConstantTimeCompare([]byte(c), []byte(code)) == 1 {
+				if say == "approve" {
+					return true, ""
+				}
+				return false, "denied on the phone"
+			}
 			if _, ok := who.Allows(a.From); !ok {
 				continue // someone else in the thread: not the approver
 			}

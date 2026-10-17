@@ -185,6 +185,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		return msg.RetractResult{}, false
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("/v1/decide", decideHandler(s)) // no token: a one-time code from a phone button (decide.go)
 	mux.HandleFunc("/v1/health", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) { js(w, health()) }))
 	mux.HandleFunc("/metrics", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
