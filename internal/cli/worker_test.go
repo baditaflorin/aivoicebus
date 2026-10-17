@@ -386,3 +386,20 @@ func TestTaskChainsStopAtTheDepthLimit(t *testing.T) {
 		t.Errorf("the worker took a task 4 deep: %s", out)
 	}
 }
+
+// Over its token budget the worker takes no task, and says so.
+func TestAWorkerOverItsBudgetTakesNoTask(t *testing.T) {
+	mark := workerSetup(t, "desk")
+	l, _ := worker.FileLog(worker.LogPath())
+	l(worker.Entry{At: time.Now().UTC(), Task: "t000000001", From: boss, Outcome: "ran", Usage: &worker.Usage{Input: 1400, Output: 200}})
+	sendTask(t, boss, "lap", "write the mark")
+	if _, out, _ := runWorker(t, "--budget", "1000", "--exec", "touch "+mark); !strings.Contains(out, "over its budget of 1000") {
+		t.Errorf("%s", out)
+	}
+	if _, err := os.Stat(mark); err == nil {
+		t.Fatal("a worker over budget ran a task")
+	}
+	if _, _, _ = runWorker(t, "--budget", "5000", "--exec", "touch "+mark); func() bool { _, err := os.Stat(mark); return err != nil }() {
+		t.Error("under budget it should run")
+	}
+}
