@@ -34,7 +34,7 @@ func TestSetupHooksMCPAndInstructionsForEveryTool(t *testing.T) {
 			t.Errorf("%s: %+v", n, s)
 		}
 	}
-	if !strings.Contains(stepOf(steps, "codex hook").Detail, "/hooks") {
+	if !strings.Contains(stepOf(steps, "codex hook").Detail, "aivoicebus trust-codex") {
 		t.Error("the codex step does not say the hooks must be trusted once")
 	}
 

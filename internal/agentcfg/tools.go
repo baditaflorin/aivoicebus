@@ -35,7 +35,7 @@ var hookFiles = []hookFile{
 			{event: "SessionStart", command: toolHookCommand("codex", false), timeout: HookTimeout},
 			{event: "UserPromptSubmit", command: toolHookCommand("codex", true), timeout: PromptHookTimeout},
 		},
-		trustNote: "Codex runs a new hook only after you trust it: open Codex once and approve it in /hooks"},
+		trustNote: "Codex runs a new hook only after you trust it: run `aivoicebus trust-codex` once"},
 	{tool: "gemini", dir: ".gemini", file: "settings.json",
 		specs: []hookSpec{
 			{event: "SessionStart", command: toolHookCommand("gemini", false), timeout: HookTimeout * 1000, name: "aivoicebus-start"},
@@ -94,6 +94,10 @@ func (in *installer) toolHooks() {
 			continue
 		}
 		if !changed {
+			if c, ok := codexTrustCheck(in.p.Home); hf.tool == "codex" && ok && c.Level != LevelOK {
+				in.add(what, OK, path+" ("+c.Detail+")")
+				continue
+			}
 			in.add(what, OK, path)
 			continue
 		}

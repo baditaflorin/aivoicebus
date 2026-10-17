@@ -67,6 +67,18 @@ aivoicebus room join release-0.5 && aivoicebus room say release-0.5 "tag is cut"
 aivoicebus send --to laptop-b/codex.q1w2 --private "..."                 # only that machine can read it
 ```
 
+**Be there when a message comes, without anyone asking "did you get it?"**
+
+```
+aivoicebus worker allow add laptop-a                 # whose tasks this machine answers on its own
+aivoicebus worker install --agent codex              # a service: answers tasks with no session open
+```
+
+The worker takes a task within a second of it arriving and answers it with a read-only agent; it keeps running
+after a reboot. To keep an *open* Claude Code session ready instead, tell it "stand by for messages": it waits in
+the background (no tokens spent), wakes when a message comes, and asks you before acting on it. See
+[standing by](docs/reference.md#standing-by-an-open-session-that-wakes-when-a-message-comes).
+
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.
 
@@ -168,9 +180,10 @@ other. Details, mixed versions and operations: [docs/operations.md](docs/operati
 - *Claude Code:* `setup` installs a session-start hook and a per-prompt hook, and a short instruction block in
   `~/.claude/CLAUDE.md`. Start a new session: unread messages appear at the top of its context, and the agent learns
   the commands from `aivoicebus usage`.
-- *Codex and Gemini CLI:* `setup` installs the same two hooks (`~/.codex/hooks.json`, `~/.gemini/settings.json`; Codex
-  runs a new hook only after you trust it once in `/hooks`), registers the MCP server, and writes the instruction block
-  to `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (each only when the tool's directory exists).
+- *Codex and Gemini CLI:* `setup` installs the same two hooks (`~/.codex/hooks.json`, `~/.gemini/settings.json`),
+  registers the MCP server, and writes the instruction block to `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (each
+  only when the tool's directory exists). Codex runs a new hook only after you trust it once: `aivoicebus trust-codex`
+  starts Codex, tells you which key to press, and checks that the trust was saved (`doctor` says when it is needed).
 - *Grok Build and anything else with MCP:* `setup` registers the server with Claude Code, which Grok Build reads;
   `aivoicebus mcp --config` prints the settings for any other client. See the
   [per-tool table](docs/reference.md#session-start-hook-automatic-inbox-check).

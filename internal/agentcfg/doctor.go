@@ -101,6 +101,11 @@ func Doctor(o DoctorOptions) []Check {
 		}
 	}
 
+	// Codex runs its hooks only once a person trusted them, and says nothing while it does not.
+	if c, ok := codexTrustCheck(o.Home); ok {
+		cs = append(cs, c)
+	}
+
 	// what the hooks last found when they asked the mesh (they are silent, so this is the
 	// only trace a deaf machine leaves)
 	if st, ok := config.LoadHookStatus(p.HookStatus()); ok {

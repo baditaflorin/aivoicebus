@@ -279,20 +279,57 @@ func withoutIdentity(env []string) []string {
 	return out
 }
 
-// Loop runs Pass every `every` until ctx is done. A node that cannot be reached is reported and
-// tried again.
+// Loop runs Pass until ctx is done. Between passes it holds a read open on a node that can
+// (msg.FeatureInboxWait), so a task sent to it is taken within a second and the worker shows as
+// listening; with an older node, or when a held read fails, it passes every `every`. A node that
+// cannot be reached is reported and tried again.
 func (w *Worker) Loop(ctx context.Context, every time.Duration) error {
+	held := false
+	if h, err := w.C.Health(); err == nil && h.Has(msg.FeatureInboxWait) {
+		held = true
+	}
+	var gen uint64
+	hasGen := false
 	for {
+		if held && !hasGen { // the change counter before the pass: whatever comes after it wakes the hold
+			if _, g, err := w.C.InboxWait(ctx, w.Me, 0, false, 0); err == nil {
+				gen, hasGen = g, true
+			} else {
+				held = false
+			}
+		}
 		if _, err := w.Pass(ctx); err != nil {
 			if !client.IsUnreachable(err) {
 				return err
 			}
 			w.say("no node reachable (%v); trying again", err)
+			hasGen = false
+		}
+		if held && hasGen {
+			start := time.Now()
+			_, g, err := w.C.InboxWait(ctx, w.Me, gen, true, msg.MaxInboxWait)
+			switch {
+			case ctx.Err() != nil:
+				return nil
+			case err != nil:
+				hasGen = false // ask afresh, after the pause below
+			default:
+				gen = g
+				if time.Since(start) >= time.Second {
+					continue // it waited: something arrived, or the hold ran out; pass again now
+				}
+			}
+		}
+		// No held read, or one that answered at once (a busy board): pass again after `every` at
+		// most, and at least a second, so a node that answers at once cannot make this spin.
+		pause := every
+		if held {
+			pause = time.Second
 		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(every):
+		case <-time.After(pause):
 		}
 	}
 }

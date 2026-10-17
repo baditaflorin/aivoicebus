@@ -332,7 +332,7 @@ skipped      grok instructions      no ~/.grok (tool not installed); setup adds 
 skipped      codex mcp              no ~/.codex (tool not installed)
 skipped      gemini mcp             no ~/.gemini (tool not installed)
 skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
-would change state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
+would change state                  release <VER>, hook dd5d1a1e, snippet 0b528a0f
 [exit 0]
 $ aivoicebus setup --yes --url http://127.0.0.1:<PORT>
 changed      install                copy of <BIN> -> <TMP>/home/.local/bin/aivoicebus
@@ -349,7 +349,7 @@ skipped      grok instructions      no ~/.grok (tool not installed); setup adds 
 skipped      codex mcp              no ~/.codex (tool not installed)
 skipped      gemini mcp             no ~/.gemini (tool not installed)
 skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
-changed      state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
+changed      state                  release <VER>, hook dd5d1a1e, snippet 0b528a0f
 [exit 0]
 $ aivoicebus doctor --offline
 ok    binary                 aivoicebus <VER> (commit <C>, <PLATFORM>)
@@ -360,7 +360,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  from AIVOICEBUS_TOKEN
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet 145e2ec5
+ok    claude instructions    snippet 0b528a0f
 ok    state                  applied by release <VER>
 [exit 0]
 $ aivoicebus doctor --offline
@@ -372,7 +372,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet 145e2ec5
+ok    claude instructions    snippet 0b528a0f
 ok    state                  applied by release <VER>
 [exit 0]
 $ aivoicebus setup
@@ -401,7 +401,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet 145e2ec5
+ok    claude instructions    snippet 0b528a0f
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 ok    node features          smoke: files,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,tasks

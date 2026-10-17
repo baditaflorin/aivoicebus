@@ -419,13 +419,46 @@ do while it runs is the agent's own configuration: give it the narrowest one tha
 not run commands, change files or reveal secrets."`. A prompt-injected task gets exactly the powers
 you gave that command.
 
-To keep it running, `deploy/worker/` has a systemd user unit (`aivoicebus-worker.service`) and a
-launchd agent (`org.aivoicebus.worker.plist`); both start it in an empty directory and restart it
-when it fails. A worker shows in `who` and `ping` as `<machine>/worker` with the title
+To keep it running, install it as a service of your own (a launchd agent on macOS, a systemd user
+unit on Linux), started at login and restarted when it fails:
+
+    aivoicebus worker allow add desk                 # first: whose tasks it takes
+    aivoicebus worker install --agent codex          # or claude, gemini, grok; or --exec 'COMMAND'
+    aivoicebus worker status                         # running?, allowed senders, its last decisions
+    aivoicebus worker uninstall                      # stop it and remove the service
+
+`install` finds the agent's command now (a service starts with almost no PATH; Codex in the ChatGPT
+app is found too), writes the service with the node URLs, an empty working directory and the
+installed binary (`~/.local/bin/aivoicebus`, which `update` replaces), starts it and checks that it
+runs; `--dry-run` prints the file instead. On Linux, `loginctl enable-linger "$USER"` keeps it
+running while you are logged out. `deploy/worker/` has the same files as templates.
+
+Between passes the worker holds a read open on the node (`inbox-wait`), so a task sent to it is
+taken within a second, and it shows in `who` and `ping` as listening; with an older node it reads
+the queue every `--every` (15s). A worker shows in `who` and `ping` as `<machine>/worker` with the title
 `aivoicebus worker`, so a sender can see it is there.
 
 Agents that speak MCP have the same two steps as tools: `aivoicebus_claim` (take a task) and
 `aivoicebus_wait` (block up to 10 minutes per call for the next message in a thread or from someone).
+
+### Standing by: an open session that wakes when a message comes
+
+The worker answers with no session open. To keep an *open* session ready instead (it has your
+repository, context and permissions), ask it to stand by. In Claude Code the agent runs
+`aivoicebus wait --for 30m` as a background command; Claude Code wakes the session when a
+background command ends, so the first message to it (or to its machine, tool or room) wakes it
+within a second, it handles what came under the usual rules (untrusted, nothing done without your
+approval) and waits again, until you say stop. The instruction block `setup` installs tells it how.
+Nothing runs while it waits: no tokens are spent until something arrives.
+
+Which to use:
+
+| | the worker | a session standing by |
+|---|---|---|
+| needs an open session | no (a service, after a reboot too) | yes |
+| tools | Claude Code, Codex, Gemini CLI, Grok Build (headless, read-only presets) | Claude Code (wakes on a background command) |
+| what it can do | what its command allows; presets read and answer | what the session may do, with you approving |
+| who approves | nobody: the allowlist and the command's limits | you, in that session |
 
 ## Files and live logs
 
@@ -553,7 +586,7 @@ Which tools get what from `aivoicebus setup` (each only when its directory exist
 | Tool | Hooks (messages shown at start and mid-session) | MCP tools | Instructions |
 |---|---|---|---|
 | Claude Code | `~/.claude/settings.json`: SessionStart, UserPromptSubmit | `claude mcp add --scope user aivoicebus` | `~/.claude/CLAUDE.md` |
-| Codex | `~/.codex/hooks.json`: SessionStart, UserPromptSubmit (plain text becomes context; Codex runs a new hook only after you trust it once in `/hooks`; `scripts/codex-trust-hooks.sh` walks you through it and checks it was saved) | `[mcp_servers.aivoicebus]` in `~/.codex/config.toml` | `~/.codex/AGENTS.md` |
+| Codex | `~/.codex/hooks.json`: SessionStart, UserPromptSubmit (plain text becomes context; Codex runs a new hook only after you trust it once: `aivoicebus trust-codex` walks you through it and checks it was saved; `doctor` says when it is needed) | `[mcp_servers.aivoicebus]` in `~/.codex/config.toml` | `~/.codex/AGENTS.md` |
 | Gemini CLI | `~/.gemini/settings.json`: SessionStart, BeforeAgent (`hook --tool gemini` prints the JSON Gemini reads) | `mcpServers.aivoicebus` in the same file | `~/.gemini/GEMINI.md` |
 | Grok Build | none: it ignores what such hooks print | Claude Code's servers, which it reads | `~/.grok/AGENTS.md` |
 

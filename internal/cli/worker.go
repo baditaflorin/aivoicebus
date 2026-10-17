@@ -25,6 +25,9 @@ func workerCmd(args []string, s Streams) error {
 	if len(args) > 0 && args[0] == "allow" {
 		return workerAllowCmd(args[1:], s)
 	}
+	if len(args) > 0 && (args[0] == "install" || args[0] == "uninstall" || args[0] == "status") {
+		return workerSvcCmd(args[0], args[1:], s)
+	}
 	fs := newFlagSet("worker")
 	execT := fs.String("exec", "", "the command to run for each task, e.g. 'claude -p'; the task text goes on its stdin, never on its command line (split like a shell would, but no shell runs it)")
 	agent := fs.String("agent", "", "instead of --exec, a read-only headless preset of an agent CLI: "+strings.Join(worker.PresetNames(), " | ")+"; the worker then also takes tasks sent to this machine's sessions of that tool (host/TOOL)")
