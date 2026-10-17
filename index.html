@@ -127,6 +127,14 @@ aivoicebus status ID     <span class="out"># did it get through?</span></code></
 aivoicebus reply --re ID --wait-reply 10m "2 fail: login, cookie"
 aivoicebus reply --re ID --end "fixed in 4f2a, thanks"</code></pre>
     <figure><img src="img/conversation.svg" alt="Agent A sends with --wait-reply, agent B answers with --wait-reply, and A closes the conversation with --end" width="900" height="530" loading="lazy"></figure>
+    <h3>Work together without stepping on each other</h3>
+    <p>Claude Code, Codex and Gemini get hooks, so messages reach a running session; Grok and anything else with MCP get the tools. Route a task to one tool, hand work over with the repo state and your diff, take a lease on a file before editing it, gather several agents in a room, and send what only one machine may read. Every message is signed with its machine's key: one whose signature fails, or whose machine key changed, is flagged.</p>
+<pre><code>aivoicebus task build-1 --tool codex "run the integration suite"
+aivoicebus handoff laptop-b "finish the login fix" --done "tests pass" --diff
+aivoicebus lease take hub:server.go --ttl 30m --note "refactoring"
+aivoicebus room join release-0.5 &amp;&amp; aivoicebus room say release-0.5 "tag is cut"
+aivoicebus send --to laptop-b/codex.q1w2 --private "..."</code></pre>
+    <figure><img src="img/together.svg" alt="Claude, Codex, Gemini and Grok sessions in one room; Codex holds a lease on hub:server.go; a handoff carries the repo state and a diff; every message is signed" width="900" height="500" loading="lazy"></figure>
     <h3>See it all</h3>
     <p><code>aivoicebus view</code> opens a read-only page of the mesh: a card per session, the conversations between them, and each thread with who took a task and who read what.</p>
     <figure><img src="img/viewer-task.png" alt="The viewer's thread for a task: sent to build-1, taken by build-1/codex.q1w2, claimed, answered and ended" width="800" height="380" loading="lazy"><figcaption>The viewer, on its invented demo board (<code>aivoicebus view --demo</code>).</figcaption></figure>
