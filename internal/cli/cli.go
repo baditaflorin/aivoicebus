@@ -78,6 +78,7 @@ func init() {
 
 		"trust-codex": trustCodexCmd,
 		"watch":       watchCmd,
+		"schedule":    scheduleCmd,
 	}
 }
 
