@@ -27,6 +27,7 @@ type Result struct {
 	StartErr       error
 	Cancelled      bool   // stopped from outside the run (set by the worker): its sender took it back, or a pause
 	StopWhy        string // with Cancelled: "cancelled by its sender" or "stopped by a pause from ..."
+	Usage          *Usage // what the run cost, when its command reported it (a preset's JSON output)
 	Took           time.Duration
 }
 
@@ -188,6 +189,9 @@ func (r Result) Describe(timeout time.Duration) string {
 		return fmt.Sprintf("killed at the time limit (%s)", timeout)
 	case r.ExitCode < 0:
 		return fmt.Sprintf("killed by a signal after %s", took)
+	}
+	if r.Usage != nil {
+		return fmt.Sprintf("exit %d after %s (%s)", r.ExitCode, took, r.Usage.Line())
 	}
 	return fmt.Sprintf("exit %d after %s", r.ExitCode, took)
 }

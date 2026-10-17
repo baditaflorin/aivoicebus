@@ -14,6 +14,9 @@ func TestAWorkersAnswerIsReadIntoFields(t *testing.T) {
 	if w := workerOf("[worker on lap] not run: denied by desk."); w == nil || w.Exit != nil || w.Host != "lap" {
 		t.Errorf("not run: %+v", w)
 	}
+	if w := workerOf("[worker on lap] exit 0 after 11s (14627 tokens in (14000 cached), 7 out, $0.0123).\n57"); w == nil || w.TokensIn != 14627 || w.TokensOut != 7 || w.CostUSD != 0.0123 || w.Output != "57" {
+		t.Errorf("tokens: %+v", w)
+	}
 	if workerOf("hello") != nil {
 		t.Error("not a worker's answer")
 	}

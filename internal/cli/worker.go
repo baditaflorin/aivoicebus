@@ -82,6 +82,7 @@ func workerCmd(args []string, s Streams) error {
 		return outbox.Usagef("usage: worker --exec 'COMMAND' [--once] [--dry-run] [--timeout 10m] [--max-output 16000] [--max-age 1h]   |   worker allow add|rm|list [SENDER]")
 	}
 	var argv []string
+	format := worker.FormatText // what the command prints: a preset's JSON carries the token counts
 	if *agent != "" {
 		if *execT != "" {
 			return outbox.Usagef("--agent and --exec both name the command; give one")
@@ -91,12 +92,13 @@ func workerCmd(args []string, s Streams) error {
 			return outbox.Usagef("--agent is one of %s", strings.Join(worker.PresetNames(), ", "))
 		}
 		note := worker.Presets[strings.ToLower(*agent)].Note
+		format = worker.Presets[strings.ToLower(*agent)].Format
 		if *write {
 			wp, ok := worker.WritePresets[strings.ToLower(*agent)]
 			if !ok {
 				return outbox.Usagef("--write has presets for claude, codex and gemini; for another agent name the command with --exec")
 			}
-			a, note = slices.Clone(wp.Argv), wp.Note
+			a, note, format = slices.Clone(wp.Argv), wp.Note, wp.Format
 		}
 		argv = a
 		fmt.Fprintf(s.Err, "preset %s: %s (%s)\n", *agent, worker.QuoteCommand(argv), note)
@@ -133,7 +135,7 @@ func workerCmd(args []string, s Streams) error {
 	}
 	c.Title = "aivoicebus worker"
 	c.Labels = identity.Labels("") // tasks routed by selector (@tool=codex...) reach it too
-	w := &worker.Worker{
+	w := &worker.Worker{Format: format,
 		C: c, Me: identity.Me(), Allow: allow, Argv: argv, Env: env,
 		Limits: worker.Limits{Timeout: *timeout, MaxOutput: *maxOut},
 		MaxAge: *maxAge, Settle: *settle, DryRun: *dry, Out: s.Out, AllowUnsigned: *allowUnsigned,

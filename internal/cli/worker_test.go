@@ -362,7 +362,7 @@ func TestCancelStopsARunningTask(t *testing.T) {
 func TestTaskChainsStopAtTheDepthLimit(t *testing.T) {
 	workerSetup(t, "desk")
 	sendTask(t, boss, "lap", "say how deep")
-	if _, out, e := runWorker(t, "--exec", `sh -c 'echo depth=$AIVOICEBUS_TASK_DEPTH'`); !strings.Contains(inboxOf(t, boss), "depth=1") {
+	if _, out, e := runWorker(t, "--exec", `sh -c 'echo depth=$AIVOICEBUS_TASK_DEPTH hooks=$AIVOICEBUS_OFF'`); !strings.Contains(inboxOf(t, boss), "depth=1 hooks=1") {
 		t.Fatalf("the run did not get depth 1: %s %s", out, e)
 	}
 	t.Setenv("AIVOICEBUS_TASK_DEPTH", "4")

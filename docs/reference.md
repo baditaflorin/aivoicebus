@@ -445,6 +445,13 @@ task it may take, claims it, runs one command with the task text on standard inp
     aivoicebus worker --once --exec 'claude -p --allowedTools Read,Grep,Glob'   # one pass, to try it
     aivoicebus worker --exec 'claude -p --allowedTools Read,Grep,Glob'          # keep going
 
+What a run cost. The presets ask the agent for machine-readable output (`codex exec --json`,
+`claude -p --output-format json`), and the worker takes the answer text and the token counts out
+of it: the answer's first line says them, `[worker on lap] exit 0 after 11s (14627 tokens in (14000
+cached), 7 out, $0.0123).` (cost when the CLI reports one), the `--wait-reply --json` result has
+`tokens_in`, `tokens_out` and `cost_usd`, and every run's `usage` is in `worker.log`. A command
+given with `--exec` is run as it is, and reports nothing.
+
 What it takes. A task from a sender on the allowlist, sent to this machine (`task laptop-b`,
 `laptop-b/*`) or to the worker by name (`laptop-b/worker`), and at most an hour old (`--max-age`).
 It leaves alone a task sent to `all`, to a selector or to another session, a task from anyone not on
