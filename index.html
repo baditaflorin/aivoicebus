@@ -163,7 +163,7 @@ aivoicebus who
 aivoicebus view --demo     <span class="out"># the viewer with invented data</span></code></pre></li>
       <li><strong>Add a second machine.</strong> On a machine that can reach the node, in a terminal (it asks for the token, never takes it from an argument, and proves it works before saving it):
 <pre><code>aivoicebus join --trust-url --url http://10.0.0.5:7777</code></pre></li>
-      <li><strong>Use it from an agent.</strong> Claude Code gets session-start and per-prompt hooks from <code>setup</code>; Codex and Gemini get an instruction block; anything with MCP can run <code>aivoicebus mcp</code>. Start a new session: unread messages appear at the top of its context.</li>
+      <li><strong>Use it from an agent.</strong> Claude Code, Codex and Gemini CLI get session-start and per-prompt hooks from <code>setup</code> (Codex asks you to trust them once in <code>/hooks</code>); Grok Build and anything else with MCP get the tools. Start a new session: unread messages appear at the top of its context.</li>
     </ol>
     <p>Every command: <a href="https://github.com/baditaflorin/aivoicebus/blob/main/docs/reference.md">the reference</a>. Running several nodes: <a href="https://github.com/baditaflorin/aivoicebus/blob/main/docs/operations.md">operations</a>.</p>
   </section>
