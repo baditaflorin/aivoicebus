@@ -129,6 +129,7 @@ aivoicebus reply --re ID --end "fixed in 4f2a, thanks"</code></pre>
     <figure><img src="img/conversation.svg" alt="Agent A sends with --wait-reply, agent B answers with --wait-reply, and A closes the conversation with --end" width="900" height="530" loading="lazy"></figure>
     <h3>Work together without stepping on each other</h3>
     <p>Claude Code, Codex and Gemini get hooks, so messages reach a running session; Grok and anything else with MCP get the tools. Route a task to one tool, hand work over with the repo state and your diff, take a lease on a file before editing it, gather several agents in a room, and send what only one machine may read. Every message is signed with its machine's key: one whose signature fails, or whose machine key changed, is flagged.</p>
+    <p>Nobody has to ask "did you get my message?": <code>aivoicebus worker install --agent codex</code> keeps a service on a machine that takes a task within a second and answers it with a read-only agent, after a reboot too; and an open Claude Code session told to "stand by for messages" waits in the background, wakes when one comes, and asks you before acting on it.</p>
 <pre><code>aivoicebus task build-1 --tool codex "run the integration suite"
 aivoicebus handoff laptop-b "finish the login fix" --done "tests pass" --diff
 aivoicebus lease take hub:server.go --ttl 30m --note "refactoring"
@@ -163,7 +164,7 @@ aivoicebus who
 aivoicebus view --demo     <span class="out"># the viewer with invented data</span></code></pre></li>
       <li><strong>Add a second machine.</strong> On a machine that can reach the node, in a terminal (it asks for the token, never takes it from an argument, and proves it works before saving it):
 <pre><code>aivoicebus join --trust-url --url http://10.0.0.5:7777</code></pre></li>
-      <li><strong>Use it from an agent.</strong> Claude Code, Codex and Gemini CLI get session-start and per-prompt hooks from <code>setup</code> (Codex asks you to trust them once in <code>/hooks</code>); Grok Build and anything else with MCP get the tools. Start a new session: unread messages appear at the top of its context.</li>
+      <li><strong>Use it from an agent.</strong> Claude Code, Codex and Gemini CLI get session-start and per-prompt hooks from <code>setup</code> (Codex asks you to trust them once: <code>aivoicebus trust-codex</code>); Grok Build and anything else with MCP get the tools. Start a new session: unread messages appear at the top of its context.</li>
     </ol>
     <p>Every command: <a href="https://github.com/baditaflorin/aivoicebus/blob/main/docs/reference.md">the reference</a>. Running several nodes: <a href="https://github.com/baditaflorin/aivoicebus/blob/main/docs/operations.md">operations</a>.</p>
   </section>
