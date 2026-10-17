@@ -19,6 +19,29 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
 
+// binaryReplaced reports whether the running binary's file changed since now (size, mtime or
+// inode: `install` and `update` write a new file). An unknown path never reports it.
+func binaryReplaced() func() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	first, err := os.Stat(exe)
+	if err != nil {
+		return nil
+	}
+	return func() bool {
+		now, err := os.Stat(exe)
+		if err != nil {
+			return false // mid-replace, or gone: look again next time
+		}
+		return !os.SameFile(first, now) || now.Size() != first.Size() || !now.ModTime().Equal(first.ModTime())
+	}
+}
+
 // workerCmd runs a command for tasks sent to this machine while no session is open. It runs an
 // agent on input from peers, so it does nothing until the user allows senders by name.
 func workerCmd(args []string, s Streams) error {
@@ -128,7 +151,13 @@ func workerCmd(args []string, s Streams) error {
 		}
 		return err
 	}
-	return w.Loop(ctx, *every)
+	w.Replaced = binaryReplaced()
+	err = w.Loop(ctx, *every)
+	if errors.Is(err, worker.ErrReplaced) {
+		fmt.Fprintln(s.Err, "aivoicebus worker: "+err.Error()+" (a service does this by itself)")
+		return exitError{exitReplaced}
+	}
+	return err
 }
 
 func allowedText(a worker.Allowlist) string {

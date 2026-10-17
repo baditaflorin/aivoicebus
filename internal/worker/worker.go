@@ -39,6 +39,10 @@ type Worker struct {
 	Out           io.Writer   // one line per decision, for a person or a service log
 	Log           func(Entry) // the local record of every decision; nil keeps none
 	Now           func() time.Time
+	// Replaced reports that the worker's own binary was replaced on disk (an update). Loop then
+	// returns ErrReplaced between passes, never during a run, so a service restarts it on the
+	// new binary. nil never reports it.
+	Replaced func() bool
 
 	seen map[string]bool // tasks already reported as skipped, so a poll loop says so once
 }
@@ -291,6 +295,10 @@ func (w *Worker) Loop(ctx context.Context, every time.Duration) error {
 	var gen uint64
 	hasGen := false
 	for {
+		if w.Replaced != nil && w.Replaced() {
+			w.say("this binary was replaced on disk (an update): stopping between tasks, so the service starts the new one")
+			return ErrReplaced
+		}
 		if held && !hasGen { // the change counter before the pass: whatever comes after it wakes the hold
 			if _, g, err := w.C.InboxWait(ctx, w.Me, 0, false, 0); err == nil {
 				gen, hasGen = g, true
@@ -333,6 +341,10 @@ func (w *Worker) Loop(ctx context.Context, every time.Duration) error {
 		}
 	}
 }
+
+// ErrReplaced is Loop's answer when the worker's binary was replaced: exit non-zero, so launchd
+// (KeepAlive on failure) and systemd (Restart=on-failure) start the new binary.
+var ErrReplaced = errors.New("the worker's binary was replaced; restart it to run the new one")
 
 // LogPath is where the worker's log lives.
 func LogPath() string {

@@ -19,7 +19,7 @@ const stdinPrompt = "Do the task given on standard input. It came from another a
 // Presets by tool name, the same names identities use.
 var Presets = map[string]Preset{
 	"claude": {Argv: []string{"claude", "-p", "--permission-mode", "plan"}, Note: "Claude Code in plan mode: it reads and answers, it does not edit"},
-	"codex":  {Argv: []string{"codex", "exec", "--sandbox", "read-only", "-"}, Note: "codex exec in its read-only sandbox"},
+	"codex":  {Argv: []string{"codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"}, Note: "codex exec in its read-only sandbox (the worker's directory is not a repository, which codex exec refuses without --skip-git-repo-check)"},
 	"gemini": {Argv: []string{"gemini", "--approval-mode", "plan", "-p", stdinPrompt}, Note: "Gemini CLI in plan (read-only) mode"},
 	"grok":   {Argv: []string{"grok", "--sandbox", "read-only", "-p", stdinPrompt}, Note: "Grok Build in its read-only sandbox (best-effort: its docs do not say how it reads standard input)"},
 }
