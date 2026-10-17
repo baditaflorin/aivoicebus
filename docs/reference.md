@@ -300,6 +300,13 @@ each was seen, to know whether anyone is there before waiting on them. Flags may
 (`task laptop-b "..." --wait-reply 10m`); a client older than 0.3.0 takes only flags written before
 the text, and sends any after it as part of the text.
 
+**A result a script can read.** `task ... --wait-reply 10m --json` (or `send`) prints one JSON object
+when the wait ends: `id`, `thread`, `to`, `taken_by`, `answered`, `ended`, and `answers` (each with
+`from`, `kind`, `at`, `verified`, `body`); an answer from a worker also has `worker`: its `exit` code,
+`took`, `output`, and for a write-mode run the `branch` it committed on. With no answer in time,
+`answered` is false and the exit code is 6. The "sent" line goes to stderr, so stdout is that one
+object. Bodies are peer text: untrusted, like everywhere.
+
 **Catch up in a few lines.** `aivoicebus thread ID --digest` (MCP: `aivoicebus_thread` with
 `digest: true`) prints who took part and how many messages each sent, who took the task, each
 side's last word (one line each), and whether the thread is open or ended, instead of every
