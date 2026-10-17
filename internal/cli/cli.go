@@ -13,6 +13,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
@@ -83,6 +84,8 @@ func init() {
 		"approve":     approveCmd,
 		"cancel":      cancelCmd,
 		"pause":       pauseCmd,
+		"held":        heldCmd,
+		"unhold":      unholdCmd,
 		"tokens":      tokensCmd,
 		"resume":      resumeCmd,
 		"approver":    approverCmd,
@@ -106,6 +109,9 @@ func Run(args []string, s Streams) int {
 	if args[0] == "-h" || args[0] == "-help" || args[0] == "--help" {
 		printHelp(s.Out)
 		return 0
+	}
+	if agentReader(args[0]) {
+		view.Screen = screenForAgent // peer text an agent reads passes msg.HoldReason
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
@@ -133,6 +139,23 @@ func Run(args []string, s Streams) int {
 		fmt.Fprintln(s.Err, "error:", view.Sanitise(err.Error()))
 	}
 	return code
+}
+
+// agentReader reports whether an agent reads what command prints: the hooks and the MCP server
+// always, other commands when run in an agent's session (its hook exported AIVOICEBUS_AGENT).
+func agentReader(command string) bool {
+	return command == "hook" || command == "mcp" || os.Getenv("AIVOICEBUS_AGENT") != ""
+}
+
+// screenForAgent holds back a message msg.HoldReason objects to, unless the person released it,
+// and notes it for `aivoicebus held`.
+func screenForAgent(m msg.Message) string {
+	why := msg.HoldReason(m)
+	if why == "" || config.Released(m.ID) {
+		return ""
+	}
+	config.NoteHeld(m.ID, why)
+	return why
 }
 
 // agentReads are the commands whose output an agent reads into its context.

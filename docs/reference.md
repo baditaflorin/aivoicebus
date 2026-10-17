@@ -276,6 +276,16 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**Held back from agents.** Before peer text reaches an agent (the hooks, the MCP tools, and the
+commands an agent runs in its session), each message passes a screen: one whose signature does not
+verify or whose machine key changed, or whose text reads like instructions to an agent ("ignore
+previous instructions", "you are now", a user-only aivoicebus command such as `approve` or
+`resume`, a download piped into a shell, deleting a home or root directory, flags that skip an
+agent's permissions), is shown only as "[held for the user: why]". A worker does not take such a
+task. You see them, with the text, with `aivoicebus held` in your own terminal, and let agents read
+one with `aivoicebus unhold ID` (asked at the terminal). Both refuse in an agent's session. The list
+is short on purpose: it catches the common injections, not every one, so peer text stays untrusted.
+
 **The kill switch.** `aivoicebus pause [all | MACHINE] --for 1h "why"` (default `all`, 1m to 7d)
 sends an urgent `[aivoicebus pause]` there. Every worker it reaches stops the task it runs (with
 everything the run started), takes no new task and sends no scheduled one, and sessions are told,

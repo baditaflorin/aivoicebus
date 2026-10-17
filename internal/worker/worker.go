@@ -115,6 +115,9 @@ func (w *Worker) Decide(m msg.Message) (why, entry string) {
 	if to := strings.ToLower(m.To); to != host && to != host+"/*" && to != w.Me && to != host+"/"+tool {
 		return fmt.Sprintf("it was sent to %s, not to this machine or this worker by name", view.Name(m.To, msg.MaxIdentity)), entry
 	}
+	if why := msg.HoldReason(m); why != "" {
+		return "held for the user: " + why + " (aivoicebus held)", entry
+	}
 	if m.Depth > msg.MaxTaskDepth {
 		return fmt.Sprintf("it is %d tasks deep (sent from the run of a task sent from ...): more than %d is a chain reaction", m.Depth, msg.MaxTaskDepth), entry
 	}
