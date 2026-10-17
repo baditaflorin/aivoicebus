@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/identity"
 )
 
 // Protocol versions this server can speak; it answers with the client's if known,
@@ -189,6 +191,7 @@ func (s *Server) dispatch(req request) (any, *rpcError) {
 			return nil, &rpcError{codeInvalidParams, fmt.Sprintf("unknown tool %q", p.Name)}
 		}
 		text, err := s.call(tool, p.Arguments)
+		config.NoteUsage(identity.Me(), "mcp:"+p.Name, len(text)) // what the tool put into the agent's context
 		if err != nil {
 			s.logf("%s: %v", p.Name, err)
 			return toolResult(err.Error(), true), nil

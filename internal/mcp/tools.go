@@ -19,7 +19,7 @@ import (
 const (
 	maxListed  = 20   // messages shown by one inbox or thread call
 	bodyRunes  = 1500 // runes of each body shown (the rest: aivoicebus thread <id>)
-	maxWhoRows = 100
+	maxWhoRows = 25
 
 	mcpRetractPrefix = 8 // fewest characters of an id aivoicebus_retract takes (or the whole id)
 )
@@ -207,9 +207,13 @@ var whoTool = tool{
 	schema: obj(nil, map[string]any{
 		"selector": str("only sessions this selector matches, such as @repo=name"),
 		"within":   str("how recently a session was seen, such as 90m or 3d (default 24h)"),
+		"labels":   map[string]any{"type": "boolean", "description": "every label each session declared, not only repo, branch, tool and model (much longer)"},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
-		var a struct{ Selector, Within string }
+		var a struct {
+			Selector, Within string
+			Labels           bool
+		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
 		}
@@ -251,6 +255,9 @@ var whoTool = tool{
 		cutoff := time.Now().Add(-span)
 		var b strings.Builder
 		fmt.Fprintln(&b, view.UntrustedBanner) // identities and labels are whatever sessions declared about themselves
+		// The most recent first, and only the labels that pick a target: the whole roster with
+		// every label was 20 000 characters of context for one call (found with `aivoicebus tokens`).
+		sort.SliceStable(roster, func(i, j int) bool { return roster[i].Seen.After(roster[j].Seen) })
 		n := 0
 		for _, e := range roster {
 			if e.Seen.Before(cutoff) || (sel != nil && !sel.Match(e.Labels)) {
@@ -259,13 +266,26 @@ var whoTool = tool{
 			if n++; n > maxWhoRows {
 				break
 			}
-			fmt.Fprintf(&b, "%-32s last seen %s%s  %s\n", view.Name(e.Me, 64), e.Seen.Local().Format("01-02 15:04"), view.TitleSuffix(e.Title), view.Name(e.Labels.String(), 300))
+			labels := e.Labels
+			if !a.Labels {
+				labels = msg.Labels{}
+				for _, k := range []string{"repo", "branch", "model", msg.RoomsLabel} {
+					if v := e.Labels[k]; v != "" {
+						labels[k] = v
+					}
+				}
+			}
+			listening := ""
+			if e.Listening {
+				listening = " [listening now]"
+			}
+			fmt.Fprintf(&b, "%-32s seen %s%s%s  %s\n", view.Name(e.Me, 64), e.Seen.Local().Format("01-02 15:04"), listening, view.TitleSuffix(e.Title), view.Name(labels.String(), 300))
 		}
 		if n == 0 {
 			return "(no matching session seen in that time)", nil
 		}
 		if n > maxWhoRows {
-			fmt.Fprintf(&b, "[list cut at %d sessions; narrow it with a selector]\n", maxWhoRows)
+			fmt.Fprintf(&b, "[the %d seen most recently; narrow it with a selector or within]\n", maxWhoRows)
 		}
 		return b.String(), nil
 	},

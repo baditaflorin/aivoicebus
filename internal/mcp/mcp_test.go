@@ -769,3 +769,19 @@ func TestStandbyIsAPromptAnyClientCanOffer(t *testing.T) {
 		t.Errorf("an unknown prompt is an error: %v", r)
 	}
 }
+
+// who stays small: the most recent sessions, and only the labels that pick a target, unless asked.
+func TestWhoIsCompactByDefault(t *testing.T) {
+	s, st := start(t)
+	long := msg.Labels{"repo": "api", "branch": "main", "host": "a-very-long-host-name-here", "chip": "m4", "product": "mbp", "origin": "github.com/someone/api"}
+	for i := 0; i < 40; i++ {
+		st.InboxFor(fmt.Sprintf("host%d/claude.s%d", i, i), false, long)
+	}
+	text, _ := s.call("aivoicebus_who", map[string]any{})
+	if strings.Contains(text, "a-very-long-host-name-here") || !strings.Contains(text, "repo=api") || !strings.Contains(text, "the 25 seen most recently") {
+		t.Errorf("default who: %d chars\n%s", len(text), text)
+	}
+	if full, _ := s.call("aivoicebus_who", map[string]any{"labels": true}); !strings.Contains(full, "a-very-long-host-name-here") {
+		t.Error("labels: true shows every label")
+	}
+}
