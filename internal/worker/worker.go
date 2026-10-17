@@ -145,7 +145,11 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 		}
 		if w.DryRun {
 			ran++
-			w.say("would run task %s from %s (allowed by %q, %d bytes on stdin): %s", m.ID, view.Name(m.From, msg.MaxIdentity), entry, len(m.Body), QuoteCommand(w.Argv))
+			cmd := QuoteCommand(w.Argv)
+			if cmd == "" {
+				cmd = "the --exec command"
+			}
+			w.say("would run task %s from %s (allowed by %q, %d bytes on stdin): %s", m.ID, view.Name(m.From, msg.MaxIdentity), entry, len(m.Body), cmd)
 			w.say("  %s", view.OneLine(m.Body, 160))
 			continue
 		}

@@ -170,6 +170,9 @@ func TestTheDryRunClaimsAndRunsNothing(t *testing.T) {
 	if _, err := os.Stat(mark); err == nil {
 		t.Fatal("the dry run ran the command")
 	}
+	if _, out, _ := run(t, "", "worker", "--dry-run"); !strings.Contains(out, "on stdin): the --exec command") {
+		t.Errorf("dry run without --exec: %s", out)
+	}
 	if in := inboxOf(t, boss); strings.Contains(in, "[claim]") {
 		t.Errorf("the dry run claimed:\n%s", in)
 	}
