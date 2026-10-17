@@ -51,6 +51,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"status", "did it get through: who read a message and when, who took a task, how many replies"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
+	{"watch", "alert (a line, and a POST to `watch notify set URL`) when a task this machine sent waits untaken; the worker runs it with --watch"},
 	{"trust-codex", "trust the Codex hooks setup installed (Codex runs new hooks only once you trust them); --check only reports"},
 	{"usage", "print the agent-facing usage text"},
 	{"version", "print the version"},

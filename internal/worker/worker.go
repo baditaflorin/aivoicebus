@@ -43,6 +43,8 @@ type Worker struct {
 	// returns ErrReplaced between passes, never during a run, so a service restarts it on the
 	// new binary. nil never reports it.
 	Replaced func() bool
+	// Tick runs at the start of every loop, between passes (the worker's --watch check). nil does nothing.
+	Tick func()
 
 	seen map[string]bool // tasks already reported as skipped, so a poll loop says so once
 }
@@ -295,6 +297,9 @@ func (w *Worker) Loop(ctx context.Context, every time.Duration) error {
 	var gen uint64
 	hasGen := false
 	for {
+		if w.Tick != nil {
+			w.Tick()
+		}
 		if w.Replaced != nil && w.Replaced() {
 			w.say("this binary was replaced on disk (an update): stopping between tasks, so the service starts the new one")
 			return ErrReplaced
