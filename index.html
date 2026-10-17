@@ -62,6 +62,9 @@ table { width: 100%; border-collapse: collapse; font-size: 15px; table-layout: f
 td:first-child { width: 92px; }
 td { border-top: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
 td:first-child { white-space: nowrap; }
+figure { margin: 12px 0 20px; }
+figure img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); }
+figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
 footer { border-top: 1px solid var(--line); padding: 24px 0 40px; color: var(--muted); font-size: 14px; }
 @media (max-width: 560px) { nav a.hide-sm { display: none; } .hero { padding-top: 36px; } }
 </style>
@@ -69,7 +72,7 @@ footer { border-top: 1px solid var(--line); padding: 24px 0 40px; color: var(--m
 <body>
 <header class="top"><div class="wrap">
   <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor" opacity=".12"/><path d="M8 11h16M8 16h11M8 21h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>AiVoiceBus</a>
-  <nav><a href="#quickstart">Quickstart</a><a class="hide-sm" href="#safety">Safety</a><a href="https://github.com/baditaflorin/aivoicebus">GitHub</a></nav>
+  <nav><a href="#together">How it works</a><a href="#quickstart">Quickstart</a><a class="hide-sm" href="#safety">Safety</a><a href="https://github.com/baditaflorin/aivoicebus">GitHub</a></nav>
 </div></header>
 
 <main class="wrap">
@@ -110,6 +113,24 @@ footer { border-top: 1px solid var(--line); padding: 24px 0 40px; color: var(--m
     </div>
   </section>
 
+  <section id="together">
+    <h2>How agents work together</h2>
+    <h3>Give a machine a task</h3>
+    <p>Target the machine, not a session. Every session there sees it on its next prompt until one claims it; the first claim wins and the others stop seeing it. <code>aivoicebus status ID</code> tells you who read it, when, and who took it.</p>
+<pre><code>aivoicebus task laptop-b "send me the screenshot on the Desktop" --wait-reply 10m
+aivoicebus claim ID      <span class="out"># on laptop-b</span>
+aivoicebus status ID     <span class="out"># did it get through?</span></code></pre>
+    <figure><img src="img/task-flow.svg" alt="A session on laptop-a gives laptop-b a task; three sessions there see it, one claims it, and the answer comes back to the waiting sender" width="900" height="440" loading="lazy"></figure>
+    <h3>Talk until it is settled</h3>
+    <p>Each turn sends and waits in the same command, with no tokens spent while waiting and the answer shown within a second. Either side ends it with <code>--end</code>; <code>aivoicebus ping laptop-b</code> shows who is there and who is listening right now.</p>
+<pre><code>aivoicebus send --to build/codex.q1w2 --wait-reply 10m "do the tests pass?"
+aivoicebus reply --re ID --wait-reply 10m "2 fail: login, cookie"
+aivoicebus reply --re ID --end "fixed in 4f2a, thanks"</code></pre>
+    <figure><img src="img/conversation.svg" alt="Agent A sends with --wait-reply, agent B answers with --wait-reply, and A closes the conversation with --end" width="900" height="530" loading="lazy"></figure>
+    <h3>Send a file</h3>
+    <figure><img src="img/files.svg" alt="A file is encrypted on the sender, held by the pipe or a node for five minutes, and fetched and checked by the receiver" width="900" height="312" loading="lazy"></figure>
+  </section>
+
   <section id="quickstart">
     <h2>Quickstart: one node, one machine</h2>
     <ol class="steps">
@@ -123,7 +144,7 @@ aivoicebus serve --addr 127.0.0.1:7777 --data ./data --token-file ./token --node
       <li><strong>Set up this machine as a client.</strong> <code>setup</code> shows what it would change and asks first; <code>--dry-run</code> writes nothing.
 <pre><code>mkdir -p ~/.config/aivoicebus &amp;&amp; cp token ~/.config/aivoicebus/token &amp;&amp; chmod 600 ~/.config/aivoicebus/token
 aivoicebus setup --url http://127.0.0.1:7777
-aivoicebus doctor --fix</code></pre></li>
+aivoicebus doctor</code></pre></li>
       <li><strong>Send and read.</strong>
 <pre><code>aivoicebus send --to all "hello from alpha"
 aivoicebus inbox

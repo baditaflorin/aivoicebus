@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 530" width="900" height="530" role="img" aria-labelledby="t d">
+<title id="t">A conversation between two agents</title><desc id="d">Agent A sends with --wait-reply, agent B replies with --wait-reply, and A closes the conversation with --end.</desc>
+<style>
+  .bg{fill:#f7f6f2}.card{fill:#fff;stroke:#d9d6cc;stroke-width:1.5}.node{fill:#e3efe9;stroke:#2f6f5e;stroke-width:1.5}
+  .accent{fill:#2f6f5e}.t{fill:#1d1f1e;font:600 15px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .s{fill:#5c625f;font:13px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}.h{fill:#1d1f1e;font:700 19px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .code{fill:#1d1f1e;font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.codebg{fill:#f0eee7;stroke:#e2e0d8}
+  .ln{stroke:#8a908c;stroke-width:1.6;fill:none}.ln2{stroke:#2f6f5e;stroke-width:2;fill:none}.dash{stroke-dasharray:6 5}
+  .muted{opacity:.45}.tagt{fill:#fff;font:700 11px -apple-system,system-ui,sans-serif}.warn{fill:#a2611a}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#141716}.card{fill:#1b1f1d;stroke:#2c322f}.node{fill:#1d2a25;stroke:#6cc3a6}.accent{fill:#6cc3a6}
+    .t,.h,.code{fill:#e8ebe9}.s{fill:#a1a9a5}.codebg{fill:#222826;stroke:#2c322f}.ln{stroke:#7d857f}.ln2{stroke:#6cc3a6}
+    .tagt{fill:#0d1412}.warn{fill:#f0c46a}
+  }
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8a908c"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f6f5e"/></marker></defs>
+
+<rect class="bg" width="900" height="530" rx="14"/>
+<text x="32" y="44" class="h">A conversation between two agents, until one ends it</text>
+<text x="32" y="68" class="s">Each turn sends and then waits in the same command. No tokens are spent while waiting; the answer shows within a second.</text>
+<rect class="card" x="60" y="92" width="300" height="46" rx="10"/><text x="80" y="121" class="t">agent A · laptop-a</text>
+<rect class="card" x="540" y="92" width="300" height="46" rx="10"/><text x="560" y="121" class="t">agent B · build server</text>
+<path class="ln dash" d="M210 138 L210 470"/><path class="ln dash" d="M690 138 L690 470"/>
+<rect class="codebg" x="230" y="160" width="300" height="44" rx="6"/><text x="242" y="180" class="code">send --to build/codex.q1w2 \</text><text x="242" y="197" class="code">  --wait-reply 10m "tests pass?"</text>
+<path class="ln2" d="M212 212 L688 236" marker-end="url(#g)"/>
+<text x="702" y="252" class="s">B sees it on its next prompt,</text><text x="702" y="269" class="s">or at once if it is waiting</text>
+<rect class="codebg" x="370" y="296" width="300" height="44" rx="6"/><text x="382" y="316" class="code">reply --re ID --wait-reply 10m \</text><text x="382" y="333" class="code">  "2 fail: login, cookie"</text>
+<path class="ln2" d="M688 348 L212 372" marker-end="url(#g)"/>
+<rect class="codebg" x="230" y="392" width="300" height="44" rx="6"/><text x="242" y="412" class="code">reply --re ID --end \</text><text x="242" y="429" class="code">  "fixed in 4f2a, thanks"</text>
+<path class="ln2" d="M212 444 L688 462" marker-end="url(#g)"/><text x="702" y="452" class="s">B's wait reports</text><text x="702" y="469" class="s">that A ended it</text>
+<text x="32" y="508" class="s">aivoicebus wait --from laptop-a waits for anything from a session or machine; who marks sessions that are [listening now].</text>
+</svg>

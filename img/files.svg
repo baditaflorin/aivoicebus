@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 312" width="900" height="312" role="img" aria-labelledby="t d">
+<title id="t">Send a file</title><desc id="d">A file is encrypted on the sender, held by the pipe or a node for five minutes, and fetched and checked by the receiver.</desc>
+<style>
+  .bg{fill:#f7f6f2}.card{fill:#fff;stroke:#d9d6cc;stroke-width:1.5}.node{fill:#e3efe9;stroke:#2f6f5e;stroke-width:1.5}
+  .accent{fill:#2f6f5e}.t{fill:#1d1f1e;font:600 15px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .s{fill:#5c625f;font:13px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}.h{fill:#1d1f1e;font:700 19px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .code{fill:#1d1f1e;font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.codebg{fill:#f0eee7;stroke:#e2e0d8}
+  .ln{stroke:#8a908c;stroke-width:1.6;fill:none}.ln2{stroke:#2f6f5e;stroke-width:2;fill:none}.dash{stroke-dasharray:6 5}
+  .muted{opacity:.45}.tagt{fill:#fff;font:700 11px -apple-system,system-ui,sans-serif}.warn{fill:#a2611a}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#141716}.card{fill:#1b1f1d;stroke:#2c322f}.node{fill:#1d2a25;stroke:#6cc3a6}.accent{fill:#6cc3a6}
+    .t,.h,.code{fill:#e8ebe9}.s{fill:#a1a9a5}.codebg{fill:#222826;stroke:#2c322f}.ln{stroke:#7d857f}.ln2{stroke:#6cc3a6}
+    .tagt{fill:#0d1412}.warn{fill:#f0c46a}
+  }
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8a908c"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f6f5e"/></marker></defs>
+
+<rect class="bg" width="900" height="312" rx="14"/>
+<text x="32" y="44" class="h">Send a file: encrypted on your machine, gone in five minutes</text>
+<text x="32" y="68" class="s">The message carries only a link. The key never leaves the message, so whoever holds the file sees ciphertext.</text>
+<rect class="card" x="32" y="96" width="260" height="150" rx="10"/><text x="52" y="124" class="t">sender</text>
+<rect class="codebg" x="48" y="138" width="228" height="48" rx="6"/><text x="60" y="158" class="code">aivoicebus send --to lap-b \</text><text x="60" y="176" class="code">  --file report.pdf "here"</text>
+<text x="52" y="210" class="s">1 encrypt here (AES-256 + HMAC)</text><text x="52" y="230" class="s">2 upload the ciphertext only</text>
+<rect class="node" x="340" y="96" width="220" height="68" rx="10"/><text x="358" y="124" class="t">the pipe (default)</text><text x="358" y="146" class="s">pipe.0exec.com, in RAM</text>
+<rect class="node" x="340" y="178" width="220" height="68" rx="10"/><text x="358" y="206" class="t">your nodes</text><text x="358" y="228" class="s">--via node, mesh token only</text>
+<path class="ln" d="M292 150 L338 130" marker-end="url(#a)"/><path class="ln dash" d="M292 190 L338 212" marker-end="url(#a)"/>
+<rect class="card" x="608" y="96" width="260" height="150" rx="10"/><text x="628" y="124" class="t">receiver</text>
+<rect class="codebg" x="624" y="138" width="228" height="30" rx="6"/><text x="636" y="158" class="code">aivoicebus get ID</text>
+<text x="628" y="192" class="s">3 fetch, decrypt, check sha256</text><text x="628" y="212" class="s">4 saved 0600, never run or opened</text><text x="628" y="232" class="s">read once; gone after 5 minutes</text>
+<path class="ln" d="M560 130 L606 150" marker-end="url(#a)"/><path class="ln dash" d="M560 212 L606 190" marker-end="url(#a)"/>
+<text x="32" y="290" class="s">A file with a credential in it is refused before it is encrypted. A task can carry a file too: whoever claims it fetches it.</text>
+</svg>
