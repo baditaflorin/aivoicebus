@@ -31,6 +31,7 @@ type Worker struct {
 	Me     string
 	Allow  Allowlist
 	Argv   []string
+	Format string   // what Argv prints (a preset's FormatCodexJSONL...): the answer and the token counts are read out of it
 	Env    []string // the command's environment, before the AIVOICEBUS_TASK_* variables are added
 	Limits Limits
 	MaxAge time.Duration // a task older than this is left alone (a worker started after a week away runs nothing stale)
@@ -70,6 +71,7 @@ type Entry struct {
 	Exit      *int      `json:"exit,omitempty"`
 	TimedOut  bool      `json:"timed_out,omitempty"`
 	Took      string    `json:"took,omitempty"`
+	Usage     *Usage    `json:"usage,omitempty"` // tokens (and cost) the run reported
 	TaskBytes int       `json:"task_bytes"`
 	TaskSHA   string    `json:"task_sha256"`
 	OutBytes  int       `json:"out_bytes,omitempty"`
@@ -257,8 +259,18 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	}
 	w.say("task %s from %s (allowed by %q): running %s", m.ID, who, entry, QuoteCommand(w.Argv))
 	env := append(withoutIdentity(w.Env), "AIVOICEBUS_TASK_ID="+m.ID, "AIVOICEBUS_TASK_FROM="+m.From, "AIVOICEBUS_TASK_THREAD="+m.Thread,
-		"AIVOICEBUS_TASK_DEPTH="+strconv.Itoa(m.Depth+1)) // what the run sends is a task deeper
+		"AIVOICEBUS_TASK_DEPTH="+strconv.Itoa(m.Depth+1), // what the run sends is a task deeper
+		"AIVOICEBUS_OFF=1") // no session hooks in the run: the agent gets the task, not this machine's inbox (found live: it read and answered old peer messages)
+	if w.Format != FormatText {
+		limits.MaxOutput = max(limits.MaxOutput, 4<<20) // JSON events are bulky: keep them whole to read; the answer is cut below
+	}
 	r := Exec(taskCtx, w.Argv, m.Body, env, limits)
+	if w.Format != FormatText {
+		r.Stdout, r.Usage = ParseOutput(w.Format, r.Stdout)
+		if len(r.Stdout) > w.Limits.MaxOutput {
+			r.Stdout, r.Truncated = r.Stdout[:w.Limits.MaxOutput], true
+		}
+	}
 	r.Cancelled = cancelled.Load()
 	r.StopWhy, _ = stopWhy.Load().(string)
 	body, withheld := w.answer(r)
@@ -272,6 +284,7 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 		}
 	}
 	base.Command, base.Took, base.TimedOut = QuoteCommand(w.Argv), r.Took.Round(time.Millisecond).String(), r.TimedOut
+	base.Usage = r.Usage
 	if r.ExitCode >= 0 {
 		code := r.ExitCode
 		base.Exit = &code

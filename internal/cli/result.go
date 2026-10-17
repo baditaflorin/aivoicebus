@@ -41,10 +41,14 @@ type workerView struct {
 	Took   string `json:"took,omitempty"`
 	Output string `json:"output"`
 	Branch string `json:"branch,omitempty"` // write mode: the branch the change was committed on
+	// TokensIn and TokensOut are what the run reported ("(N tokens in, M out)" in the header).
+	TokensIn  int     `json:"tokens_in,omitempty"`
+	TokensOut int     `json:"tokens_out,omitempty"`
+	CostUSD   float64 `json:"cost_usd,omitempty"`
 }
 
 var (
-	workerHead   = regexp.MustCompile(`^\[worker on ([^\]]+)\] (?:exit (-?\d+) after ([0-9a-zµ.]+)\.)?`)
+	workerHead   = regexp.MustCompile(`^\[worker on ([^\]]+)\] (?:exit (-?\d+) after ([0-9a-zµ.]+)(?: \((\d+) tokens in(?: \(\d+ cached\))?, (\d+) out(?:, \$([0-9.]+))?\))?\.)?`)
 	workerBranch = regexp.MustCompile(`\[write mode\] committed on branch (\S+) of `)
 )
 
@@ -56,6 +60,9 @@ func workerOf(body string) *workerView {
 		return nil
 	}
 	wv := &workerView{Host: g[1], Took: g[3]}
+	wv.TokensIn, _ = strconv.Atoi(g[4])
+	wv.TokensOut, _ = strconv.Atoi(g[5])
+	wv.CostUSD, _ = strconv.ParseFloat(g[6], 64)
 	if g[2] != "" {
 		if n, err := strconv.Atoi(g[2]); err == nil {
 			wv.Exit = &n

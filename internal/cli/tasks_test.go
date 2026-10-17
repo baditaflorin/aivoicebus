@@ -323,7 +323,7 @@ func TestWorkerPresets(t *testing.T) {
 	if code, _, e := run(t, "", "worker", "--agent", "codex", "--exec", "x", "--dry-run"); code != exitUsage {
 		t.Errorf("--agent with --exec: %d %q", code, e)
 	}
-	if _, _, e := run(t, "", "worker", "--agent", "codex", "--dry-run"); !strings.Contains(e, "codex exec --skip-git-repo-check --sandbox read-only") {
+	if _, _, e := run(t, "", "worker", "--agent", "codex", "--dry-run"); !strings.Contains(e, "codex exec --json --skip-git-repo-check --sandbox read-only") {
 		t.Errorf("preset not shown: %q", e)
 	}
 }
