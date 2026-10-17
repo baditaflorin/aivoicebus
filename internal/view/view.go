@@ -177,9 +177,18 @@ func Messages(w io.Writer, ms []msg.Message) {
 	}
 }
 
+// Screen, when set, says why a message's text must not be shown here ("" to show it): the CLI sets
+// it when an agent is the reader (a hook, the MCP server, a command run in an agent's session).
+var Screen func(m msg.Message) string
+
 // sealedText is a body as shown: a message sealed for another machine says so instead of showing
 // its ciphertext.
 func sealedText(m msg.Message) string {
+	if Screen != nil {
+		if why := Screen(m); why != "" {
+			return "[held for the user: " + why + ". It is not shown to agents; the user reviews it with `aivoicebus held`.]"
+		}
+	}
 	if msg.IsSealed(m.Body) {
 		return "[a private message sealed for " + OneLine(msg.HostOf(m.To), msg.MaxIdentity) + ": only that machine can read it]"
 	}
