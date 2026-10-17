@@ -61,6 +61,8 @@ func (m *Message) validateReplicated() error {
 		return errors.New("from_title is too long or not text")
 	case len(m.FromModel) > replMaxModel || !utf8.ValidString(m.FromModel):
 		return errors.New("from_model is too long or not text")
+	case len(m.Key) > 64 || len(m.Box) > 64 || len(m.Sig) > 128:
+		return errors.New("key, box or sig is too long")
 	}
 	switch m.Prio {
 	case "", PrioFYI, PrioAsk, PrioUrgent:
@@ -68,9 +70,9 @@ func (m *Message) validateReplicated() error {
 		return errors.New("priority is not one of fyi, ask, urgent")
 	}
 	switch m.Kind {
-	case "", KindQuestion, KindAnswer, KindTask, KindClaim, KindEnd:
+	case "", KindQuestion, KindAnswer, KindTask, KindClaim, KindEnd, KindLease:
 	default:
-		return errors.New("kind is not one of question, answer, task, claim, end")
+		return errors.New("kind is not one of question, answer, task, claim, end, lease")
 	}
 	if m.Reach != nil && (*m.Reach < 0 || *m.Reach > replMaxReach) {
 		return errors.New("reach is out of range")

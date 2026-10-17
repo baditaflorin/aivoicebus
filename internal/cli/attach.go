@@ -283,11 +283,11 @@ func getCmd(args []string, s Streams) error {
 		if l.SHA256 != "" && got != l.SHA256 {
 			return errors.New("the decrypted file does not match the checksum the sender gave; not saved")
 		}
-		path, err := savePath(id, l.Name, *out)
+		path, err := attach.SavePath(id, l.Name, *out)
 		if err != nil {
 			return err
 		}
-		if err := writeNew(path, data, *force); err != nil {
+		if err := attach.WriteNew(path, data, *force); err != nil {
 			return err
 		}
 		fmt.Fprintf(s.Out, "saved %s (%s, sha256 %s)\n", path, attach.HumanSize(int64(len(data))), got[:12])
@@ -303,52 +303,6 @@ func getCmd(args []string, s Streams) error {
 		return p.Read(ctx, l, s.Out, *lines, *follow, 256<<10)
 	}
 	return errors.New("this service cannot be fetched")
-}
-
-// savePath picks where a received file goes. A sender-chosen name is only ever a file name.
-func savePath(msgID, name, out string) (string, error) {
-	safe := attach.SafeName(name)
-	if out != "" {
-		if fi, err := os.Stat(out); err == nil && fi.IsDir() {
-			return filepath.Join(out, safe), nil
-		}
-		return out, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".local", "share", "aivoicebus", "received", msgID)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, safe), nil
-}
-
-// writeNew writes data to path with mode 0600. It refuses to replace an existing file unless
-// force, and never writes through a symbolic link.
-func writeNew(path string, data []byte, force bool) error {
-	if fi, err := os.Lstat(path); err == nil {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%s is a symbolic link; not writing through it", path)
-		}
-		if !force {
-			return fmt.Errorf("%s exists; use --out to pick another path or --force to replace it", path)
-		}
-	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if !force {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	}
-	f, err := os.OpenFile(path, flags, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
 }
 
 // tailCmd: `aivoicebus tail push` streams stdin to a live log others can follow.

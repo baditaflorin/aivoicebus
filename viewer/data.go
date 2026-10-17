@@ -154,7 +154,7 @@ func Sessions(roster []msg.RosterEntry, ms []msg.Message) []Session {
 		threads[me][thread] = true
 	}
 	for _, m := range ms {
-		if m.From == "" {
+		if m.From == "" || m.Kind == msg.KindLease {
 			continue
 		}
 		s := get(m.From)
@@ -213,6 +213,9 @@ func Conversations(ms []msg.Message, titles map[string]string, session string) [
 	byThread := map[string]*acc{}
 	var order []string
 	for _, m := range ms {
+		if m.Kind == msg.KindLease { // a lease is a note to the mesh, not a conversation
+			continue
+		}
 		t := m.Thread
 		if t == "" {
 			t = m.ID

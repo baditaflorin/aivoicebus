@@ -388,6 +388,22 @@ var capWordRe = regexp.MustCompile(`^[a-z0-9._/-]+$`)
 // and a form every node reads. A target without a can term comes back unchanged;
 // errors quote the term as the sender typed it.
 func ExpandCaps(to string) (string, error) {
+	return expandWords(to, "can", CapsLabel, "capabilities", "can=run")
+}
+
+// RoomsLabel is the label a session lists the rooms it is in: room names joined with '+' (see
+// CleanCaps, which cleans it the same way). `aivoicebus room join` keeps it for the session.
+const RoomsLabel = "rooms"
+
+// ExpandRooms is ExpandCaps for rooms: the term room=release-0.5 of a selector becomes a
+// whole-word match on the rooms label, so a message to @room=release-0.5 reaches every session in it.
+func ExpandRooms(to string) (string, error) {
+	return expandWords(to, "room", RoomsLabel, "rooms", "room=release-0.5")
+}
+
+// expandWords rewrites the term key=word of a selector into a whole-word match on label, a
+// sorted '+'-joined list (see ExpandCaps for the four patterns per word).
+func expandWords(to, key, label, what, example string) (string, error) {
 	body, ok := strings.CutPrefix(to, "@")
 	if !ok {
 		return to, nil
@@ -396,32 +412,32 @@ func ExpandCaps(to string) (string, error) {
 	changed := false
 	for i, raw := range terms {
 		t := strings.TrimSpace(raw)
-		key, val, op := "", "", "="
+		k, val, op := "", "", "="
 		if a, b, found := strings.Cut(t, "!="); found {
-			key, val, op = a, b, "!="
+			k, val, op = a, b, "!="
 		} else if a, b, found := strings.Cut(t, "="); found {
-			key, val = a, b
+			k, val = a, b
 		}
-		if strings.ToLower(strings.TrimSpace(key)) != "can" {
+		if strings.ToLower(strings.TrimSpace(k)) != key {
 			continue
 		}
 		changed = true
 		if val == "*" {
-			terms[i] = CapsLabel + op + "*"
+			terms[i] = label + op + "*"
 			continue
 		}
 		words := strings.Split(strings.ToLower(val), "|")
 		if len(words) > MaxCanWords {
-			return "", fmt.Errorf("selector term %q names more than %d capabilities (each one takes four of the %d alternatives a selector term may have)", t, MaxCanWords, MaxAlternatives)
+			return "", fmt.Errorf("selector term %q names more than %d %s (each one takes four of the %d alternatives a selector term may have)", t, MaxCanWords, what, MaxAlternatives)
 		}
 		var pats []string
 		for _, w := range words {
 			if !capWordRe.MatchString(w) {
-				return "", fmt.Errorf("selector term %q needs whole capability words (lowercase letters, digits, . _ / -; no spaces, + or *), such as can=run; can=* is any capability", t)
+				return "", fmt.Errorf("selector term %q needs whole words (lowercase letters, digits, . _ / -; no spaces, + or *), such as %s; %s=* is any", t, example, key)
 			}
 			pats = append(pats, w, w+"+*", "*+"+w, "*+"+w+"+*")
 		}
-		terms[i] = CapsLabel + op + strings.Join(pats, "|")
+		terms[i] = label + op + strings.Join(pats, "|")
 	}
 	if !changed {
 		return to, nil

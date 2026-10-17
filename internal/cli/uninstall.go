@@ -25,7 +25,7 @@ func uninstallCmd(args []string, s Streams) error {
 			list = append(list, t)
 		}
 	}
-	opts := agentcfg.RemoveOptions{Tools: list, DryRun: true, Purge: *purge}
+	opts := agentcfg.RemoveOptions{Tools: list, DryRun: true, Purge: *purge, ClaudeMCPRemove: claudeMCPRemove}
 	plan, err := agentcfg.Uninstall(opts)
 	if err != nil && !*dry {
 		printSteps(s.Out, plan, true)

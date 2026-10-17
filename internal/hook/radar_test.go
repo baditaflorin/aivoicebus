@@ -158,7 +158,7 @@ func TestTheRadarTakesASessionWithoutAnIdSuffixForItself(t *testing.T) {
 
 // The wait for the roster is bounded and skipped when waiting cannot help.
 func TestTheRadarWaitsOnlyAsLongAsItShould(t *testing.T) {
-	never := func() *radar { return &radar{got: make(chan []msg.RosterEntry, 1), start: time.Now()} }
+	never := func() *radar { return &radar{got: make(chan radarSeen, 1), start: time.Now()} }
 	took := func(inboxFailed bool, inboxTook, deadline time.Duration) time.Duration {
 		var b strings.Builder
 		start := time.Now()
@@ -262,5 +262,21 @@ func TestTheRadarMergesTheRosterOfEveryNode(t *testing.T) {
 	got := runHook(t, "")
 	if !strings.Contains(got, "2 other session(s) on this repo") || !strings.Contains(got, "a/x.1") || !strings.Contains(got, "b/x.2") {
 		t.Errorf("one node's view is partial:\n%s", got)
+	}
+}
+
+func TestLeaseLinesNameWhatOthersHold(t *testing.T) {
+	now := time.Now()
+	live := []msg.Lease{
+		{Key: "deploy:prod", By: "c/gemini.3", ID: "c1", At: now, Until: now.Add(time.Hour)},
+		{Key: "hub:server.go", By: "a/claude.1", ID: "a1", At: now, Until: now.Add(time.Hour)},
+		{Key: "mine:x", By: "me/codex.9", ID: "m1", At: now, Until: now.Add(time.Hour)},
+	}
+	lines := leaseLines(live, "me/codex.9", "hub")
+	if len(lines) != 1 || !strings.Contains(lines[0], "hub:server.go by a/claude.1") || strings.Index(lines[0], "hub:server.go") > strings.Index(lines[0], "deploy:prod") || strings.Contains(lines[0], "mine:x") {
+		t.Errorf("%q", lines)
+	}
+	if leaseLines(nil, "me", "hub") != nil {
+		t.Error("no leases must print nothing")
 	}
 }

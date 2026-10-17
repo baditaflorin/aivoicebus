@@ -44,8 +44,15 @@ var identityShape = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,39}/[a-z0-9][a-z0
 
 // radar is a roster read running beside the inbox read.
 type radar struct {
-	got   chan []msg.RosterEntry
+	got   chan radarSeen
 	start time.Time
+}
+
+// radarSeen is what the radar's reads returned: the roster, and the live leases (none from a node
+// that predates leases).
+type radarSeen struct {
+	entries []msg.RosterEntry
+	leases  []msg.Lease
 }
 
 // startRadar asks every node for the roster, in the background, on a client of its own (so
@@ -62,14 +69,15 @@ func startRadar(labels msg.Labels, timeout time.Duration, now time.Time) *radar 
 	}
 	c.Timeout = timeout
 	c.Warn = io.Discard
-	r := &radar{got: make(chan []msg.RosterEntry, 1), start: now}
+	r := &radar{got: make(chan radarSeen, 1), start: now}
 	go func() {
 		defer func() { _ = recover() }()
 		entries, err := c.Roster()
 		if err != nil {
 			entries = nil
 		}
-		r.got <- entries
+		leases, _ := c.Leases()
+		r.got <- radarSeen{entries, leases}
 	}()
 	return r
 }
@@ -90,8 +98,11 @@ func (r *radar) print(out io.Writer, me string, labels msg.Labels, deadline time
 	}
 	wait = max(0, min(wait, time.Until(r.start.Add(deadline-radarGrace))))
 	select {
-	case entries := <-r.got:
-		for _, line := range radarLines(entries, me, labels, time.Now()) {
+	case seen := <-r.got:
+		for _, line := range radarLines(seen.entries, me, labels, time.Now()) {
+			fmt.Fprintln(out, line)
+		}
+		for _, line := range leaseLines(seen.leases, me, labels["repo"]) {
 			fmt.Fprintln(out, line)
 		}
 	case <-time.After(wait):
@@ -167,4 +178,38 @@ func ago(d time.Duration) string {
 		return "just now"
 	}
 	return fmt.Sprintf("%dm ago", int(d/time.Minute))
+}
+
+// leaseLines names the leases other sessions hold (see `aivoicebus lease`), those whose key
+// mentions this repository first, at most radarListed of them.
+func leaseLines(live []msg.Lease, me, repo string) []string {
+	var mine, other []msg.Lease
+	for _, h := range msg.Holders(live) {
+		if h.By == me {
+			continue
+		}
+		if repo != "" && strings.Contains(strings.ToLower(h.Key), strings.ToLower(repo)) {
+			mine = append(mine, h)
+		} else {
+			other = append(other, h)
+		}
+	}
+	all := append(mine, other...)
+	if len(all) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("[aivoicebus] Held by other sessions (leases; check before you edit these):")
+	for i, h := range all {
+		if i == radarListed {
+			fmt.Fprintf(&b, " and %d more (aivoicebus lease list)", len(all)-i)
+			break
+		}
+		who := unnamed
+		if identityShape.MatchString(h.By) {
+			who = h.By
+		}
+		fmt.Fprintf(&b, " %s by %s until %s;", view.OneLine(h.Key, 120), who, h.Until.Local().Format("15:04"))
+	}
+	return []string{strings.TrimSuffix(b.String(), ";")}
 }

@@ -115,7 +115,7 @@ func TestDecide(t *testing.T) {
 	a, _ := ParseAllow("desk\n")
 	w := &Worker{Me: "lap/worker", Allow: a, MaxAge: time.Hour, Now: func() time.Time { return now }}
 	task := func(from, to string, age time.Duration) msg.Message {
-		return msg.Message{ID: "0123456789", Kind: msg.KindTask, From: from, To: to, At: now.Add(-age)}
+		return msg.Message{ID: "0123456789", Kind: msg.KindTask, From: from, To: to, At: now.Add(-age), Verified: msg.VerifiedSigned}
 	}
 	for _, c := range []struct {
 		m    msg.Message
@@ -131,12 +131,36 @@ func TestDecide(t *testing.T) {
 		{task("desk/claude.z9", "lap/claude.a1", time.Minute), false, "not to this machine"},
 		{task("desk/claude.z9", "lap", 2*time.Hour), false, "old"},
 		{msg.Message{From: "desk/claude.z9", To: "lap", At: now}, false, "not a task"},
+		{func() msg.Message {
+			m := task("desk/claude.z9", "lap", time.Minute)
+			m.Verified = msg.VerifiedUnsigned
+			return m
+		}(), false, "not signed"},
+		{func() msg.Message {
+			m := task("desk/claude.z9", "lap", time.Minute)
+			m.Verified = msg.VerifiedBad
+			return m
+		}(), false, "does not verify"},
+		{func() msg.Message {
+			m := task("desk/claude.z9", "lap", time.Minute)
+			m.Verified = msg.VerifiedChanged
+			return m
+		}(), false, "KEY CHANGED"},
 	} {
 		why, _ := w.Decide(c.m)
 		if (why == "") != c.take || !strings.Contains(why, c.why) {
 			t.Errorf("Decide(from %s to %s, kind %q): %q", c.m.From, c.m.To, c.m.Kind, why)
 		}
 	}
+	// --allow-unsigned admits a task with no signature, never a bad or changed one.
+	w.AllowUnsigned = true
+	for v, take := range map[string]bool{msg.VerifiedUnsigned: true, msg.VerifiedBad: false, msg.VerifiedChanged: false} {
+		m := msg.Message{ID: "0123456789", Kind: msg.KindTask, From: "desk/claude.z9", To: "lap", At: now, Verified: v}
+		if why, _ := w.Decide(m); (why == "") != take {
+			t.Errorf("--allow-unsigned, %s: %q", v, why)
+		}
+	}
+	w.AllowUnsigned = false
 	w.Allow = Allowlist{}
 	if why, _ := w.Decide(task("desk/claude.z9", "lap", time.Minute)); !strings.Contains(why, "allowlist is empty") {
 		t.Errorf("empty allowlist: %q", why)

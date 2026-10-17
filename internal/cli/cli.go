@@ -70,6 +70,10 @@ func init() {
 		"wait":      waitCmd,
 		"ping":      pingCmd,
 		"status":    statusCmd,
+		"handoff":   handoffCmd,
+		"lease":     leaseCmd,
+		"room":      roomCmd,
+		"keys":      keysCmd,
 		"worker":    workerCmd,
 	}
 }

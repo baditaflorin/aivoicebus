@@ -211,6 +211,10 @@ func sessionModel(in hookInput, me string, maxTail int64) string {
 	if os.Getenv(config.ModelEnv) != "" {
 		return msg.CleanModel(config.Model(me))
 	}
+	if m := msg.CleanModel(in.Model); m != "" { // the tool said so (Codex does, in the hook's input)
+		config.SaveModel(me, m)
+		return m
+	}
 	if m := transcriptModel(in.TranscriptPath, in.SessionID, maxTail); m != "" {
 		config.SaveModel(me, m)
 		return m

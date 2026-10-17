@@ -16,6 +16,8 @@ type RemoveOptions struct {
 	// Purge also deletes the whole config directory (token, saved credentials, sent-message log,
 	// trusted keys) and the installed binary. Without it those stay: only what setup added goes.
 	Purge bool
+	// ClaudeMCPRemove takes the MCP server out of Claude Code's settings (see Options.ClaudeMCP).
+	ClaudeMCPRemove func(dryRun bool) (status, detail string)
 }
 
 // Uninstall removes what Setup added and nothing else: the session hooks in
@@ -31,8 +33,10 @@ func Uninstall(o RemoveOptions) ([]Step, error) {
 		}
 		o.Home = h
 	}
-	in := &installer{o: Options{Home: o.Home, Tools: o.Tools, DryRun: o.DryRun}, p: Paths{o.Home}}
+	in := &installer{o: Options{Home: o.Home, Tools: o.Tools, DryRun: o.DryRun, ClaudeMCPRemove: o.ClaudeMCPRemove}, p: Paths{o.Home}}
 	in.removeHook()
+	in.removeToolHooks()
+	in.removeMCPServers()
 	in.removeInstructions()
 	in.removeShell()
 	in.removeConfigFiles(o.Purge)

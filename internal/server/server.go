@@ -206,7 +206,8 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		m.Retracted = nil // what a node says about a message, never something a sender sets
+		m.Retracted = nil                 // what a node says about a message, never something a sender sets
+		m.Verified, m.Private = "", false // what a reading client finds, never something a sender sets
 		m.FromTitle = msg.CleanTitle(m.FromTitle)
 		m.FromModel = msg.CleanModel(m.FromModel)
 		if _, bad := leaks.Find(m.FromTitle); bad {
@@ -366,6 +367,9 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	// Who and the roster are display views: join probes are left out unless ?all=1 asks for every
 	// identity (the sender's own safety checks, which count recipients, must not miss a session that
 	// merely named itself like a probe), and gossip (?since) always carries everything.
+	mux.HandleFunc("/v1/leases", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
+		js(w, s.Leases())
+	}))
 	mux.HandleFunc("/v1/receipts", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		id := r.URL.Query().Get("id")
 		if !msg.ValidRef(id) {

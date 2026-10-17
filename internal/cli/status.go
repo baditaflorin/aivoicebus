@@ -2,22 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
-
-// viaWords says how a reader was shown a message, for status.
-var viaWords = map[string]string{
-	msg.ViaHook:      "shown at a session start or prompt",
-	msg.ViaHookCount: "only counted at a session start (fyi)",
-	msg.ViaInbox:     "listed by aivoicebus inbox",
-	msg.ViaCLI:       "read with the CLI (wait, claim, ack)",
-	msg.ViaReply:     "answered it",
-}
 
 // statusCmd answers "did it get through?" for a message this machine sent (or any it can see):
 // who read it and when, who took it if it is a task, and how many replies it has.
@@ -48,41 +38,6 @@ func statusCmd(args []string, s Streams) error {
 	if *asJSON {
 		return writeJSON(s.Out, r)
 	}
-	kind := ""
-	if r.Kind != "" {
-		kind = " [" + r.Kind + "]"
-	}
-	fmt.Fprintf(s.Out, "%s%s from %s to %s, sent %s\n", r.ID, kind, view.Name(r.From, msg.MaxIdentity), view.Name(r.To, msg.MaxIdentity), r.At.Local().Format("01-02 15:04:05"))
-	if r.Reach != nil {
-		fmt.Fprintf(s.Out, "  it could reach %d session(s) when it was sent\n", *r.Reach)
-	}
-	if len(r.Reads) == 0 {
-		fmt.Fprintln(s.Out, "  not read yet by anyone")
-	} else {
-		fmt.Fprintf(s.Out, "  read by %d:\n", len(r.Reads))
-		for _, rd := range r.Reads {
-			when := "time not known"
-			if !rd.At.IsZero() {
-				when = rd.At.Local().Format("15:04:05") + " (" + time.Since(rd.At).Round(time.Second).String() + " ago)"
-			}
-			how := viaWords[rd.Via]
-			if how == "" {
-				how = view.OneLine(rd.Via, 20)
-			}
-			fmt.Fprintf(s.Out, "    %-40s %s, %s\n", view.Name(rd.By, msg.MaxIdentity), when, how)
-		}
-	}
-	switch {
-	case r.Kind == msg.KindTask && r.Owner != nil:
-		fmt.Fprintf(s.Out, "  taken by %s at %s\n", view.Name(r.Owner.By, msg.MaxIdentity), r.Owner.At.Local().Format("15:04:05"))
-	case r.Kind == msg.KindTask:
-		fmt.Fprintf(s.Out, "  not taken yet: `aivoicebus ping %s` shows who is there\n", view.Name(r.To, msg.MaxIdentity))
-	}
-	if r.Replies > 0 {
-		fmt.Fprintf(s.Out, "  %d repl%s: aivoicebus thread %s\n", r.Replies, map[bool]string{true: "y", false: "ies"}[r.Replies == 1], r.ID)
-	}
-	if r.Expired {
-		fmt.Fprintln(s.Out, "  expired: it is no longer delivered")
-	}
+	view.Receipts(s.Out, r)
 	return nil
 }

@@ -21,14 +21,15 @@ func hooksOf(entry any) []any {
 type hookSpec struct {
 	event   string
 	command string
-	timeout int
+	timeout int    // in the unit the tool reads (seconds for Claude and Codex, milliseconds for Gemini)
+	name    string // a handler name, for tools that show one (Gemini CLI); "" for none
 }
 
 // hookSpecs: a session start reads and shows the inbox; a prompt submit is a silent,
 // very short check that speaks only if something urgent arrived while the agent worked.
 var hookSpecs = []hookSpec{
-	{"SessionStart", HookCommand, HookTimeout},
-	{"UserPromptSubmit", PromptHookCommand, PromptHookTimeout},
+	{event: "SessionStart", command: HookCommand, timeout: HookTimeout},
+	{event: "UserPromptSubmit", command: PromptHookCommand, timeout: PromptHookTimeout},
 }
 
 func (sp hookSpec) isCanonical(h any) bool {
@@ -54,7 +55,10 @@ func isAiVoiceBus(h any) bool { return strings.Contains(commandOf(h), "aivoicebu
 // each event in hookSpecs, and leaves every other hook and setting alone. Old
 // forms (the original installer's, a wrapper script) are replaced, not
 // duplicated. It reports whether doc changed.
-func ensureHook(doc map[string]any) (bool, error) {
+func ensureHook(doc map[string]any) (bool, error) { return ensureHooks(doc, hookSpecs) }
+
+// ensureHooks is ensureHook for any tool's hook file and entries.
+func ensureHooks(doc map[string]any, specs []hookSpec) (bool, error) {
 	var hooks map[string]any
 	switch v := doc["hooks"].(type) {
 	case nil:
@@ -65,7 +69,7 @@ func ensureHook(doc map[string]any) (bool, error) {
 		return false, errors.New(`"hooks" is not an object`)
 	}
 	changed := false
-	for _, sp := range hookSpecs {
+	for _, sp := range specs {
 		c, err := sp.ensure(hooks)
 		if err != nil {
 			return false, err
@@ -125,9 +129,11 @@ func (sp hookSpec) ensure(hooks map[string]any) (bool, error) {
 			kept = append(kept, em)
 		} // else the entry held only aivoicebus hooks: drop it
 	}
-	kept = append(kept, map[string]any{"hooks": []any{
-		map[string]any{"type": "command", "command": sp.command, "timeout": sp.timeout},
-	}})
+	h := map[string]any{"type": "command", "command": sp.command, "timeout": sp.timeout}
+	if sp.name != "" {
+		h["name"] = sp.name
+	}
+	kept = append(kept, map[string]any{"hooks": []any{h}})
 	hooks[sp.event] = kept
 	return true, nil
 }

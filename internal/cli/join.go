@@ -151,7 +151,7 @@ func join(args []string, s Streams) error {
 		}
 	}
 	exe, exeErr := executable()
-	steps, err := agentcfg.Setup(agentcfg.Options{URL: strings.Join(nodeURLs, ","), Tools: list, DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr})
+	steps, err := agentcfg.Setup(agentcfg.Options{URL: strings.Join(nodeURLs, ","), Tools: list, DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr, ClaudeMCP: claudeMCP})
 	printSteps(s.Out, steps, *dry)
 	if err != nil {
 		return fail("setup", err)

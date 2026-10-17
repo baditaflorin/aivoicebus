@@ -71,7 +71,7 @@ func setup(args []string, s Streams) error {
 	// The hooks run ~/.local/bin/aivoicebus, so put this binary there when nothing usable is (as
 	// join and doctor --fix do); an installed one is left alone: updating it is `update`'s job.
 	exe, exeErr := executable()
-	steps, err := agentcfg.Setup(agentcfg.Options{URL: *url, Tools: list, DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr})
+	steps, err := agentcfg.Setup(agentcfg.Options{URL: *url, Tools: list, DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr, ClaudeMCP: claudeMCP})
 	if *asJSON {
 		if err != nil {
 			return err // a failure is the error object on stderr and nothing on stdout
@@ -160,7 +160,7 @@ func doctor(args []string, s Streams) error {
 	}
 	if *fix {
 		exe, exeErr := executable()
-		steps, err := agentcfg.Setup(agentcfg.Options{DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr})
+		steps, err := agentcfg.Setup(agentcfg.Options{DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr, ClaudeMCP: claudeMCP})
 		if *dry { // the checks below describe the machine as it is, which is not what the plan is about
 			if *asJSON {
 				if err != nil {

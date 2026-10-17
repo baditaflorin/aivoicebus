@@ -11,5 +11,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("AIVOICEBUS_DETECT", "off")
 	// Never upload to the public pipe from a test: a test that sends a file sets up its own.
 	os.Setenv("AIVOICEBUS_PIPE_URL", "off")
+	// Never run the real `claude mcp add` from a test.
+	os.Setenv("AIVOICEBUS_NO_CLAUDE_MCP", "1")
 	os.Exit(m.Run())
 }

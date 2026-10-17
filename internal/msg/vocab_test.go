@@ -12,7 +12,7 @@ func TestTheVocabularyTablesAreWhatEveryCheckAccepts(t *testing.T) {
 	if got := strings.Join(PrioNames(), ","); got != "fyi,ask,urgent" {
 		t.Errorf("priorities %q: the order is part of the help text and the schemas", got)
 	}
-	if got := strings.Join(KindNames(), ","); got != "question,answer,task,claim,end" {
+	if got := strings.Join(KindNames(), ","); got != "question,answer,task,claim,end,lease" {
 		t.Errorf("kinds %q", got)
 	}
 	for _, p := range append([]string{""}, PrioNames()...) {
@@ -25,7 +25,7 @@ func TestTheVocabularyTablesAreWhatEveryCheckAccepts(t *testing.T) {
 		}
 	}
 	for _, k := range append([]string{""}, KindNames()...) {
-		m := Message{Kind: k, Re: "89abcdef01"}
+		m := Message{Kind: k, Re: "89abcdef01", TTL: 3600} // a lease must say how long it lasts
 		if err := m.ValidateOptions(); err != nil {
 			t.Errorf("kind %q: %v", k, err)
 		}
@@ -47,7 +47,7 @@ func TestTheVocabularyTablesAreWhatEveryCheckAccepts(t *testing.T) {
 	if err := (Message{Prio: "loud"}).ValidateOptions(); err == nil || err.Error() != `priority "loud" is not one of fyi, ask, urgent` {
 		t.Errorf("the refusal reads %v", err)
 	}
-	if err := (Message{Kind: "note"}).ValidateOptions(); err == nil || err.Error() != `kind "note" is not one of question, answer, task, claim, end` {
+	if err := (Message{Kind: "note"}).ValidateOptions(); err == nil || err.Error() != `kind "note" is not one of question, answer, task, claim, end, lease` {
 		t.Errorf("the refusal reads %v", err)
 	}
 	if (Message{}).Priority() != PrioAsk || Tag(Priorities, PrioAsk) != "" {

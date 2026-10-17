@@ -63,6 +63,17 @@ type Message struct {
 	// FromModel is the model the sender's session ran when it sent the message (CleanModel), so an
 	// old conversation still says which model wrote what. Self-declared; empty when not known.
 	FromModel string `json:"from_model,omitempty"`
+	// Key and Box are the sending machine's ed25519 signing key and X25519 box key, and Sig its
+	// signature over SignedBytes (see sig.go): base64, all three empty for an unsigned message.
+	Key string `json:"key,omitempty"`
+	Box string `json:"box,omitempty"`
+	Sig string `json:"sig,omitempty"`
+
+	// Verified is what the reading client found of the signature (VerifiedSigned...), and Private
+	// that it opened a body sealed for this machine. Response only, set by the client: never stored,
+	// replicated or trusted from a node.
+	Verified string `json:"verified,omitempty"`
+	Private  bool   `json:"private,omitempty"`
 
 	// Retracted is set by a node on a copy of a message its sender withdrew (see retract.go),
 	// whose Body is then a tombstone. Response only: it is never stored or replicated, and a
@@ -77,6 +88,7 @@ const (
 	KindTask     = "task"
 	KindClaim    = "claim"
 	KindEnd      = "end"
+	KindLease    = "lease"
 )
 
 // TaskSince is the first release whose nodes accept tasks, claims and ends. An older node
@@ -178,6 +190,9 @@ func (m Message) ValidateOptions() error {
 	}
 	if m.Kind == KindClaim && m.Re == "" {
 		return errors.New("a claim must say which task it takes (re)")
+	}
+	if m.Kind == KindLease && m.TTL == 0 {
+		return errors.New("a lease must say how long it lasts (ttl)")
 	}
 	if m.Reach != nil && (*m.Reach < 0 || *m.Reach > MaxReach) {
 		return errors.New("reach is out of range")

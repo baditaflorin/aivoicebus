@@ -62,6 +62,14 @@ func Run(args []string, stdin io.Reader, out io.Writer) {
 	if _, err := os.Stat(OptOutFile); err == nil {
 		return
 	}
+	if toolArg(args) == "gemini" {
+		// Gemini CLI reads a hook's stdout as JSON only: text goes into the conversation as
+		// hookSpecificOutput.additionalContext (anything else would be shown as a system message).
+		var buf bytes.Buffer
+		orig := out
+		defer func() { geminiJSON(orig, buf.String()) }()
+		out = &buf
+	}
 	if hookEvent(args) == "prompt" {
 		runPromptEvent(args, stdin, out)
 		return
@@ -351,10 +359,21 @@ var trustedKeys = release.TrustedKeys
 // a fraction of a second, once a day.
 func refreshNodes() { discovery.RefreshIfDue(trustedKeys(), time.Now(), discovery.StartBudget) }
 
-// hookInput is what the tool passes the hook on stdin.
+// geminiJSON writes text the way a Gemini CLI hook must: one JSON object, nothing when there is nothing to say.
+func geminiJSON(out io.Writer, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"additionalContext": text}})
+	_, _ = out.Write(append(b, '\n'))
+}
+
+// hookInput is what the tool passes the hook on stdin. Claude Code, Codex and Gemini CLI share
+// these snake_case fields; Codex also says which model the session runs.
 type hookInput struct {
 	SessionID string `json:"session_id"`
 	CWD       string `json:"cwd"`
+	Model     string `json:"model"`
 	// TranscriptPath is the session's transcript file, where Claude Code records the session's title.
 	TranscriptPath string `json:"transcript_path"`
 }

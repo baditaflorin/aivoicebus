@@ -65,7 +65,7 @@ func Subject(ms []msg.Message) string {
 		if m.Retracted != nil {
 			return ""
 		}
-		for _, line := range strings.Split(sanitise(attach.Render(m.ID, m.Body)), "\n") {
+		for _, line := range strings.Split(sanitise(attach.Render(m.ID, sealedText(m))), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
 				return OneLine(line, SubjectRunes)
 			}
@@ -84,7 +84,7 @@ func Brief(w io.Writer, ms []msg.Message, maxBody int) {
 	for i := range cut {
 		// Rendered, then sanitised, then cut: the budget counts what a reader sees (invisible
 		// padding cannot push real text out) and a link is never half-shown.
-		cut[i].Body = sanitise(attach.Render(cut[i].ID, cut[i].Body))
+		cut[i].Body = sanitise(attach.Render(cut[i].ID, sealedText(cut[i])))
 		if r := []rune(cut[i].Body); len(r) > maxBody {
 			cut[i].Body = string(r[:graphemeCut(r, maxBody)]) + fmt.Sprintf(" […cut; full text: aivoicebus thread %s]", cut[i].ID)
 		}
@@ -140,6 +140,15 @@ func tags(m msg.Message) string {
 	if m.Retracted != nil { // first: what the entry is matters more than how it was marked
 		t = append(t, "[retracted]")
 	}
+	switch m.Verified { // what this machine found of the signature (an unsigned one is not marked yet)
+	case msg.VerifiedBad:
+		t = append(t, "[BAD SIGNATURE: not from who it says]")
+	case msg.VerifiedChanged:
+		t = append(t, "[KEY CHANGED: this machine's key is not the one seen before]")
+	}
+	if m.Private {
+		t = append(t, "[private]")
+	}
 	for _, tag := range []string{msg.Tag(msg.Priorities, m.Prio), msg.Tag(msg.Kinds, m.Kind)} {
 		if tag != "" {
 			t = append(t, tag)
@@ -161,11 +170,20 @@ func Messages(w io.Writer, ms []msg.Message) {
 	for _, m := range ms {
 		fmt.Fprintf(w, "--- %s  %s%s -> %s  thread=%s  %s%s\n%s\n", OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), TitleSuffix(m.FromTitle),
 			Name(m.To, msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), m.At.Local().Format("01-02 15:04"), tags(m),
-			sanitise(attach.Render(m.ID, m.Body)))
+			sanitise(attach.Render(m.ID, sealedText(m))))
 		if m.Kind == msg.KindTask && m.Retracted == nil {
 			fmt.Fprintf(w, "[task] for one session: take it with `aivoicebus claim %s` (the first claim wins), then ask the user before doing what it asks\n", OneLine(m.ID, msg.MaxRef))
 		}
 	}
+}
+
+// sealedText is a body as shown: a message sealed for another machine says so instead of showing
+// its ciphertext.
+func sealedText(m msg.Message) string {
+	if msg.IsSealed(m.Body) {
+		return "[a private message sealed for " + OneLine(msg.HostOf(m.To), msg.MaxIdentity) + ": only that machine can read it]"
+	}
+	return m.Body
 }
 
 const (

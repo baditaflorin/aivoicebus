@@ -19,9 +19,11 @@ Usage of send:
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
   -kind string
-    	question | answer | task | claim | end: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
+    	question | answer | task | claim | end | lease: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -prio string
     	fyi | ask | urgent (default ask): fyi is only counted at session start, urgent is shown first
+  -private
+    	seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)
   -queue
     	send a selector message even if no session seen in the last 24h matches it (it waits for one that starts later)
   -re string
@@ -56,9 +58,11 @@ Usage of send:
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
   -kind string
-    	question | answer | task | claim | end: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
+    	question | answer | task | claim | end | lease: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -prio string
     	fyi | ask | urgent (default ask): fyi is only counted at session start, urgent is shown first
+  -private
+    	seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)
   -queue
     	send a selector message even if no session seen in the last 24h matches it (it waits for one that starts later)
   -re string
@@ -319,9 +323,15 @@ would change env                    <TMP>/home/.config/aivoicebus/env
 would change shell                  <TMP>/home/.zshrc
 skipped      token                  no token file (AIVOICEBUS_TOKEN in the environment still works)
 would change claude hook            <TMP>/home/.claude/settings.json
+skipped      codex hook             no ~/.codex (tool not installed); setup adds it once it exists
+skipped      gemini hook            no ~/.gemini (tool not installed); setup adds it once it exists
 would change claude instructions    <TMP>/home/.claude/CLAUDE.md
 skipped      codex instructions     no ~/.codex (tool not installed); setup adds it once it exists
 skipped      gemini instructions    no ~/.gemini (tool not installed); setup adds it once it exists
+skipped      grok instructions      no ~/.grok (tool not installed); setup adds it once it exists
+skipped      codex mcp              no ~/.codex (tool not installed)
+skipped      gemini mcp             no ~/.gemini (tool not installed)
+skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
 would change state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
 [exit 0]
 $ aivoicebus setup --yes --url http://127.0.0.1:<PORT>
@@ -330,9 +340,15 @@ changed      env                    <TMP>/home/.config/aivoicebus/env
 changed      shell                  <TMP>/home/.zshrc
 skipped      token                  no token file (AIVOICEBUS_TOKEN in the environment still works)
 changed      claude hook            <TMP>/home/.claude/settings.json
+skipped      codex hook             no ~/.codex (tool not installed); setup adds it once it exists
+skipped      gemini hook            no ~/.gemini (tool not installed); setup adds it once it exists
 changed      claude instructions    <TMP>/home/.claude/CLAUDE.md
 skipped      codex instructions     no ~/.codex (tool not installed); setup adds it once it exists
 skipped      gemini instructions    no ~/.gemini (tool not installed); setup adds it once it exists
+skipped      grok instructions      no ~/.grok (tool not installed); setup adds it once it exists
+skipped      codex mcp              no ~/.codex (tool not installed)
+skipped      gemini mcp             no ~/.gemini (tool not installed)
+skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
 changed      state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
 [exit 0]
 $ aivoicebus doctor --offline
@@ -365,9 +381,15 @@ ok           env                    <TMP>/home/.config/aivoicebus/env
 ok           shell                  <TMP>/home/.zshrc
 ok           token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok           claude hook            <TMP>/home/.claude/settings.json
+skipped      codex hook             no ~/.codex (tool not installed); setup adds it once it exists
+skipped      gemini hook            no ~/.gemini (tool not installed); setup adds it once it exists
 ok           claude instructions    <TMP>/home/.claude/CLAUDE.md
 skipped      codex instructions     no ~/.codex (tool not installed); setup adds it once it exists
 skipped      gemini instructions    no ~/.gemini (tool not installed); setup adds it once it exists
+skipped      grok instructions      no ~/.grok (tool not installed); setup adds it once it exists
+skipped      codex mcp              no ~/.codex (tool not installed)
+skipped      gemini mcp             no ~/.gemini (tool not installed)
+skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
 ok           state                  <TMP>/home/.config/aivoicebus/state.json
 [exit 0]
 $ aivoicebus doctor
@@ -382,13 +404,15 @@ ok    hook runs              last run ok
 ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
-ok    node features          smoke: files,inbox-wait,quarantine,receipts,retract,retract-dry-run,tasks
+ok    node features          smoke: files,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,tasks
 [exit 0]
 $ aivoicebus uninstall --dry-run
 would change claude hook            <TMP>/home/.claude/settings.json
+skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
 would change claude instructions    <TMP>/home/.claude/CLAUDE.md
 skipped      codex instructions     no <TMP>/home/.codex/AGENTS.md
 skipped      gemini instructions    no <TMP>/home/.gemini/GEMINI.md
+skipped      grok instructions      no <TMP>/home/.grok/AGENTS.md
 would change shell                  <TMP>/home/.zshrc
 would change config files           env, state.json, hook-status.json in <TMP>/home/.config/aivoicebus (the token and anything else there stays; --purge removes it)
 [exit 0]

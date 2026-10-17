@@ -27,12 +27,14 @@ func workerCmd(args []string, s Streams) error {
 	}
 	fs := newFlagSet("worker")
 	execT := fs.String("exec", "", "the command to run for each task, e.g. 'claude -p'; the task text goes on its stdin, never on its command line (split like a shell would, but no shell runs it)")
+	agent := fs.String("agent", "", "instead of --exec, a read-only headless preset of an agent CLI: "+strings.Join(worker.PresetNames(), " | ")+"; the worker then also takes tasks sent to this machine's sessions of that tool (host/TOOL)")
 	once := fs.Bool("once", false, "look at the queue once, run what may be run, and exit")
 	dry := fs.Bool("dry-run", false, "say which waiting tasks the worker would run and which it would skip, and change nothing (no claim, no run)")
 	timeout := fs.Duration("timeout", 10*time.Minute, "kill a run (and everything it started) after this long")
 	maxOut := fs.Int("max-output", 16000, "bytes of the command's output (stdout, and stderr) kept for the answer")
 	maxAge := fs.Duration("max-age", time.Hour, "leave alone a task older than this")
 	every := fs.Duration("every", 15*time.Second, "how often the queue is read")
+	allowUnsigned := fs.Bool("allow-unsigned", false, "also take tasks that carry no signature (senders on clients older than 0.7.0); a bad signature or a changed key is never taken")
 	settle := fs.Duration("settle", 2*time.Second, "after claiming, how long to wait for a claim made elsewhere at the same moment")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -41,7 +43,17 @@ func workerCmd(args []string, s Streams) error {
 		return outbox.Usagef("usage: worker --exec 'COMMAND' [--once] [--dry-run] [--timeout 10m] [--max-output 16000] [--max-age 1h]   |   worker allow add|rm|list [SENDER]")
 	}
 	var argv []string
-	if *execT != "" || !*dry {
+	if *agent != "" {
+		if *execT != "" {
+			return outbox.Usagef("--agent and --exec both name the command; give one")
+		}
+		a, ok := worker.PresetArgv(strings.ToLower(*agent))
+		if !ok {
+			return outbox.Usagef("--agent is one of %s", strings.Join(worker.PresetNames(), ", "))
+		}
+		argv = a
+		fmt.Fprintf(s.Err, "preset %s: %s (%s)\n", *agent, worker.QuoteCommand(argv), worker.Presets[strings.ToLower(*agent)].Note)
+	} else if *execT != "" || !*dry {
 		var err error
 		if argv, err = worker.SplitCommand(*execT); err != nil {
 			return outbox.Usagef("%v", err)
@@ -61,7 +73,11 @@ func workerCmd(args []string, s Streams) error {
 	// this machine, unless AIVOICEBUS_ME names it on purpose.
 	env := os.Environ()
 	if os.Getenv("AIVOICEBUS_ME") == "" {
-		os.Setenv("AIVOICEBUS_AGENT", "worker")
+		name := "worker"
+		if *agent != "" { // host/codex.worker: reached by tasks sent to host/codex as well as to host
+			name = strings.ToLower(*agent) + ".worker"
+		}
+		os.Setenv("AIVOICEBUS_AGENT", name)
 		os.Unsetenv("AIVOICEBUS_AGENT_SRC")
 	}
 	c, err := client.FromEnv()
@@ -69,10 +85,11 @@ func workerCmd(args []string, s Streams) error {
 		return err
 	}
 	c.Title = "aivoicebus worker"
+	c.Labels = identity.Labels("") // tasks routed by selector (@tool=codex...) reach it too
 	w := &worker.Worker{
 		C: c, Me: identity.Me(), Allow: allow, Argv: argv, Env: env,
 		Limits: worker.Limits{Timeout: *timeout, MaxOutput: *maxOut},
-		MaxAge: *maxAge, Settle: *settle, DryRun: *dry, Out: s.Out,
+		MaxAge: *maxAge, Settle: *settle, DryRun: *dry, Out: s.Out, AllowUnsigned: *allowUnsigned,
 	}
 	if *dry {
 		fmt.Fprintf(s.Out, "worker %s, dry run: nothing is claimed or run. Allowed senders: %s\n", w.Me, allowedText(allow))

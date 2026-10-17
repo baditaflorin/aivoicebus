@@ -129,7 +129,7 @@ func TestHandshakeListsTheTools(t *testing.T) {
 			t.Errorf("%v", tl)
 		}
 	}
-	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_inbox,aivoicebus_retract,aivoicebus_send,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
+	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
 		t.Errorf("%v", names)
 	}
 	for _, x := range list {
@@ -686,5 +686,63 @@ func TestClaimAndWaitTools(t *testing.T) {
 	}
 	if text, _ := s.call("aivoicebus_wait", map[string]any{"thread": task.Thread, "seconds": 1}); !strings.Contains(text, "nothing arrived") {
 		t.Errorf("what a wait returned is read: %q", text)
+	}
+}
+
+func TestTaskQueueStatusPingAndSendWithAWait(t *testing.T) {
+	s, st := start(t)
+	st.InboxFor("lap/codex.b2", false, nil)
+	text, isErr := s.call("aivoicebus_task", map[string]any{"to": "lap", "body": "run the tests"})
+	if isErr || !strings.Contains(text, "task ") {
+		t.Fatalf("task: %v %q", isErr, text)
+	}
+	id := strings.Fields(text)[1]
+	if text, _ := s.call("aivoicebus_status", map[string]any{"id": id}); !strings.Contains(text, "not read yet") || !strings.Contains(text, "not taken yet") {
+		t.Errorf("status: %q", text)
+	}
+	st.Send(msg.Message{From: "lap/codex.b2", To: "me/mcp.test", Kind: msg.KindClaim, Re: id, Body: "mine"})
+	if text, _ := s.call("aivoicebus_status", map[string]any{"id": id}); !strings.Contains(text, "taken by lap/codex.b2") {
+		t.Errorf("status after a claim: %q", text)
+	}
+	if text, _ := s.call("aivoicebus_ping", map[string]any{"target": "lap"}); !strings.Contains(text, "lap/codex.b2") {
+		t.Errorf("ping: %q", text)
+	}
+	if text, _ := s.call("aivoicebus_ping", map[string]any{"target": "nowhere"}); !strings.Contains(text, "nobody at nowhere") {
+		t.Errorf("ping nowhere: %q", text)
+	}
+	// A task to this session's machine is in its queue.
+	st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "check the disk"})
+	if text, _ := s.call("aivoicebus_queue", map[string]any{}); !strings.Contains(text, "check the disk") || !strings.Contains(text, "UNTRUSTED") {
+		t.Errorf("queue: %q", text)
+	}
+	// send with wait_seconds returns the answer, the claim as progress.
+	done := make(chan string, 1)
+	go func() {
+		text, _ := s.call("aivoicebus_send", map[string]any{"to": "lap/codex.b2", "body": "ready?", "wait_seconds": 10})
+		done <- text
+	}()
+	var sent msg.Message
+	for i := 0; i < 50 && sent.ID == ""; i++ {
+		time.Sleep(100 * time.Millisecond)
+		for _, m := range st.Inbox("lap/codex.b2", false) {
+			if m.Body == "ready?" {
+				sent = m
+			}
+		}
+	}
+	if sent.ID == "" {
+		t.Fatal("the message never arrived")
+	}
+	st.Send(msg.Message{From: "lap/codex.b2", To: "me/mcp.test", Re: sent.ID, Thread: sent.Thread, Body: "yes, go"})
+	select {
+	case text := <-done:
+		if !strings.Contains(text, "sent ") || !strings.Contains(text, "yes, go") {
+			t.Errorf("send with a wait: %q", text)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("send with a wait never returned")
+	}
+	if text, isErr := s.call("aivoicebus_get", map[string]any{"id": sent.ID}); !isErr || !strings.Contains(text, "no attachment") {
+		t.Errorf("get without an attachment: %v %q", isErr, text)
 	}
 }

@@ -25,6 +25,7 @@ var Kinds = []Word{
 	{KindTask, "[task]"},
 	{KindClaim, "[claim]"},
 	{KindEnd, "[end]"},
+	{KindLease, "[lease]"},
 }
 
 func names(ws []Word) []string {

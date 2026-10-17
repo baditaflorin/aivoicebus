@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/discovery"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/mcp"
@@ -39,7 +38,7 @@ func mcpCmd(args []string, s Streams) error {
 		return nil
 	}
 	discovery.RefreshIfDue(trustedKeys(), time.Now(), discovery.StartBudget) // an MCP-only tool has no session-start hook to learn new nodes in
-	srv := &mcp.Server{Name: "aivoicebus", Version: version.Release, Client: client.FromEnv, Log: s.Err}
+	srv := &mcp.Server{Name: "aivoicebus", Version: version.Release, Client: sessionClient, Log: s.Err}
 	userSet := os.Getenv("AIVOICEBUS_ME") != "" || (os.Getenv("AIVOICEBUS_AGENT") != "" && os.Getenv("AIVOICEBUS_AGENT_SRC") != "hook")
 	if !userSet {
 		// Explain keeps the hook's identity when it is this tool's own, so the MCP server and the

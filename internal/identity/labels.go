@@ -86,6 +86,10 @@ func Labels(cwd string) msg.Labels {
 			fmt.Fprintf(warnOut, "aivoicebus: warning: AIVOICEBUS_CAPS is not advertised: a session holds at most %d labels and this one's are full (trim AIVOICEBUS_LABELS)\n", msg.MaxLabels)
 		}
 	}
+	// The rooms the session joined, read on every call like the caps.
+	if rooms := msg.CleanCaps(config.Rooms(Me())); rooms != "" {
+		l = l.Overlay(msg.Labels{msg.RoomsLabel: rooms})
+	}
 	// The model, like the caps, is read on every call: a session can switch models while it runs.
 	if m := msg.CleanModel(config.Model(Me())); m != "" {
 		l = l.Overlay(msg.Labels{msg.ModelLabel: m})

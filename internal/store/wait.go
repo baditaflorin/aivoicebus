@@ -80,3 +80,21 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 	sort.SliceStable(r.Reads, func(i, j int) bool { return r.Reads[i].At.Before(r.Reads[j].At) })
 	return r, true
 }
+
+// Leases lists the live leases: not withdrawn, not expired, not forged. msg.Holders says who holds what.
+func (s *Store) Leases() []msg.Lease {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now().UTC()
+	out := []msg.Lease{}
+	for _, i := range s.leases {
+		m := s.msgs[i]
+		if s.forged[m.ID] || m.Expired(now) || s.retractedLocked(m.ID, m.From) {
+			continue
+		}
+		if l, ok := msg.LeaseOf(m); ok {
+			out = append(out, l)
+		}
+	}
+	return out
+}

@@ -302,6 +302,52 @@ Tasks, claims and ends need nodes of release 0.2.0 or later (they advertise `tas
 `/v1/health`); a node older than that would quarantine them, so the client refuses to send one
 until the nodes are updated.
 
+**Route a task by tool, capability or model.** `task laptop-b --tool codex "..."` goes to laptop-b's
+Codex sessions only (`laptop-b/codex`); `task --tool gemini` to every Gemini session; `task --can gpu`
+and `task --model 'gpt-*'` to whoever advertises that capability or runs that model (a selector,
+`@can=gpu`, `@machine=lap,tool=codex,model=gpt-*`). The first claim still wins. A task routed by
+capability cannot carry a file: any session can say it has a capability.
+
+**Hand work over.** `aivoicebus handoff laptop-b/codex "finish the login fix" --done "tests pass"
+--diff` sends a task whose text says everything another agent, of any make, needs to carry on:
+the goal; the repo (its remote, with any credentials taken out of the URL), branch and commit;
+whether that commit is pushed (a receiver cannot see what is not); the uncommitted changes, with
+`--diff`, as an encrypted attached diff to `git apply`; and what done means.
+
+**Leases.** `aivoicebus lease take hub:server.go --ttl 30m --note "refactoring"` tells every other
+agent this session is working on that (a file, a branch, `deploy:prod`, any name) until then;
+another session's `lease take` of the same key is refused with who holds it and why, and the
+session-start radar lists leases held by others (those whose key names this repository first).
+`lease list` shows them all, `lease release KEY` ends one, taking it again extends it. A lease is a
+message of `--kind lease` addressed to its own holder, so it reaches no inbox; the earliest live one
+on a key holds it, by the rule tasks use. It is advisory: it tells, it does not stop anyone.
+Nodes of 0.6.0 or later (feature `leases`) hold them.
+
+**Rooms.** `aivoicebus room join release-0.5` puts this session in a standing conversation of
+several agents: everything `room say release-0.5 "..."` says goes to every member, in one thread
+(`room-release-0.5`), which `room wait release-0.5` follows and the viewer shows as one
+conversation. `room who` lists the members (and who is listening now), `room invite NAME TARGET`
+asks another session to join (it asks its user first), `room leave` and `room list`. Membership
+is a `rooms` label the session declares on every read (like capabilities), so a message to
+`@room=release-0.5` reaches exactly the sessions in it at the time.
+
+**Who really sent it.** From 0.7.0 every client signs every message with its machine's key
+(`~/.config/aivoicebus/machine.key`, made on first use, mode 600). A reader pins the first key it
+sees for each machine, like ssh's known_hosts, and marks a message whose signature does not
+verify `[BAD SIGNATURE: not from who it says]` and one signed by a different key than the pinned
+one `[KEY CHANGED]`; an unsigned one (a client older than 0.7.0) is not marked yet. `aivoicebus
+keys` shows this machine's key and the pinned ones; `keys forget HOST` accepts a machine's new key
+after a reinstall (check with its owner). The worker takes only tasks whose signature checks out
+against the pinned key (`--allow-unsigned` also takes unsigned ones from older clients; a bad or
+changed key never). The signature covers the id, sender, target, reply-to, kind, priority, body
+and the sender's keys, not what a node fills in (thread, expiry).
+
+**Private messages.** `aivoicebus send --to laptop-b/codex.q1w2 --private "..."` seals the text
+to the recipient machine's key (X25519, then AES-256-GCM): nodes, the viewer and every other
+machine see only that a private message went there; the recipient sees it marked `[private]`. The
+key comes from the recipient machine's signed messages (it must have sent one from 0.7.0 or
+later). It goes to one machine or one of its sessions, never to a selector or `all`.
+
 ### The worker: tasks taken while no session is open
 
 **`aivoicebus worker` runs an agent on input from other machines.** It is off unless you start it,

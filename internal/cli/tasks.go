@@ -24,10 +24,84 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return outbox.Usagef(`usage: task TARGET "what to do" [--wait-reply 10m] [--ttl 1d] [--file F]   (TARGET: a machine, e.g. laptop-b; one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m] [--ttl 1d] [--file F]   (one session there takes it)`)
+	// Routing flags pick who may take it; everything else is send's. The machine is the first word
+	// when another word (the text) follows it, or when no capability or model routes the task.
+	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true}
+	var machine, tool, can, model string
+	var rest []string
+	var words []int // indexes into rest of the plain words (not flags or their values)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			words = append(words, len(rest))
+			rest = append(rest, a)
+			continue
+		}
+		key, val, hasEq := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		switch key {
+		case "tool", "can", "model":
+			if !hasEq {
+				if i+1 >= len(args) {
+					return usage
+				}
+				i++
+				val = args[i]
+			}
+			switch key {
+			case "tool":
+				tool = val
+			case "can":
+				can = val
+			default:
+				model = val
+			}
+			continue
+		}
+		rest = append(rest, a)
+		if valued[key] && !hasEq && i+1 < len(args) {
+			i++
+			rest = append(rest, args[i])
+		}
 	}
-	return sendWith(append([]string{"--to", args[0], "--kind", msg.KindTask}, args[1:]...), s, false)
+	if len(words) > 0 && (len(words) > 1 || (can == "" && model == "" && tool == "")) {
+		machine = rest[words[0]]
+		rest = append(rest[:words[0]], rest[words[0]+1:]...)
+	}
+	to, err := taskTarget(machine, tool, can, model)
+	if err != nil {
+		return outbox.Usagef("%v", err)
+	}
+	if to == "" {
+		return usage
+	}
+	return sendWith(append([]string{"--to", to, "--kind", msg.KindTask}, rest...), s, false)
+}
+
+// taskTarget is the narrowest address for who may take a task: a machine, a tool on it
+// (machine/tool), or a selector when a capability or a model is asked for.
+func taskTarget(machine, tool, can, model string) (string, error) {
+	for _, v := range []string{machine, tool, can, model} {
+		if strings.ContainsAny(v, ",= /") && v != machine {
+			return "", fmt.Errorf("%q: one value, without , = / or spaces", v)
+		}
+	}
+	if can == "" && model == "" {
+		if tool != "" && machine != "" {
+			return machine + "/" + tool, nil
+		}
+		if tool != "" {
+			return "*/" + tool, nil
+		}
+		return machine, nil
+	}
+	var parts []string
+	for _, kv := range [][2]string{{"machine", machine}, {"tool", tool}, {"can", can}, {"model", model}} {
+		if kv[1] != "" {
+			parts = append(parts, kv[0]+"="+kv[1])
+		}
+	}
+	return "@" + strings.Join(parts, ","), nil
 }
 
 // claimCmd takes a task for this session. The earliest claim wins everywhere; if another session
@@ -46,7 +120,7 @@ func claimCmd(args []string, s Streams) error {
 	if err := parseFlags(fs, fs.Args()[1:], s); err != nil { // flags may follow the id too
 		return err
 	}
-	c, err := client.FromEnv()
+	c, err := sessionClient()
 	if err != nil {
 		return err
 	}
@@ -77,7 +151,7 @@ func queueCmd(args []string, s Streams) error {
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
-	c, err := client.FromEnv()
+	c, err := sessionClient()
 	if err != nil {
 		return err
 	}
@@ -153,7 +227,7 @@ func waitCmd(args []string, s Streams) error {
 	if *every < time.Second {
 		*every = time.Second
 	}
-	c, err := client.FromEnv()
+	c, err := sessionClient()
 	if err != nil {
 		return err
 	}
@@ -181,7 +255,7 @@ func pingCmd(args []string, s Streams) error {
 		return outbox.Usagef("usage: ping TARGET [--within 30m]   (TARGET: a machine, host/tool, a session, or all)")
 	}
 	target := fs.Arg(0)
-	c, err := client.FromEnv()
+	c, err := sessionClient()
 	if err != nil {
 		return err
 	}

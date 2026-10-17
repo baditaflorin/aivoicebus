@@ -61,8 +61,15 @@ func TestSendingRemembersTheMessageWithoutItsBodyAndKeepsTheFilePrivate(t *testi
 	if len(got) != 1 || got[0]["id"] != out.ID || got[0]["from"] != meID || got[0]["to"] != reader1 || len(got[0]) != 4 {
 		t.Errorf("an id, a sender, a target and a time, keyed by machine: %s", raw)
 	}
-	if dir, _ := os.ReadDir(filepath.Dir(path)); len(dir) != 2 { // the memory and its lock; no temporary file
-		t.Errorf("only the memory and its lock are left: %v", dir)
+	dir, _ := os.ReadDir(filepath.Dir(path))
+	var names []string
+	for _, e := range dir {
+		if e.Name() != "machine.key" && e.Name() != "machine.box" { // the keys a send signs with
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) != 2 { // the memory and its lock; no temporary file
+		t.Errorf("only the memory and its lock are left: %v", names)
 	}
 }
 

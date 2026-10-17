@@ -195,7 +195,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		switch {
 		case strings.HasPrefix(err.Error(), "priority"):
 			return p, Usagef("--prio: %v", err)
-		case strings.HasPrefix(err.Error(), "kind"), strings.HasPrefix(err.Error(), "an answer"), strings.HasPrefix(err.Error(), "a claim"):
+		case strings.HasPrefix(err.Error(), "kind"), strings.HasPrefix(err.Error(), "an answer"), strings.HasPrefix(err.Error(), "a claim"), strings.HasPrefix(err.Error(), "a lease"):
 			return p, Usagef("--kind: %v", err)
 		}
 		return p, err
@@ -205,6 +205,11 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		// A node older than this quarantines the record instead of relaying it.
 		if old := nodeTooOldFor(c, msg.TaskSince); old != "" {
 			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a %s; update the nodes first", old, msg.TaskSince, m.Kind)
+		}
+	}
+	if m.Kind == msg.KindLease {
+		if old := nodeTooOldFor(c, msg.LeaseSince); old != "" {
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a lease; update the nodes first", old, msg.LeaseSince)
 		}
 	}
 	switch {
@@ -340,7 +345,10 @@ func ExpandTarget(to string) (string, error) {
 	if to, err = msg.ExpandHere(to, identity.Labels("")); err != nil {
 		return "", err
 	}
-	return msg.ExpandCaps(to)
+	if to, err = msg.ExpandCaps(to); err != nil {
+		return "", err
+	}
+	return msg.ExpandRooms(to)
 }
 
 // Send writes the planned message to the mesh and remembers it as the last one sent from this

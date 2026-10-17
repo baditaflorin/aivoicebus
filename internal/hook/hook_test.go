@@ -3,6 +3,7 @@ package hook
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -503,5 +504,43 @@ func TestHookDoesNotPinCapabilitiesIntoTheSessionLabels(t *testing.T) {
 	b, _ := os.ReadFile(envFile)
 	if !strings.Contains(string(b), "export AIVOICEBUS_LABELS='") || strings.Contains(string(b), "caps=") {
 		t.Errorf("caps follow AIVOICEBUS_CAPS, they are not frozen at session start:\n%s", b)
+	}
+}
+
+// Gemini CLI reads a hook's stdout as JSON only: the text goes in additionalContext, and a hook
+// with nothing to say prints nothing. Codex passes the session's model, which becomes its label.
+func TestGeminiGetsJSONAndCodexSaysItsModel(t *testing.T) {
+	s, _ := mesh(t)
+	t.Setenv("AIVOICEBUS_ME", "air/gemini.g1")
+	var quiet strings.Builder
+	Run([]string{"--tool", "gemini"}, strings.NewReader(`{"session_id":"g1","hook_event_name":"SessionStart","source":"startup"}`), &quiet)
+	if quiet.Len() != 0 {
+		t.Errorf("nothing to say must print nothing: %q", quiet.String())
+	}
+	s.Send(msg.Message{From: "other/agent", To: "air/gemini.g1", Body: "deploy finished"})
+	var out strings.Builder
+	Run([]string{"--tool", "gemini"}, strings.NewReader(`{"session_id":"g1","hook_event_name":"SessionStart","source":"startup"}`), &out)
+	var doc struct {
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil || !strings.Contains(doc.HookSpecificOutput.AdditionalContext, "deploy finished") ||
+		!strings.Contains(doc.HookSpecificOutput.AdditionalContext, "UNTRUSTED") {
+		t.Fatalf("gemini output is not the JSON it reads: %v %q", err, out.String())
+	}
+
+	t.Setenv("AIVOICEBUS_ME", "air/codex.c1")
+	t.Setenv("AIVOICEBUS_MODEL", "")
+	var c strings.Builder
+	Run([]string{"--tool", "codex"}, strings.NewReader(`{"session_id":"c1","hook_event_name":"SessionStart","model":"gpt-5.3-codex"}`), &c)
+	found := false
+	for _, e := range s.Roster() {
+		if e.Me == "air/codex.c1" && e.Labels["model"] == "gpt-5.3-codex" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("codex's model did not become the session's label: %+v", s.Roster())
 	}
 }

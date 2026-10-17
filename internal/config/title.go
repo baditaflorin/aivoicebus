@@ -44,6 +44,12 @@ func Title(me string) string { return sessionValue(TitleEnv, "titles", me) }
 // The caller cleans it (msg.CleanModel).
 func Model(me string) string { return sessionValue(ModelEnv, "models", me) }
 
+// Rooms is the '+'-joined list of rooms the session me is in (`aivoicebus room join`), "" for none.
+func Rooms(me string) string { return sessionValue("AIVOICEBUS_ROOMS", "rooms", me) }
+
+// SaveRooms records the rooms the session me is in ("" for none).
+func SaveRooms(me, rooms string) { saveSessionValue("AIVOICEBUS_ROOMS", "rooms", me, rooms) }
+
 // SaveModel is SaveTitle for the model.
 func SaveModel(me, model string) { saveSessionValue(ModelEnv, "models", me, model) }
 

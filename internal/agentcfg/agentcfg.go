@@ -49,6 +49,9 @@ var Tools = []Tool{
 	{"claude", ".claude", "CLAUDE.md"},
 	{"codex", ".codex", "AGENTS.md"},
 	{"gemini", ".gemini", "GEMINI.md"},
+	// Grok Build reads "global rules in ~/.grok/" (its docs name no file; AGENTS.md is what it reads
+	// in project directories, so the same name is used here).
+	{"grok", ".grok", "AGENTS.md"},
 }
 
 // Paths locates every file aivoicebus manages under one home directory.
@@ -125,6 +128,11 @@ type Options struct {
 	// InstallExeErr is why the running binary could not be found (os.Executable failed): the
 	// install step then reports it instead of silently doing nothing.
 	InstallExeErr error
+
+	// ClaudeMCP registers the MCP server with Claude Code (`claude mcp add`), which Grok Build
+	// reads too; nil skips it. It returns a step status and detail. ClaudeMCPRemove undoes it.
+	ClaudeMCP       func(bin string, dryRun bool) (status, detail string)
+	ClaudeMCPRemove func(dryRun bool) (status, detail string)
 }
 
 type installer struct {
@@ -150,7 +158,9 @@ func Setup(o Options) ([]Step, error) {
 	in.shell()
 	in.tokenPerms()
 	in.claudeHook()
+	in.toolHooks()
 	in.instructions()
+	in.mcpServers()
 	in.state()
 	for _, s := range in.steps {
 		if s.Status == Failed {

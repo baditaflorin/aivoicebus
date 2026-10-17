@@ -88,7 +88,10 @@ var tools = []toolSpec{
 		session: "CODEX_THREAD_ID", clients: []string{"codex"}},
 	{name: "gemini", exes: []string{"gemini"}, scripts: []string{"/@google/gemini-cli/"},
 		env: []string{"GEMINI_CLI", "GEMINI_SESSION_ID"}, session: "GEMINI_SESSION_ID", clients: []string{"gemini"}},
-	{name: "grok", exes: []string{"grok", "grok-cli"}, clients: []string{"grok"}},
+	// Grok Build (xAI) is the `grok` binary, also shipped as xai-grok-shell; its hooks get GROK_SESSION_ID,
+	// which may reach the shells it spawns too (best-effort, from its docs).
+	{name: "grok", exes: []string{"grok", "grok-cli", "xai-grok-shell"}, scripts: []string{"/@xai-official/grok/"},
+		env: []string{"GROK_SESSION_ID"}, session: "GROK_SESSION_ID", clients: []string{"grok"}},
 	{name: "cursor-agent", exes: []string{"cursor-agent"}, env: []string{"CURSOR_AGENT"}, clients: []string{"cursor"}},
 	{name: "opencode", exes: []string{"opencode"}, env: []string{"OPENCODE"}, clients: []string{"opencode"}},
 	{name: "aider", exes: []string{"aider"}, clients: []string{"aider"}},

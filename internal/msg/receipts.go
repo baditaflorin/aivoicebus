@@ -33,6 +33,7 @@ const ViaReply = "reply"
 const (
 	FeatureReceipts  = "receipts"   // GET /v1/receipts?id=
 	FeatureInboxWait = "inbox-wait" // GET /v1/inbox?wait=S&gen=G holds the read until something arrives
+	FeatureLeases    = "leases"     // GET /v1/leases, and kind lease is held, not quarantined
 )
 
 // HeaderGen is the response header an inbox read carries: the node's change counter, which the

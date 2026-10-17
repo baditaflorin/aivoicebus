@@ -33,9 +33,12 @@ type Worker struct {
 	MaxAge time.Duration // a task older than this is left alone (a worker started after a week away runs nothing stale)
 	Settle time.Duration // passed to tasks.Claim
 	DryRun bool
-	Out    io.Writer   // one line per decision, for a person or a service log
-	Log    func(Entry) // the local record of every decision; nil keeps none
-	Now    func() time.Time
+	// AllowUnsigned takes a task that carries no signature (a sender on a client older than 0.7.0).
+	// A bad signature, or a key other than the one pinned for the sender's machine, is never taken.
+	AllowUnsigned bool
+	Out           io.Writer   // one line per decision, for a person or a service log
+	Log           func(Entry) // the local record of every decision; nil keeps none
+	Now           func() time.Time
 
 	seen map[string]bool // tasks already reported as skipped, so a poll loop says so once
 }
@@ -73,8 +76,20 @@ func (w *Worker) Decide(m msg.Message) (why, entry string) {
 		}
 		return "the sender is not in the allowlist", ""
 	}
+	switch m.Verified {
+	case msg.VerifiedSigned:
+	case msg.VerifiedUnsigned:
+		if !w.AllowUnsigned {
+			return "it is not signed (a sender on a client older than 0.7.0): --allow-unsigned takes such tasks", entry
+		}
+	case msg.VerifiedChanged:
+		return "it is signed by a key other than the one pinned for " + msg.HostOf(m.From) + " (KEY CHANGED): not from who it says, or that machine was reinstalled", entry
+	default:
+		return "its signature does not verify: not from who it says", entry
+	}
 	host := msg.HostOf(w.Me)
-	if to := strings.ToLower(m.To); to != host && to != host+"/*" && to != w.Me {
+	tool, _, _ := strings.Cut(strings.TrimPrefix(w.Me, host+"/"), ".")
+	if to := strings.ToLower(m.To); to != host && to != host+"/*" && to != w.Me && to != host+"/"+tool {
 		return fmt.Sprintf("it was sent to %s, not to this machine or this worker by name", view.Name(m.To, msg.MaxIdentity)), entry
 	}
 	if age := w.now().Sub(m.At); w.MaxAge > 0 && age > w.MaxAge {

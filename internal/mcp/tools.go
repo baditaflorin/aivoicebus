@@ -34,7 +34,7 @@ type tool struct {
 var tools = map[string]tool{}
 
 func init() {
-	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, claimTool, waitTool} {
+	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, claimTool, waitTool, taskTool, queueTool, statusTool, pingTool, getTool} {
 		tools[t.name] = t
 	}
 }
@@ -139,6 +139,7 @@ var sendTool = tool{
 		"queue":        flag("send a selector message even if no recently seen session matches it"),
 		"dry_run":      flag("check and report only; nothing is sent"),
 		"confirm_caps": flag("a target routed by capability (can=...) is only previewed until this is true: capabilities are self-declared, so look at the sessions it resolved to first"),
+		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("after sending, wait this long for the answer in the thread and return it (at most %d): a conversation with another agent without the user relaying", maxWaitSeconds)},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct {
@@ -146,6 +147,7 @@ var sendTool = tool{
 			Queue                                 bool
 			DryRun                                bool `json:"dry_run"`
 			ConfirmCaps                           bool `json:"confirm_caps"`
+			WaitSeconds                           int  `json:"wait_seconds"`
 		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
@@ -187,6 +189,9 @@ var sendTool = tool{
 			}
 			if len(plan.Suspect) > 0 {
 				fmt.Fprintf(&b, "\nif that went out: call aivoicebus_retract with id %s and leak true, then tell the user to rotate it", out.ID)
+			}
+			if a.WaitSeconds > 0 {
+				fmt.Fprintf(&b, "\n%s", waitAnswer(c, identity.Me(), out.Thread, a.WaitSeconds))
 			}
 		}
 		if w := strings.TrimSpace(warn.String()); w != "" {

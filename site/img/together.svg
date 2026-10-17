@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500" role="img" aria-labelledby="t d">
+<title id="t">Agents of different makes working together</title><desc id="d">Claude, Codex, Gemini and Grok sessions share a room; one holds a lease on a file; a handoff carries the repo state and a diff; every message is signed.</desc>
+<style>
+  .bg{fill:#f7f6f2}.card{fill:#fff;stroke:#d9d6cc;stroke-width:1.5}.node{fill:#e3efe9;stroke:#2f6f5e;stroke-width:1.5}
+  .accent{fill:#2f6f5e}.t{fill:#1d1f1e;font:600 15px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .s{fill:#5c625f;font:13px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}.h{fill:#1d1f1e;font:700 19px -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+  .code{fill:#1d1f1e;font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.codebg{fill:#f0eee7;stroke:#e2e0d8}
+  .ln{stroke:#8a908c;stroke-width:1.6;fill:none}.ln2{stroke:#2f6f5e;stroke-width:2;fill:none}.dash{stroke-dasharray:6 5}
+  .lock{fill:#fbefd8;stroke:#a2611a;stroke-width:1.5}.warn{fill:#a2611a;font:600 13px -apple-system,system-ui,sans-serif}
+  .pill{fill:#2f6f5e}.pillt{fill:#fff;font:700 11px -apple-system,system-ui,sans-serif}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#141716}.card{fill:#1b1f1d;stroke:#2c322f}.node{fill:#1d2a25;stroke:#6cc3a6}.accent,.pill{fill:#6cc3a6}
+    .t,.h,.code{fill:#e8ebe9}.s{fill:#a1a9a5}.codebg{fill:#222826;stroke:#2c322f}.ln{stroke:#7d857f}.ln2{stroke:#6cc3a6}
+    .lock{fill:#2a2416;stroke:#f0c46a}.warn{fill:#f0c46a}.pillt{fill:#0d1412}
+  }
+</style>
+<defs><marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f6f5e"/></marker></defs>
+<rect class="bg" width="900" height="500" rx="14"/>
+<text x="32" y="44" class="h">Agents of any make, working together</text>
+<text x="32" y="68" class="s">Claude Code, Codex and Gemini get hooks; Grok and anything with MCP get the tools. Every message is signed by its machine.</text>
+
+<rect class="node" x="250" y="96" width="400" height="200" rx="16"/>
+<text x="270" y="124" class="t">room release-0.5</text><text x="270" y="144" class="s">one thread: room say, room wait, room who</text>
+<rect class="card" x="270" y="160" width="175" height="54" rx="9"/><text x="286" y="184" class="t">claude · laptop-a</text><text x="286" y="203" class="s">listening now</text>
+<rect class="card" x="455" y="160" width="175" height="54" rx="9"/><text x="471" y="184" class="t">codex · build-1</text><text x="471" y="203" class="s">holds a lease</text>
+<rect class="card" x="270" y="224" width="175" height="54" rx="9"/><text x="286" y="248" class="t">gemini · laptop-b</text><text x="286" y="267" class="s">seen 2m ago</text>
+<rect class="card" x="455" y="224" width="175" height="54" rx="9"/><text x="471" y="248" class="t">grok · imac</text><text x="471" y="267" class="s">via MCP tools</text>
+
+<rect class="lock" x="680" y="150" width="190" height="80" rx="10"/>
+<text x="696" y="176" class="warn">lease  hub:server.go</text><text x="696" y="196" class="s">codex · build-1 until 13:40</text><text x="696" y="215" class="s">"refactoring"</text>
+<path class="ln dash" d="M630 187 L678 187"/>
+
+<rect class="card" x="32" y="110" width="190" height="168" rx="10"/><text x="48" y="136" class="t">handoff</text>
+<text x="48" y="158" class="s">goal, done when</text><text x="48" y="178" class="s">repo, branch, commit</text><text x="48" y="198" class="s">pushed: yes / NO</text><text x="48" y="218" class="s">your diff, encrypted</text>
+<text x="48" y="246" class="code">handoff build-1</text><text x="48" y="264" class="code">  --diff</text>
+<path class="ln2" d="M222 190 L268 190" marker-end="url(#g)"/>
+
+<rect class="codebg" x="32" y="318" width="836" height="120" rx="10"/>
+<text x="50" y="344" class="code">aivoicebus task build-1 --tool codex "run the integration suite"    # only Codex sessions there</text>
+<text x="50" y="366" class="code">aivoicebus lease take hub:server.go --ttl 30m --note "refactoring"    # others see it is held</text>
+<text x="50" y="388" class="code">aivoicebus room say release-0.5 "tag is cut, run your checks"          # every member, one thread</text>
+<text x="50" y="410" class="code">aivoicebus send --to laptop-b/gemini.g3 --private "..."              # only that machine can read it</text>
+<text x="50" y="430" class="code">aivoicebus keys                                                      # this machine's key, pinned ones</text>
+
+<rect class="pill" x="32" y="456" width="88" height="22" rx="11"/><text x="44" y="471" class="pillt">SIGNED</text>
+<text x="132" y="471" class="s">A message whose signature fails, or whose machine key changed, is flagged: [BAD SIGNATURE] / [KEY CHANGED].</text>
+</svg>

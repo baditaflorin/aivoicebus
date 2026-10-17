@@ -83,6 +83,8 @@ type Client struct {
 	// Deadline, when set, bounds the whole call across every node and request, on top of Timeout.
 	Deadline time.Time
 	Warn     io.Writer // where partial-write warnings go; nil means stderr
+	// NoSign sends messages unsigned (a node replaying or relaying what others wrote, tests).
+	NoSign bool
 
 	// Labels are declared with every inbox read, so selector messages
 	// ("@repo=x") reach this session and the roster shows what it works on.
@@ -452,6 +454,12 @@ func (c *Client) Send(m msg.Message) (msg.Message, error) {
 	if m.FromModel == "" {
 		m.FromModel = msg.CleanModel(config.Model(m.From)) // and the model it runs
 	}
+	if m.Sig == "" && !c.NoSign {
+		if priv, box, err := config.MachineKeys(); err == nil {
+			m.Verified, m.Private = "", false
+			m.Sign(priv, msg.BoxPublic(box)) // last: the signature covers the body as sent
+		}
+	}
 	var out msg.Message
 	err := c.quorum("/v1/send", m, &out)
 	return out, err
@@ -535,7 +543,52 @@ func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	}
 	var ms []msg.Message
 	err := c.do(c.URLs, "GET", q, nil, &ms)
+	Check(ms)
 	return ms, err
+}
+
+// Check sets, on messages just read, what this machine finds of each signature (Verified, against
+// the key pinned for the sender's machine: the first one seen is pinned), then opens a body sealed
+// for this machine (Private). The signature covers the sealed text, so it is judged first. What a
+// node said about either is never kept.
+func Check(ms []msg.Message) {
+	_, box, keyErr := config.MachineKeys()
+	for i := range ms {
+		m := &ms[i]
+		m.Verified, m.Private = verdict(*m), false
+		if keyErr == nil && msg.IsSealed(m.Body) {
+			if pt, err := msg.Open(m.Body, box); err == nil {
+				m.Body, m.Private = pt, true
+			}
+		}
+	}
+}
+
+// verdict judges one message's signature.
+func verdict(m msg.Message) string {
+	if m.Retracted != nil || msg.IsSystemSender(m.From) { // a tombstone's body is the node's; a system notice is the node's own
+		return ""
+	}
+	signed, valid := m.VerifySig()
+	switch {
+	case !signed:
+		return msg.VerifiedUnsigned
+	case !valid:
+		return msg.VerifiedBad
+	}
+	host := msg.HostOf(m.From)
+	key, box, known := config.KnownMachine(host)
+	switch {
+	case !known:
+		_ = config.PinMachine(host, m.Key, m.Box)
+		return msg.VerifiedSigned
+	case key != m.Key:
+		return msg.VerifiedChanged
+	}
+	if box == "" && m.Box != "" {
+		_ = config.PinMachine(host, m.Key, m.Box)
+	}
+	return msg.VerifiedSigned
 }
 
 // InboxWait is Inbox held open by the node until something arrives that it had not got at gen,
@@ -582,9 +635,17 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 		if err != nil {
 			return nil, 0, fmt.Errorf("%s does not hold reads open (no %s)", base, msg.HeaderGen)
 		}
+		Check(ms)
 		return ms, g, nil
 	}
 	return nil, 0, last
+}
+
+// Leases lists the live leases a node holds (see msg.Holders for who holds what).
+func (c *Client) Leases() ([]msg.Lease, error) {
+	var ls []msg.Lease
+	err := c.do(c.URLs, "GET", "/v1/leases", nil, &ls)
+	return ls, err
 }
 
 // Receipts asks the nodes whether message id got through (see msg.Receipts).
@@ -616,6 +677,7 @@ func (c *Client) AckVia(id, by, via string, chars int) error {
 func (c *Client) Thread(id string) ([]msg.Message, error) {
 	var ms []msg.Message
 	err := c.do(c.URLs, "GET", "/v1/thread?id="+id, nil, &ms)
+	Check(ms)
 	return ms, err
 }
 

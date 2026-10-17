@@ -36,7 +36,8 @@ type Store struct {
 	// for news (a long-polled inbox) wakes as soon as anything arrives.
 	gen     uint64
 	changed chan struct{}
-	nAck    int // how many (id, by) receipts acks holds
+	leases  []int // indexes of lease messages (msg.KindLease), in arrival order
+	nAck    int   // how many (id, by) receipts acks holds
 
 	// retr holds the retractions the log carries (see msg/retract.go): message id -> who claimed it
 	// -> the earliest time they did and whether any claim flagged a credential. Claims are kept
@@ -477,9 +478,10 @@ func (s *Store) vetLocked(r msg.Record) (msg.Record, bool) {
 	err := r.ValidateReplicated()
 	switch {
 	case err == nil:
-		if r.Msg != nil && r.Msg.Retracted != nil { // response only: what a release that predates retraction does when it decodes and writes the record again
+		if r.Msg != nil && (r.Msg.Retracted != nil || r.Msg.Verified != "" || r.Msg.Private) { // response only: what a release that predates retraction does when it decodes and writes the record again; and what only a reading client may say
 			m := *r.Msg
 			m.Retracted = nil
+			m.Verified, m.Private = "", false
 			r.Msg = &m
 		}
 		return r, true
@@ -510,6 +512,9 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	s.idx[m.ID] = i
 	s.threads[m.Thread] = append(s.threads[m.Thread], i)
 	s.byTo[m.To] = append(s.byTo[m.To], i)
+	if m.Kind == msg.KindLease {
+		s.leases = append(s.leases, i)
+	}
 	if msg.IsSelector(m.To) {
 		if _, known := s.sels[m.To]; !known {
 			sel, err := msg.ParseSelector(m.To)
@@ -894,7 +899,8 @@ func (s *Store) addAck(a msg.Ack) {
 func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m.Retracted = nil // what a node says about a message, not something a sender sets
+	m.Retracted = nil                 // what a node says about a message, not something a sender sets
+	m.Verified, m.Private = "", false // what a reading client finds, never stored
 	if !msg.ValidID(m.ID) {
 		m.ID = msg.NewID()
 	} else if p, ok := s.byIDLocked(m.ID); ok { // client wrote to several nodes: idempotent

@@ -106,6 +106,7 @@ func sendWith(args []string, s Streams, reply bool) error {
 	keep := fs.Bool("keep", false, "with --file: let several sessions read the file (it is not burned by the first read)")
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	private := fs.Bool("private", false, "seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)")
 	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
 	ackIt := new(bool)
 	end := new(bool)
@@ -131,6 +132,9 @@ func sendWith(args []string, s Streams, reply bool) error {
 			return outbox.Usagef("--end closes the conversation, so there is no reply to wait for")
 		}
 	}
+	if *private && (*file != "" || *tail != "") {
+		return outbox.Usagef("--private does not combine with --file or --tail: a file is already encrypted on this machine")
+	}
 	if *file != "" || *tail != "" {
 		if *file != "" && *tail != "" {
 			return errors.New("use --file or --tail, not both")
@@ -153,6 +157,7 @@ func sendWith(args []string, s Streams, reply bool) error {
 	if err != nil {
 		return err
 	}
+	c.Labels = identity.Labels("") // a --wait-reply reads this session's mail with it
 	inferred, err := inferRe(c, re, *to, reply, s)
 	if err != nil {
 		return err
@@ -161,6 +166,20 @@ func sendWith(args []string, s Streams, reply bool) error {
 		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred}, s.Err)
 	if err != nil {
 		return err
+	}
+	if *private {
+		if to := plan.Msg.To; to == "all" || strings.HasPrefix(to, "@") || strings.HasPrefix(to, "*/") {
+			return outbox.Usagef("--private goes to one machine (laptop-b) or one of its sessions, not to %s", to)
+		}
+		box, err := boxKeyFor(c, msg.HostOf(plan.Msg.To))
+		if err != nil {
+			return err
+		}
+		sealed, err := msg.Seal(plan.Msg.Body, box) // the text was checked for credentials before this
+		if err != nil {
+			return err
+		}
+		plan.Msg.Body = sealed
 	}
 	if *dry {
 		if *asJSON {

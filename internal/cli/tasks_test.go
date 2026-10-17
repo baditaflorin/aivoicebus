@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -207,5 +210,172 @@ func TestWaitIsAnsweredAsSoonAsTheMessageArrives(t *testing.T) {
 	// It would take up to 10s (the polling interval given) without the held read.
 	if took := time.Since(start); took > 4*time.Second {
 		t.Errorf("the wait took %s: the node did not hold the read open", took)
+	}
+}
+
+func TestLeasesKeepTwoSessionsOffTheSameThing(t *testing.T) {
+	mesh(t)
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if code, out, e := run(t, "", "lease", "take", "hub:server.go", "--ttl", "30m", "--note", "refactoring", "--settle", "0s"); code != 0 || !strings.Contains(out, "you hold hub:server.go") {
+		t.Fatalf("take: %d %q %q", code, out, e)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if code, _, e := run(t, "", "lease", "take", "hub:server.go", "--settle", "0s"); code == 0 || !strings.Contains(e, "held by "+sa) || !strings.Contains(e, "refactoring") {
+		t.Errorf("a second session took a held lease: %d %q", code, e)
+	}
+	if _, out, _ := run(t, "", "lease", "list"); !strings.Contains(out, "hub:server.go is held by "+sa) {
+		t.Errorf("list: %q", out)
+	}
+	if code, _, _ := run(t, "", "lease", "release", "hub:server.go"); code != exitNotFound {
+		t.Errorf("releasing someone else's lease: %d", code)
+	}
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if code, out, _ := run(t, "", "lease", "release", "hub:server.go"); code != 0 || !strings.Contains(out, "released") {
+		t.Fatalf("release: %d %q", code, out)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if code, out, e := run(t, "", "lease", "take", "hub:server.go", "--settle", "0s"); code != 0 || !strings.Contains(out, "you hold") {
+		t.Errorf("take after the release: %d %q %q", code, out, e)
+	}
+	// A lease never lands in an inbox.
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if _, in, _ := run(t, "", "inbox"); strings.Contains(in, "[lease]") {
+		t.Errorf("a lease reached an inbox:\n%s", in)
+	}
+}
+
+func TestTaskRoutingByToolAndCapability(t *testing.T) {
+	for _, c := range []struct{ machine, tool, can, model, want string }{
+		{"lap", "", "", "", "lap"},
+		{"lap", "codex", "", "", "lap/codex"},
+		{"", "codex", "", "", "*/codex"},
+		{"", "", "gpu", "", "@can=gpu"},
+		{"lap", "codex", "", "gpt-*", "@machine=lap,tool=codex,model=gpt-*"},
+	} {
+		if got, err := taskTarget(c.machine, c.tool, c.can, c.model); err != nil || got != c.want {
+			t.Errorf("%+v: %q %v", c, got, err)
+		}
+	}
+	if _, err := taskTarget("", "a,b", "", ""); err == nil {
+		t.Error("a value with a comma accepted")
+	}
+	mesh(t)
+	present(t, sa)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	_, out, e := run(t, "", "task", "lap", "--tool", "codex", "run the codex-only check")
+	id, _ := sentID(t, out+e)
+	t.Setenv("AIVOICEBUS_ME", sa) // claude on lap: not for it
+	if _, q, _ := run(t, "", "queue"); strings.Contains(q, id) {
+		t.Errorf("a task for codex reached claude:\n%s", q)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if _, q, _ := run(t, "", "queue"); !strings.Contains(q, id) {
+		t.Errorf("the codex session does not see its task:\n%s", q)
+	}
+}
+
+func TestHandoffCarriesTheRepoAndTheDiff(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	mesh(t)
+	present(t, sb)
+	dir := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@x", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@x")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("remote", "add", "origin", "https://user:tok@example.com/acme/app.git")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644)
+	git("add", "a.txt")
+	git("commit", "-q", "-m", "first")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\n"), 0o644)
+	t.Chdir(dir)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	t.Setenv("AIVOICEBUS_FILE_VIA", "node")
+	code, out, e := run(t, "", "handoff", "lap/codex.b2", "finish the two-line change", "--done", "tests pass", "--diff")
+	if code != 0 {
+		t.Fatalf("handoff: %d %q %q", code, out, e)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	_, in, _ := run(t, "", "inbox")
+	for _, want := range []string{"[handoff] finish the two-line change", "repo: https://example.com/acme/app.git", "branch: main", "done when: tests pass", "uncommitted: 1 file(s)", "[task]"} {
+		if !strings.Contains(in, want) {
+			t.Errorf("handoff missing %q:\n%s", want, in)
+		}
+	}
+	if strings.Contains(in, "tok@") || strings.Contains(in, "user:") {
+		t.Errorf("the remote's credentials travelled:\n%s", in)
+	}
+}
+
+func TestWorkerPresets(t *testing.T) {
+	mesh(t)
+	if code, _, e := run(t, "", "worker", "--agent", "nope", "--dry-run"); code != exitUsage || !strings.Contains(e, "claude, codex, gemini, grok") {
+		t.Errorf("unknown preset: %d %q", code, e)
+	}
+	if code, _, e := run(t, "", "worker", "--agent", "codex", "--exec", "x", "--dry-run"); code != exitUsage {
+		t.Errorf("--agent with --exec: %d %q", code, e)
+	}
+	if _, _, e := run(t, "", "worker", "--agent", "codex", "--dry-run"); !strings.Contains(e, "codex exec --sandbox read-only") {
+		t.Errorf("preset not shown: %q", e)
+	}
+}
+
+func TestARoomReachesItsMembersInOneThread(t *testing.T) {
+	mesh(t)
+	for _, me := range []string{sa, sb} {
+		t.Setenv("AIVOICEBUS_ME", me)
+		if code, out, e := run(t, "", "room", "join", "release-05"); code != 0 || !strings.Contains(out, "joined release-05") {
+			t.Fatalf("join as %s: %d %q %q", me, code, out, e)
+		}
+	}
+	present(t, "desk/gemini.g3") // not a member
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if _, out, _ := run(t, "", "room", "who", "release-05"); !strings.Contains(out, sa) || !strings.Contains(out, sb) {
+		t.Errorf("who: %q", out)
+	}
+	if code, _, e := run(t, "", "room", "say", "release-05", "tag is cut, run your checks"); code != 0 {
+		t.Fatalf("say: %q", e)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if code, out, _ := run(t, "", "room", "wait", "release-05", "--for", "3s", "--every", "1s"); code != 0 || !strings.Contains(out, "tag is cut") || !strings.Contains(out, "thread=room-release-05") {
+		t.Errorf("member's wait: %d %q", code, out)
+	}
+	t.Setenv("AIVOICEBUS_ME", "desk/gemini.g3")
+	if _, in, _ := run(t, "", "inbox"); strings.Contains(in, "tag is cut") {
+		t.Errorf("a non-member got the room's message:\n%s", in)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	run(t, "", "room", "leave", "release-05")
+	if _, out, _ := run(t, "", "room", "list"); strings.Contains(out, "release-05") {
+		t.Errorf("still in the room after leaving: %q", out)
+	}
+}
+
+func TestAPrivateMessageIsSealedForItsMachine(t *testing.T) {
+	mesh(t)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", sb)
+	run(t, "", "send", "--to", boss, "hello") // lap's key becomes known to the mesh with any signed message
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if code, _, e := run(t, "", "send", "--to", "all", "--private", "x"); code != exitUsage || !strings.Contains(e, "one machine") {
+		t.Errorf("private to all: %d %q", code, e)
+	}
+	if code, out, e := run(t, "", "send", "--to", sb, "--private", "the staging url is http://10.0.0.5"); code != 0 {
+		t.Fatalf("private send: %d %q %q", code, out, e)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	_, in, _ := run(t, "", "inbox")
+	if !strings.Contains(in, "[private]") || !strings.Contains(in, "10.0.0.5") {
+		t.Errorf("the recipient does not read it:\n%s", in)
+	}
+	if _, out, _ := run(t, "", "keys"); !strings.Contains(out, "this machine signs with SHA256:") || !strings.Contains(out, "lap") {
+		t.Errorf("keys: %q", out)
 	}
 }

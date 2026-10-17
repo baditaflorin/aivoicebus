@@ -25,7 +25,8 @@
   "answer",
   "task",
   "claim",
-  "end"
+  "end",
+  "lease"
  ],
  "ack_via": [
   "hook",
