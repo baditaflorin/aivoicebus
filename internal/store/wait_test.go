@@ -34,6 +34,13 @@ func TestReceiptsSayWhoReadItWhenAndWhoTookTheTask(t *testing.T) {
 	if r.Owner == nil || r.Owner.By != b || r.Replies != 2 {
 		t.Errorf("owner %+v replies %d", r.Owner, r.Replies)
 	}
+	// A session that only answered (no ack) got it all the same.
+	q, _ := s.Send(msg.Message{From: boss, To: "lap/claude.c3", Body: "ping?"})
+	*clock = t0.Add(9 * time.Second)
+	s.Send(msg.Message{From: "lap/claude.c3", To: boss, Body: "pong", Re: q.ID, Thread: q.Thread})
+	if r, _ := s.Receipts(q.ID); len(r.Reads) != 1 || r.Reads[0].By != "lap/claude.c3" || r.Reads[0].Via != msg.ViaReply || r.Replies != 1 {
+		t.Errorf("an answer without an ack: %+v", r)
+	}
 	if _, ok := s.Receipts("nothere"); ok {
 		t.Error("receipts for an unknown id")
 	}

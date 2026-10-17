@@ -25,6 +25,15 @@ func (s *Store) NoteWaiting(me string, until time.Time) {
 	}
 }
 
+func hasReader(rs []msg.Receipt, by string) bool {
+	for _, r := range rs {
+		if r.By == by {
+			return true
+		}
+	}
+	return false
+}
+
 // Receipts says whether message id got through: who read it and when (its sender excluded), who
 // took it when it is a task, and how many replies answer it. False when this node does not hold it.
 func (s *Store) Receipts(id string) (msg.Receipts, bool) {
@@ -57,9 +66,17 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 		}
 	}
 	for _, i := range s.threads[m.Thread] {
-		if t := s.msgs[i]; t.Re == id && t.ID != id {
-			r.Replies++
+		t := s.msgs[i]
+		if t.Re != id || t.ID == id {
+			continue
+		}
+		r.Replies++
+		// Answering a message means it got through, even when the reader never acknowledged it
+		// (`reply --re` without --ack): count the first answer as that session's read.
+		if t.From != m.From && !s.acks[id][t.From] && !hasReader(r.Reads, t.From) {
+			r.Reads = append(r.Reads, msg.Receipt{By: t.From, At: t.At, Via: msg.ViaReply})
 		}
 	}
+	sort.SliceStable(r.Reads, func(i, j int) bool { return r.Reads[i].At.Before(r.Reads[j].At) })
 	return r, true
 }

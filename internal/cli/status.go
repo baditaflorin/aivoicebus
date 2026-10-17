@@ -16,6 +16,7 @@ var viaWords = map[string]string{
 	msg.ViaHookCount: "only counted at a session start (fyi)",
 	msg.ViaInbox:     "listed by aivoicebus inbox",
 	msg.ViaCLI:       "read with the CLI (wait, claim, ack)",
+	msg.ViaReply:     "answered it",
 }
 
 // statusCmd answers "did it get through?" for a message this machine sent (or any it can see):

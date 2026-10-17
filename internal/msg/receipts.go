@@ -25,6 +25,10 @@ type Receipts struct {
 	Expired bool      `json:"expired,omitempty"` // no longer delivered
 }
 
+// ViaReply marks, in receipts only, a session that answered a message without acknowledging it:
+// it got through all the same. Never an ack's Via.
+const ViaReply = "reply"
+
 // Node features added in 0.4.0.
 const (
 	FeatureReceipts  = "receipts"   // GET /v1/receipts?id=
