@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -429,5 +430,43 @@ func TestATaskNobodyTakesMovesOnToTheFallback(t *testing.T) {
 	}
 	if code, _, e := run(t, "", "task", "lap", "x", "--can", "gpu", "--fallback", "desk2", "--wait-reply", "1m"); code != exitUsage || !strings.Contains(e, "does not combine") {
 		t.Errorf("with --can: %d %s", code, e)
+	}
+}
+
+// --any gives the task to one session that is listening now, and to the plain target when none is.
+func TestAnyGivesTheTaskToAListeningSession(t *testing.T) {
+	mesh(t)
+	c, err := client.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, _, e := run(t, "", "task", "--any", "--tool", "codex", "nobody listens yet")
+	if code != 0 || !strings.Contains(e, "nobody at */codex is listening right now") {
+		t.Fatalf("none listening: %d %s", code, e)
+	}
+	listeners := []string{"lap/codex.l1", "box/codex.l2"}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, me := range listeners {
+		go func(me string) { // hold a read open, as a waiting session does
+			_, g, err := c.InboxWait(ctx, me, 0, false, 0)
+			if err == nil {
+				c.InboxWait(ctx, me, g, true, 20*time.Second)
+			}
+		}(me)
+	}
+	time.Sleep(800 * time.Millisecond)
+	code, out, e := run(t, "", "task", "--any", "--tool", "codex", "build it")
+	if code != 0 || !strings.Contains(e, "picked from 2 listening now") {
+		t.Fatalf("listening: %d %s %s", code, out, e)
+	}
+	id, _ := sentID(t, out)
+	ms, _ := c.Thread(id)
+	if len(ms) == 0 || (ms[0].To != listeners[0] && ms[0].To != listeners[1]) {
+		t.Errorf("the task did not go to one listener: %+v", ms)
+	}
+	if code, _, _ := run(t, "", "task", "lap", "--any", "x", "--fallback", "box", "--wait-reply", "1m"); code != exitUsage {
+		t.Errorf("--any with --fallback: %d", code)
 	}
 }
