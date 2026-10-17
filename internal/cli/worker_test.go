@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
@@ -330,16 +331,17 @@ func TestARepeatedTaskSaysSoAndShowsItsAnswer(t *testing.T) {
 func TestCancelStopsARunningTask(t *testing.T) {
 	workerSetup(t, "desk")
 	id := sendTask(t, boss, "lap", "a long job")
+	c, _ := client.FromEnv()
+	t.Setenv("AIVOICEBUS_ME", wk) // set once, here: the worker below runs as the worker
 	done := make(chan struct{})
 	start := time.Now()
 	go func() {
 		defer close(done)
-		runWorker(t, "--exec", "sleep 60")
+		run(t, "", "worker", "--once", "--settle", "0s", "--exec", "sleep 60")
 	}()
-	time.Sleep(3 * time.Second) // claimed and running by now
-	t.Setenv("AIVOICEBUS_ME", boss)
-	if code, out, e := run(t, "", "cancel", id); code != 0 || !strings.Contains(out, "cancelled") {
-		t.Fatalf("cancel: %d %s %s", code, out, e)
+	time.Sleep(3 * time.Second)                                  // claimed and running by now
+	if _, err := c.Retract(id, boss, false, false); err != nil { // what `aivoicebus cancel` does
+		t.Fatalf("cancel: %v", err)
 	}
 	select {
 	case <-done:

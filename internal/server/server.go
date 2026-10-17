@@ -255,6 +255,8 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		switch {
 		case errors.Is(err, store.ErrReservedID), errors.Is(err, store.ErrReplyToNotice):
 			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		case errors.Is(err, store.ErrTurnLimit):
+			http.Error(w, err.Error(), http.StatusConflict)
 		case errors.As(err, &limited):
 			w.Header().Set("Retry-After", strconv.Itoa(int(limited.RetryAfter.Seconds())+1))
 			http.Error(w, limited.Error(), http.StatusTooManyRequests)

@@ -52,6 +52,10 @@ type Message struct {
 	// once someone else has answered it; a task stops being delivered to everyone but the
 	// session that took it first (see TaskOwner). The thread still shows everything.
 	Kind string `json:"kind,omitempty"`
+	// MaxTurns, on the message that starts a thread, is how many messages the thread may hold
+	// (claims not counted): nodes of TurnsSince or later refuse more, except an [end], so two
+	// agents talking cannot go on for ever. 0 is no limit. Not signed: a brake, not a promise.
+	MaxTurns int `json:"max_turns,omitempty"`
 	// Reach is how many sessions the sender's client counted as recipients when it
 	// sent the message. A display hint from the sender, never used for delivery;
 	// nil when the client could not tell.
@@ -191,6 +195,9 @@ func (m Message) ValidateOptions() error {
 	if m.Kind == KindClaim && m.Re == "" {
 		return errors.New("a claim must say which task it takes (re)")
 	}
+	if m.MaxTurns < 0 || m.MaxTurns > MaxTurnsLimit {
+		return fmt.Errorf("max turns is 0 (none) to %d", MaxTurnsLimit)
+	}
 	if m.Kind == KindLease && m.TTL == 0 {
 		return errors.New("a lease must say how long it lasts (ttl)")
 	}
@@ -319,6 +326,13 @@ type Record struct {
 	Msg    *Message `json:"msg,omitempty"`
 	Ack    *Ack     `json:"ack,omitempty"`
 }
+
+// MaxTurnsLimit bounds max_turns; TurnsSince is the release whose nodes enforce it.
+const (
+	MaxTurnsLimit = 1000
+	TurnsSince    = "0.10.0"
+	FeatureTurns  = "turns"
+)
 
 // NewID returns a random 10-hex-char message id.
 func NewID() string {

@@ -49,6 +49,8 @@ type Request struct {
 	Attach                                bool // the body carries a log link (a file sets File)
 	TrustRole                             bool // use an unpinned role alias with a single claimant (--trust-role, AIVOICEBUS_TRUST_ROLES=1)
 	TargetSaid                            bool // the caller already told the sender whom a reply with no --to goes to
+	// MaxTurns starts the thread with a turn limit (msg.Message.MaxTurns); 0 is none.
+	MaxTurns int
 	// From sends as another identity of this same machine (the scheduler's), signed with the
 	// machine's key like any send; "" is this session. Another machine's name is refused.
 	From string
@@ -176,7 +178,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		return p, Usagef("refused: %s routes by capability, which any session can claim; an urgent message, a file or a log link never goes to such a route (name the session with --to, or use a pinned role)", view.Name(to, 80))
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,
-		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind)}
+		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns}
+	if r.MaxTurns != 0 {
+		if r.Re != "" || r.Thread != "" {
+			return p, Usagef("--max-turns goes on the message that starts a conversation, not on a reply")
+		}
+		if old := nodeTooOldFor(c, msg.TurnsSince); old != "" {
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which does not enforce --max-turns; update the nodes first", old, msg.TurnsSince)
+		}
+	}
 	if r.File {
 		// The file lives five minutes, and an "ask" message is only shown at session start, so a
 		// file sent that way would be gone before anyone saw it. Show it on the next prompt and
