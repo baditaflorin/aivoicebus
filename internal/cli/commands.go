@@ -222,6 +222,10 @@ func sendWith(args []string, s Streams, reply bool) error {
 		return writeJSON(s.Out, sentView{ID: out.ID, Thread: out.Thread, To: view.Name(out.To, msg.MaxIdentity), Re: out.Re, Reach: reachOf(plan), Notes: append([]string{}, plan.Notes...)})
 	}
 	fmt.Fprintln(s.Out, "sent", out.ID, "thread", out.Thread)
+	repeat := out.ID != plan.Msg.ID // the node already held these very words from this sender (store dupWindow)
+	if repeat {
+		fmt.Fprintf(s.Err, "  the same words went to the same target %s ago as %s, and the node keeps one copy of them for 10 minutes: this is that message, not a new one (change the words to send it again)\n", outbox.SpanText(time.Since(out.At).Round(time.Second)), out.ID)
+	}
 	if len(plan.Notes) > 0 {
 		fmt.Fprintln(s.Err, "  "+strings.Join(plan.Notes, "; "))
 	}
@@ -231,6 +235,13 @@ func sendWith(args []string, s Streams, reply bool) error {
 	}
 	if *waitReply > 0 {
 		me := identity.Me()
+		if repeat { // its answer may be in already, read by the first wait: show it rather than wait for another
+			if done := answeredIn(c, out, me); len(done) > 0 {
+				fmt.Fprintln(s.Err, "that message was answered already:")
+				showArrived(c, me, done, false, s)
+				return nil
+			}
+		}
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
 		got, err := waitFor(c, me, tasks.Filter{Thread: out.Thread, Progress: claimProgress(s)}, *waitReply, 3*time.Second)
 		if errors.Is(err, tasks.ErrTimeout) {
@@ -243,6 +254,22 @@ func sendWith(args []string, s Streams, reply bool) error {
 		showArrived(c, me, got, true, s)
 	}
 	return nil
+}
+
+// answeredIn is what others said in m's thread after m (answers, ends, replies; not claims), for a
+// repeated send whose first wait already read them.
+func answeredIn(c *client.Client, m msg.Message, me string) []msg.Message {
+	ms, err := c.Thread(m.Thread)
+	if err != nil {
+		return nil
+	}
+	var out []msg.Message
+	for _, x := range ms {
+		if x.From != me && x.Retracted == nil && x.Kind != msg.KindClaim && !x.At.Before(m.At) && x.ID != m.ID {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // retractCmd takes a sent message back. The id may come before or after the flags

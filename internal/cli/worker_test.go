@@ -304,3 +304,24 @@ func TestWorkerAllowCommands(t *testing.T) {
 		t.Errorf("rm: %d", code)
 	}
 }
+
+// The same task sent again within the node's 10 minutes is the same message (found live: the
+// sender waited for an answer that had come already). It says so and shows that answer.
+func TestARepeatedTaskSaysSoAndShowsItsAnswer(t *testing.T) {
+	workerSetup(t, "desk")
+	id := sendTask(t, boss, "lap", "what is 19*3?")
+	if code, _, e := runWorker(t, "--exec", "/bin/cat"); code != 0 {
+		t.Fatalf("worker: %d %s", code, e)
+	}
+	inboxOf(t, boss) // the first wait read the answer
+	t.Setenv("AIVOICEBUS_ME", boss)
+	start := time.Now()
+	code, out, e := run(t, "", "task", "lap", "what is 19*3?", "--wait-reply", "20s")
+	if code != 0 || !strings.Contains(out, "sent "+id) || !strings.Contains(e, "this is that message, not a new one") ||
+		!strings.Contains(e, "answered already") || !strings.Contains(out, "[worker on lap] exit 0") {
+		t.Fatalf("repeat: %d\n%s\n%s", code, out, e)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Error("it waited for an answer it had")
+	}
+}
