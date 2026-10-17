@@ -164,7 +164,7 @@ func (s *Server) dispatch(req request) (any, *rpcError) {
 		}
 		return map[string]any{
 			"protocolVersion": v,
-			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"capabilities":    map[string]any{"tools": map[string]any{}, "prompts": map[string]any{}},
 			"serverInfo":      map[string]any{"name": s.Name, "version": s.Version},
 			"instructions":    Instructions,
 		}, nil
@@ -172,6 +172,10 @@ func (s *Server) dispatch(req request) (any, *rpcError) {
 		return map[string]any{}, nil
 	case "tools/list":
 		return map[string]any{"tools": toolList()}, nil
+	case "prompts/list":
+		return map[string]any{"prompts": promptList()}, nil
+	case "prompts/get":
+		return promptGet(req.Params)
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`

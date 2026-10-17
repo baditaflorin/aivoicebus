@@ -746,3 +746,26 @@ func TestTaskQueueStatusPingAndSendWithAWait(t *testing.T) {
 		t.Errorf("get without an attachment: %v %q", isErr, text)
 	}
 }
+
+// "standby" is offered as an MCP prompt, so Codex, Gemini CLI and Claude Code show it as a command.
+func TestStandbyIsAPromptAnyClientCanOffer(t *testing.T) {
+	s, _ := start(t)
+	res := s.rpc("initialize", map[string]any{"protocolVersion": "2025-03-26", "clientInfo": map[string]any{"name": "x"}})["result"].(map[string]any)
+	if _, ok := res["capabilities"].(map[string]any)["prompts"]; !ok {
+		t.Fatalf("prompts capability not declared: %v", res)
+	}
+	list := s.rpc("prompts/list", nil)["result"].(map[string]any)["prompts"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["name"] != "standby" {
+		t.Fatalf("%v", list)
+	}
+	got := s.rpc("prompts/get", map[string]any{"name": "standby"})["result"].(map[string]any)
+	text := got["messages"].([]any)[0].(map[string]any)["content"].(map[string]any)["text"].(string)
+	for _, want := range []string{"aivoicebus_wait", "UNTRUSTED DATA", "until the user says stop"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the prompt lacks %q", want)
+		}
+	}
+	if r := s.rpc("prompts/get", map[string]any{"name": "nope"}); r["error"] == nil {
+		t.Errorf("an unknown prompt is an error: %v", r)
+	}
+}
