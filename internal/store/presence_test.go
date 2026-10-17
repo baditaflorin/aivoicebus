@@ -154,3 +154,39 @@ func TestRosterSinceReturnsOnlyWhatIsNewer(t *testing.T) {
 		t.Errorf("the zero time means everything: %+v", all)
 	}
 }
+
+// A peer that holds a session's older labels but heard of a newer send from it reports a later Seen
+// with those labels. Taking them as news dropped a room the session had joined since (0.7.1, live):
+// labels are judged by when they were declared, and that time survives a restart.
+func TestMergePresenceJudgesLabelsByWhenTheyWereDeclared(t *testing.T) {
+	dir := t.TempDir()
+	s, now := presenceStore(t, dir)
+	t0 := *now
+	*now = t0.Add(time.Minute)
+	s.InboxFor("mac/claude.a", false, msg.Labels{"tool": "claude", "rooms": "v07"}) // declared at t0+1m
+
+	stale := msg.RosterEntry{Me: "mac/claude.a", Seen: t0.Add(2 * time.Minute), LabelsAt: t0, Labels: msg.Labels{"tool": "claude"}}
+	*now = t0.Add(3 * time.Minute)
+	if n := s.MergePresence([]msg.RosterEntry{stale}); n != 1 {
+		t.Fatalf("changed %d, want 1 (the later sighting)", n)
+	}
+	e := rosterOf(s)["mac/claude.a"]
+	if e.Labels["rooms"] != "v07" || !e.LabelsAt.Equal(t0.Add(time.Minute)) {
+		t.Errorf("older labels with a newer sighting replaced the newer labels: %+v", e)
+	}
+	if !e.Seen.Equal(t0.Add(2 * time.Minute)) {
+		t.Errorf("the sighting still moves on: %+v", e)
+	}
+
+	newer := msg.RosterEntry{Me: "mac/claude.a", Seen: t0.Add(2 * time.Minute), LabelsAt: t0.Add(2 * time.Minute), Labels: msg.Labels{"tool": "claude"}}
+	s.MergePresence([]msg.RosterEntry{newer})
+	if e := rosterOf(s)["mac/claude.a"]; e.Labels["rooms"] != "" {
+		t.Errorf("labels declared later (the session left the room) win: %+v", e)
+	}
+
+	s.FlushPresence()
+	r, _ := presenceStore(t, dir)
+	if e := rosterOf(r)["mac/claude.a"]; !e.LabelsAt.Equal(t0.Add(2*time.Minute)) || !e.Seen.Equal(t0.Add(2*time.Minute)) {
+		t.Errorf("when the labels were declared is kept across a restart: %+v", e)
+	}
+}

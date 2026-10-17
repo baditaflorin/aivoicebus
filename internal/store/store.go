@@ -222,10 +222,22 @@ func (e *RateLimitError) Error() string {
 type seenInfo struct {
 	at     time.Time
 	labels msg.Labels
-	title  string // what the session's tool last called it (msg.CleanTitle); "" when it declared none
+	// labelsAt is when the session declared labels (an inbox read). at moves on with every
+	// sighting, a gossiped send included, so it says nothing about how fresh the labels are.
+	labelsAt time.Time
+	title    string // what the session's tool last called it (msg.CleanTitle); "" when it declared none
 	// waitingUntil is when the inbox read the session is waiting in (a long poll) ends: until then
 	// it is listening right now. Kept on this node only.
 	waitingUntil time.Time
+}
+
+// labelsAtOrAt is when the labels were declared, or the sighting for an entry from a release that
+// did not keep it.
+func (v seenInfo) labelsAtOrAt() time.Time {
+	if v.labelsAt.IsZero() {
+		return v.at
+	}
+	return v.labelsAt
 }
 
 // Option customises Open.
@@ -1131,7 +1143,7 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	s.seen[me] = seenInfo{at: now, labels: labels, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil} // a read that declares no title keeps the last one
+	s.seen[me] = seenInfo{at: now, labels: labels, labelsAt: now, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil} // a read that declares no title keeps the last one
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
@@ -1319,7 +1331,10 @@ func (s *Store) Roster() []msg.RosterEntry {
 		byMe[k] = msg.RosterEntry{Me: k, Seen: v.at, Labels: v.labels, Title: v.title, Listening: v.waitingUntil.After(now)}
 		if len(v.labels) > 0 {
 			e := byMe[k]
-			e.LabelsAt = v.at // when these labels were declared; Seen may move on below (a send)
+			e.LabelsAt = v.labelsAt // when these labels were declared; Seen may move on below (a send)
+			if e.LabelsAt.IsZero() {
+				e.LabelsAt = v.at
+			}
 			byMe[k] = e
 		}
 	}
@@ -1389,9 +1404,10 @@ const (
 )
 
 type presenceJSON struct {
-	At     time.Time  `json:"at"`
-	Labels msg.Labels `json:"labels,omitempty"`
-	Title  string     `json:"title,omitempty"`
+	At       time.Time  `json:"at"`
+	Labels   msg.Labels `json:"labels,omitempty"`
+	LabelsAt time.Time  `json:"labels_at,omitempty"` // zero in a file an older release wrote: At stands in
+	Title    string     `json:"title,omitempty"`
 }
 
 // loadPresence reads presence.json, dropping sessions already past seenKeep.
@@ -1407,7 +1423,11 @@ func (s *Store) loadPresence() {
 	now := s.now().UTC()
 	for k, v := range m {
 		if k != "" && now.Sub(v.At) <= seenKeep {
-			s.seen[k] = seenInfo{at: v.At, labels: v.Labels, title: msg.CleanTitle(v.Title)}
+			at := v.LabelsAt
+			if at.IsZero() || at.After(v.At) {
+				at = v.At
+			}
+			s.seen[k] = seenInfo{at: v.At, labels: v.Labels, labelsAt: at, title: msg.CleanTitle(v.Title)}
 		}
 	}
 }
@@ -1424,7 +1444,7 @@ func (s *Store) flushPresenceLocked(_ time.Time, force bool) {
 	s.presenceSaved = time.Now()
 	m := make(map[string]presenceJSON, len(s.seen))
 	for k, v := range s.seen {
-		m[k] = presenceJSON{At: v.at, Labels: v.labels, Title: v.title}
+		m[k] = presenceJSON{At: v.at, Labels: v.labels, LabelsAt: v.labelsAt, Title: v.title}
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -1464,30 +1484,31 @@ func (s *Store) MergePresence(entries []msg.RosterEntry) int {
 			continue
 		}
 		title := msg.CleanTitle(e.Title) // a peer's word, cleaned again
+		// When the peer's labels were declared: Seen also moves with a send the peer heard of, so a
+		// peer holding older labels must not pass them on as news. An older peer sends no
+		// LabelsAt, and its Seen stands in.
+		labelsAt := e.LabelsAt
+		if labelsAt.IsZero() || labelsAt.After(at) {
+			labelsAt = at
+		}
 		cur, known := s.seen[e.Me]
-		switch {
-		case !known:
-			s.seen[e.Me] = seenInfo{at: at, labels: e.Labels, title: title, waitingUntil: s.seen[e.Me].waitingUntil}
-		case at.After(cur.at):
-			labels := e.Labels
-			if len(labels) == 0 {
-				labels = cur.labels
+		next := cur
+		if !known || at.After(cur.at) {
+			next.at = at
+			if title != "" {
+				next.title = title
 			}
-			if title == "" {
-				title = cur.title
-			}
-			s.seen[e.Me] = seenInfo{at: at, labels: labels, title: title, waitingUntil: s.seen[e.Me].waitingUntil}
-		case (len(cur.labels) == 0 && len(e.Labels) > 0) || (cur.title == "" && title != ""): // an older sighting that at least says what they work on, or what they call the session
-			if len(cur.labels) == 0 {
-				cur.labels = e.Labels
-			}
-			if cur.title == "" {
-				cur.title = title
-			}
-			s.seen[e.Me] = cur
-		default:
+		}
+		if next.title == "" {
+			next.title = title // an older sighting that at least says what the session is called
+		}
+		if len(e.Labels) > 0 && (len(cur.labels) == 0 || labelsAt.After(cur.labelsAtOrAt())) {
+			next.labels, next.labelsAt = e.Labels, labelsAt
+		}
+		if known && next.at.Equal(cur.at) && next.title == cur.title && next.labelsAt.Equal(cur.labelsAt) && len(next.labels) == len(cur.labels) {
 			continue
 		}
+		s.seen[e.Me] = next
 		changed++
 	}
 	if changed > 0 {
