@@ -75,9 +75,25 @@ aivoicebus worker install --agent codex              # a service: answers tasks 
 ```
 
 The worker takes a task within a second of it arriving and answers it with a read-only agent; it keeps running
-after a reboot. To keep an *open* Claude Code session ready instead, tell it "stand by for messages": it waits in
-the background (no tokens spent), wakes when a message comes, and asks you before acting on it. See
+after a reboot and restarts itself on an update. To keep an *open* session ready instead, run `/aivoicebus-standby`
+in Claude Code, or the `standby` prompt in Codex and Gemini CLI: it waits (no tokens spent), wakes when a message
+comes, and asks you before acting on it. See
 [standing by](docs/reference.md#standing-by-an-open-session-that-wakes-when-a-message-comes).
+
+**Leave it running, unattended, and still in charge.**
+
+```
+aivoicebus task build-1 "run the suite" --wait-reply 15m --claim-within 2m --fallback build-2   # moves on if untaken
+aivoicebus task --any --tool codex "review this diff"            # whoever is listening right now
+aivoicebus schedule add nightly --at 02:00 build-1 "run the integration suite"   # the worker sends it daily
+aivoicebus watch notify set https://ntfy.sh/YOUR-TOPIC          # a phone alert when a task sits untaken
+aivoicebus worker install --agent codex --write --repo ~/src/api --approver laptop-a/claude   # code changes, each approved
+aivoicebus thread ID --digest                                    # a long conversation in a few lines
+```
+
+In write mode every task waits for a signed `aivoicebus approve ID` from the approver, runs in its own git worktree
+on branch `aivoicebus/task-ID`, and is committed there, never pushed: merging stays yours. `--wait-reply --json`
+gives scripts one result object (who took it, the answer, a worker's exit code and branch).
 
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.
