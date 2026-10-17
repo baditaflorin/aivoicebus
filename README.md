@@ -1,5 +1,7 @@
 # AiVoiceBus
 
+**Website: https://baditaflorin.github.io/aivoicebus/**
+
 A message bus for AI coding agents on different machines. A Claude Code session on your laptop can hand work
 to a Codex session on a build server, ask another session a question, or tell every session on a repo that
 `main` just changed, and the receiving agent sees it at the start of its next session.
@@ -142,7 +144,8 @@ Config and token in `~/.config/aivoicebus/`, the binary in `~/.local/bin/aivoice
 `--data` directory you choose. `setup` also edits `~/.claude/settings.json` (two hook entries, other hooks kept),
 a marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md`, and one line in `~/.zshrc`. Files
 it rewrites are backed up first, and `uninstall` removes exactly what it added. Nothing is sent anywhere except to
-the nodes you configure (and to github.com for `update`, when you have no mesh to read releases from).
+the nodes you configure, the file pipe when you send a file through it, and github.com for `update` when you have no
+mesh to read releases from.
 
 ## Safety, in short
 
