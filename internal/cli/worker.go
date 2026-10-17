@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
 
@@ -62,6 +65,10 @@ func workerCmd(args []string, s Streams) error {
 	every := fs.Duration("every", 15*time.Second, "how often the queue is read")
 	allowUnsigned := fs.Bool("allow-unsigned", false, "also take tasks that carry no signature (senders on clients older than 0.7.0); a bad signature or a changed key is never taken")
 	settle := fs.Duration("settle", 2*time.Second, "after claiming, how long to wait for a claim made elsewhere at the same moment")
+	write := fs.Bool("write", false, "let the agent change files: each task runs in a new git worktree of --repo on branch aivoicebus/task-ID (not pushed), only after --approver approved it")
+	repo := fs.String("repo", "", "with --write: the git repository a task's worktree is made from (its HEAD)")
+	approver := fs.String("approver", "", "with --write: who approves each task with `aivoicebus approve ID` (a machine, machine/tool or one session; signed)")
+	approveWithin := fs.Duration("approve-within", 30*time.Minute, "with --write: how long to wait for the approval before answering that it did not run")
 	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -78,8 +85,16 @@ func workerCmd(args []string, s Streams) error {
 		if !ok {
 			return outbox.Usagef("--agent is one of %s", strings.Join(worker.PresetNames(), ", "))
 		}
+		note := worker.Presets[strings.ToLower(*agent)].Note
+		if *write {
+			wp, ok := worker.WritePresets[strings.ToLower(*agent)]
+			if !ok {
+				return outbox.Usagef("--write has presets for claude, codex and gemini; for another agent name the command with --exec")
+			}
+			a, note = slices.Clone(wp.Argv), wp.Note
+		}
 		argv = a
-		fmt.Fprintf(s.Err, "preset %s: %s (%s)\n", *agent, worker.QuoteCommand(argv), worker.Presets[strings.ToLower(*agent)].Note)
+		fmt.Fprintf(s.Err, "preset %s: %s (%s)\n", *agent, worker.QuoteCommand(argv), note)
 	} else if *execT != "" || !*dry {
 		var err error
 		if argv, err = worker.SplitCommand(*execT); err != nil {
@@ -117,6 +132,33 @@ func workerCmd(args []string, s Streams) error {
 		C: c, Me: identity.Me(), Allow: allow, Argv: argv, Env: env,
 		Limits: worker.Limits{Timeout: *timeout, MaxOutput: *maxOut},
 		MaxAge: *maxAge, Settle: *settle, DryRun: *dry, Out: s.Out, AllowUnsigned: *allowUnsigned,
+	}
+	if *write {
+		if *repo == "" || *approver == "" {
+			return outbox.Usagef("--write needs --repo PATH (a git repository) and --approver WHO: no task changes files without someone saying yes")
+		}
+		if err := worker.CheckEntry(*approver); err != nil {
+			return outbox.Usagef("--approver: %v", err)
+		}
+		abs, err := filepath.Abs(*repo)
+		if err != nil {
+			return err
+		}
+		if out, err := exec.Command("git", "-C", abs, "rev-parse", "--show-toplevel").Output(); err != nil {
+			return outbox.Usagef("--repo %s is not a git repository", abs)
+		} else {
+			abs = strings.TrimSpace(string(out))
+		}
+		if *approveWithin < time.Minute {
+			return outbox.Usagef("--approve-within is at least 1m")
+		}
+		root, _ := os.Getwd()
+		wm := &worker.WriteMode{Repo: abs, Root: root, Approver: *approver, Within: *approveWithin}
+		if nu := notifyURL(); nu != "" {
+			wm.Notify = func(text string) { _ = tasks.Notify(nu, text) }
+		}
+		w.Write = wm
+		fmt.Fprintf(s.Err, "[aivoicebus] write mode: tasks change files in worktrees of %s, each only after %s approves it.\n", abs, *approver)
 	}
 	if *dry {
 		fmt.Fprintf(s.Out, "worker %s, dry run: nothing is claimed or run. Allowed senders: %s\n", w.Me, allowedText(allow))
@@ -224,4 +266,16 @@ func workerAllowCmd(args []string, s Streams) error {
 		return nil
 	}
 	return usage
+}
+
+// approveCmd and denyCmd answer a write-mode worker's "[approval needed]" message: a signed reply
+// saying approve or deny, which is all the worker reads there.
+func approveCmd(args []string, s Streams) error { return answerApproval("approve", args, s) }
+func denyCmd(args []string, s Streams) error    { return answerApproval("deny", args, s) }
+
+func answerApproval(word string, args []string, s Streams) error {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return outbox.Usagef("usage: %s ID   (the id of the worker's [approval needed] message)", word)
+	}
+	return sendWith([]string{"--re", args[0], "--ack", word}, s, true)
 }

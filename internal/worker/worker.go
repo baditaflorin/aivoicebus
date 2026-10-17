@@ -43,6 +43,9 @@ type Worker struct {
 	// returns ErrReplaced between passes, never during a run, so a service restarts it on the
 	// new binary. nil never reports it.
 	Replaced func() bool
+	// Write, when set, lets the agent change files: each task runs in a new git worktree of
+	// Write.Repo on its own branch, only after Write.Approver approved it (see write.go).
+	Write *WriteMode
 	// Tick runs at the start of every loop, between passes (the worker's --watch check). nil does nothing.
 	Tick func()
 
@@ -198,10 +201,40 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 		w.log(base)
 		return false
 	}
+	limits := w.Limits
+	var wt *worktree
+	if w.Write != nil {
+		ok, why := w.approve(ctx, m)
+		if !ok {
+			w.say("task %s from %s: not run: %s", m.ID, who, why)
+			base.Outcome, base.Why = "not approved", why
+			if id, err := w.reply(m, fmt.Sprintf("[worker on %s] not run: %s.", msg.HostOf(w.Me), why)); err == nil {
+				base.Reply = id
+			}
+			w.log(base)
+			return false
+		}
+		var err error
+		if wt, err = newWorktree(ctx, w.Write.Repo, w.Write.Root, m.ID); err != nil {
+			w.say("task %s: no worktree: %v", m.ID, err)
+			base.Outcome, base.Why = "error", "worktree: "+err.Error()
+			_, _ = w.reply(m, fmt.Sprintf("[worker on %s] not run: could not make a worktree (%v).", msg.HostOf(w.Me), err))
+			w.log(base)
+			return false
+		}
+		limits.Dir = wt.dir
+	}
 	w.say("task %s from %s (allowed by %q): running %s", m.ID, who, entry, QuoteCommand(w.Argv))
 	env := append(withoutIdentity(w.Env), "AIVOICEBUS_TASK_ID="+m.ID, "AIVOICEBUS_TASK_FROM="+m.From, "AIVOICEBUS_TASK_THREAD="+m.Thread)
-	r := Exec(ctx, w.Argv, m.Body, env, w.Limits)
+	r := Exec(ctx, w.Argv, m.Body, env, limits)
 	body, withheld := w.answer(r)
+	if wt != nil {
+		body += "\n" + wt.finish(ctx, m)                                     // commit what it changed on the branch, and say where
+		if kind, found := outbox.Credential(body); found && withheld == "" { // file names are the agent's words too
+			withheld = kind
+			body = fmt.Sprintf("[worker on %s] %s, but its answer is withheld: it looks like it holds a %s. The branch aivoicebus/task-%s is on this machine.", msg.HostOf(w.Me), r.Describe(w.Limits.Timeout), kind, m.ID)
+		}
+	}
 	base.Command, base.Took, base.TimedOut = QuoteCommand(w.Argv), r.Took.Round(time.Millisecond).String(), r.TimedOut
 	if r.ExitCode >= 0 {
 		code := r.ExitCode

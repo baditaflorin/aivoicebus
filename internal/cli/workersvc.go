@@ -144,6 +144,10 @@ func workerInstall(args []string, s Streams) error {
 	timeout := fs.Duration("timeout", 10*time.Minute, "kill a run after this long")
 	maxAge := fs.Duration("max-age", time.Hour, "leave alone a task older than this")
 	allowUnsigned := fs.Bool("allow-unsigned", false, "also take unsigned tasks (senders older than 0.7.0)")
+	write := fs.Bool("write", false, "let the agent change files, in worktrees of --repo, after --approver approves each task (see `worker --write`)")
+	repo := fs.String("repo", "", "with --write: the git repository")
+	approver := fs.String("approver", "", "with --write: who approves each task")
+	approveWithin := fs.Duration("approve-within", 30*time.Minute, "with --write: how long to wait for the approval")
 	watchFor := fs.Duration("watch", 0, "also alert when a task this machine sent waits untaken this long (see `aivoicebus watch`)")
 	dry := fs.Bool("dry-run", false, "print the service file and change nothing")
 	if err := parseFlags(fs, args, s); err != nil {
@@ -202,6 +206,19 @@ func workerInstall(args []string, s Streams) error {
 	}
 	if *watchFor > 0 {
 		argv = append(argv, "--watch", watchFor.String())
+	}
+	if *write {
+		if *repo == "" || *approver == "" {
+			return outbox.Usagef("--write needs --repo PATH and --approver WHO")
+		}
+		abs, err := filepath.Abs(*repo)
+		if err != nil {
+			return err
+		}
+		argv = append(argv, "--write", "--repo", abs, "--approver", *approver)
+		if *approveWithin != 30*time.Minute {
+			argv = append(argv, "--approve-within", approveWithin.String())
+		}
 	}
 	urls := strings.Join(config.URLs(), ",")
 	if urls == "" {
