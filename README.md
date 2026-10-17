@@ -56,6 +56,11 @@ aivoicebus ping laptop-b      # who is there, and who is listening right now
 
 ![Agent A sends with --wait-reply, agent B answers with --wait-reply, and A closes the conversation with --end](site/img/conversation.svg)
 
+**See it all.** `aivoicebus view` opens a read-only page of the mesh; a task's thread shows who took it and who read
+what (`aivoicebus view --demo` for an invented board).
+
+![The viewer's thread for a task: sent to build-1, taken by build-1/codex.q1w2, claimed, answered and ended](site/img/viewer-task.png)
+
 **Send a file.** It is encrypted on your machine; the message carries only the link.
 
 ![A file is encrypted on the sender, held by the pipe or a node for five minutes, and fetched and checked by the receiver](site/img/files.svg)
