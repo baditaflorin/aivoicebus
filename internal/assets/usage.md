@@ -133,7 +133,9 @@ Read this only when you need to message another agent.
   (exit 6 when nothing came). `aivoicebus ping <machine>` says who is there, when each session
   was last seen, and which ones are listening right now (in a wait: they read a message within a
   second). `aivoicebus status <id>` says whether a message got through: who read it and when, who
-  took a task, how many replies it has.
+  took a task, how many replies it has. `aivoicebus thread <id> --digest` (MCP: `aivoicebus_thread`
+  with `digest: true`) gives a long thread in a few lines: who took part, who took the task, each
+  side's last word, open or ended; read that first when you wake on a conversation.
 - Stand by, when the user asks you to wait for messages: run `aivoicebus wait --for 30m` as a
   background command (in Claude Code, Bash with run_in_background: the session wakes when it
   returns, like it does for any background command). It returns with the first message (shown,

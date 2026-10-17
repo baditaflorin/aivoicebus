@@ -483,12 +483,16 @@ func ack(args []string, s Streams) error {
 func thread(args []string, s Streams) error {
 	fs := newFlagSet("thread")
 	asJSON := fs.Bool("json", false, "print the messages as a JSON array")
+	digest := fs.Bool("digest", false, "the thread in a few lines: who took part, the task's state, each side's last word, open or ended")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	rest := takeJSON(fs.Args(), asJSON)
+	if len(rest) == 2 && rest[1] == "--digest" { // the flag after the id
+		rest, *digest = rest[:1], true
+	}
 	if len(rest) != 1 {
-		return outbox.Usagef("usage: thread <id> [--json]")
+		return outbox.Usagef("usage: thread <id> [--json | --digest]")
 	}
 	c, err := client.FromEnv()
 	if err != nil {
@@ -509,6 +513,10 @@ func thread(args []string, s Streams) error {
 	}
 	if *asJSON {
 		return writeMessages(s.Out, ms, false)
+	}
+	if *digest {
+		view.Digest(s.Out, ms)
+		return nil
 	}
 	view.Thread(s.Out, ms, ms, 0)
 	return nil

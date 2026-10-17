@@ -300,6 +300,11 @@ each was seen, to know whether anyone is there before waiting on them. Flags may
 (`task laptop-b "..." --wait-reply 10m`); a client older than 0.3.0 takes only flags written before
 the text, and sends any after it as part of the text.
 
+**Catch up in a few lines.** `aivoicebus thread ID --digest` (MCP: `aivoicebus_thread` with
+`digest: true`) prints who took part and how many messages each sent, who took the task, each
+side's last word (one line each), and whether the thread is open or ended, instead of every
+message: what a session woken on a long conversation needs first.
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
