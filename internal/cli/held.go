@@ -8,6 +8,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
@@ -72,6 +73,7 @@ func unholdCmd(args []string, s Streams) error {
 	if err := config.Release(args[0]); err != nil {
 		return err
 	}
+	config.Audit(identity.Me(), "unhold", args[0])
 	fmt.Fprintf(s.Out, "released %s: agents on this machine now see it\n", args[0])
 	return nil
 }

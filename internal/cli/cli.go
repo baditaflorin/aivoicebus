@@ -85,6 +85,7 @@ func init() {
 		"cancel":      cancelCmd,
 		"pause":       pauseCmd,
 		"held":        heldCmd,
+		"audit":       auditCmd,
 		"unhold":      unholdCmd,
 		"tokens":      tokensCmd,
 		"resume":      resumeCmd,

@@ -147,6 +147,16 @@ func (w *Worker) log(e Entry) {
 		e.At = w.now().UTC()
 		w.Log(e)
 	}
+	if !w.DryRun && e.Outcome != "skipped" { // a decision that did something, or refused to: in the audit log too
+		detail := fmt.Sprintf("task %s from %s", e.Task, e.From)
+		if e.Why != "" {
+			detail += ": " + e.Why
+		}
+		if e.Exit != nil {
+			detail += fmt.Sprintf(": exit %d after %s", *e.Exit, e.Took)
+		}
+		config.Audit(w.Me, "worker "+e.Outcome, detail)
+	}
 }
 
 func sum(s string) string {
