@@ -56,7 +56,25 @@ func runHook(t *testing.T, stdin string) string {
 		in = strings.NewReader(stdin)
 	}
 	Run([]string{"--tool", "codex"}, in, &out)
-	return out.String()
+	return codexText(t, out.String())
+}
+
+// codexText is the text inside a Codex hook's JSON output ("" for no output).
+func codexText(t *testing.T, out string) string {
+	t.Helper()
+	if out == "" {
+		return ""
+	}
+	var d struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &d); err != nil || d.HookSpecificOutput.HookEventName == "" {
+		t.Fatalf("codex hook output is not its JSON: %v %q", err, out)
+	}
+	return d.HookSpecificOutput.AdditionalContext
 }
 
 func TestGivesSessionIdentityShowsAndAcks(t *testing.T) {
@@ -542,5 +560,40 @@ func TestGeminiGetsJSONAndCodexSaysItsModel(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("codex's model did not become the session's label: %+v", s.Roster())
+	}
+}
+
+// Codex reads hook output that starts with '[' or '{' as JSON: "[aivoicebus] ..." failed as
+// "invalid session start JSON output" and the session never saw its messages (found live, 0.8.0).
+// It gets the JSON its schema asks for, with hookEventName, at session start and on a prompt.
+func TestCodexGetsTheJSONItsSchemaAsksFor(t *testing.T) {
+	s, _ := mesh(t)
+	t.Setenv("AIVOICEBUS_ME", "air/codex.c2")
+	var quiet strings.Builder
+	Run([]string{"--tool", "codex"}, strings.NewReader(`{"session_id":"c2","hook_event_name":"SessionStart"}`), &quiet)
+	if quiet.Len() != 0 {
+		t.Errorf("nothing to say must print nothing: %q", quiet.String())
+	}
+	type out struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	s.Send(msg.Message{From: "other/agent", To: "air/codex.c2", Body: "tests are green"})
+	var b strings.Builder
+	Run([]string{"--tool", "codex"}, strings.NewReader(`{"session_id":"c2","hook_event_name":"SessionStart"}`), &b)
+	var d out
+	if err := json.Unmarshal([]byte(b.String()), &d); err != nil || d.HookSpecificOutput.HookEventName != "SessionStart" ||
+		!strings.Contains(d.HookSpecificOutput.AdditionalContext, "tests are green") {
+		t.Fatalf("start: %v %q", err, b.String())
+	}
+	s.Send(msg.Message{From: "other/agent", To: "all", Body: "main is broken", Prio: msg.PrioUrgent})
+	var p strings.Builder
+	Run([]string{"--tool", "codex", "--event", "prompt"}, strings.NewReader(`{"session_id":"c2","hook_event_name":"UserPromptSubmit"}`), &p)
+	d = out{}
+	if err := json.Unmarshal([]byte(p.String()), &d); err != nil || d.HookSpecificOutput.HookEventName != "UserPromptSubmit" ||
+		!strings.Contains(d.HookSpecificOutput.AdditionalContext, "main is broken") {
+		t.Fatalf("prompt: %v %q", err, p.String())
 	}
 }
