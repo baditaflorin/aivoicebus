@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"io"
 	"os"
 	"os/exec"
@@ -40,18 +42,25 @@ func TestWriteModeRunsOnlyWhatItsApproverApprovedOnABranch(t *testing.T) {
 	c, _ := client.FromEnv()
 	allow, _ := worker.LoadAllow()
 	const approver = "desk/claude.ok"
+	akPub, akPriv, _ := ed25519.GenerateKey(rand.Reader)
+	_, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
 	w := &worker.Worker{C: c, Me: wk, Allow: allow, Argv: []string{"sh", "-c", "echo made > made-by-task.txt"}, Env: os.Environ(),
 		Limits: worker.Limits{Timeout: 20 * time.Second, MaxOutput: 4000}, MaxAge: time.Hour, Out: io.Discard, AllowUnsigned: true,
-		Write: &worker.WriteMode{Repo: repo, Root: t.TempDir(), Approver: approver, Within: 20 * time.Second}}
+		Write: &worker.WriteMode{Repo: repo, Root: t.TempDir(), Approver: approver, ApproverKey: akPub, Within: 20 * time.Second}}
+	signed := func(key ed25519.PrivateKey, req, word string) string {
+		return msg.ApprovalBody(word, ed25519.Sign(key, msg.ApprovalStatement(req, word, wk)))
+	}
 
 	answer := func(word string) { // as the approver (and first as someone else)
 		for i := 0; i < 100; i++ {
 			ms, _ := c.Inbox(approver, false)
 			for _, m := range ms {
 				if strings.HasPrefix(m.Body, "[approval needed]") {
-					c.Send(msg.Message{ID: msg.NewID(), From: "desk/claude.other", To: wk, Re: m.ID, Thread: m.Thread, Body: "approve"})
+					c.Send(msg.Message{ID: msg.NewID(), From: "desk/claude.other", To: wk, Re: m.ID, Thread: m.Thread, Body: signed(akPriv, m.ID, "approve")})
+					c.Send(msg.Message{ID: msg.NewID(), From: approver, To: wk, Re: m.ID, Thread: m.Thread, Body: "approve"})                          // the machine key only
+					c.Send(msg.Message{ID: msg.NewID(), From: approver, To: wk, Re: m.ID, Thread: m.Thread, Body: signed(otherPriv, m.ID, "approve")}) // another key
 					time.Sleep(300 * time.Millisecond)
-					c.Send(msg.Message{ID: msg.NewID(), From: approver, To: wk, Re: m.ID, Thread: m.Thread, Body: word})
+					c.Send(msg.Message{ID: msg.NewID(), From: approver, To: wk, Re: m.ID, Thread: m.Thread, Body: signed(akPriv, m.ID, word)})
 					c.Ack(m.ID, approver)
 					return
 				}
@@ -98,7 +107,8 @@ func TestWriteModeRunsOnlyWhatItsApproverApprovedOnABranch(t *testing.T) {
 		t.Errorf("deny: %q", last.Body)
 	}
 
-	// only someone who is not the approver says approve: nothing runs
+	// only a bare "approve", one signed by another key, and the approver key in someone else's
+	// hands: nothing runs
 	w.Write.Within = 3 * time.Second
 	id3 := task("write it a third time")
 	go func() {
@@ -106,7 +116,9 @@ func TestWriteModeRunsOnlyWhatItsApproverApprovedOnABranch(t *testing.T) {
 			ms, _ := c.Inbox(approver, false)
 			for _, m := range ms {
 				if strings.HasPrefix(m.Body, "[approval needed]") && strings.Contains(m.Body, id3) {
-					c.Send(msg.Message{ID: msg.NewID(), From: "desk/claude.other", To: wk, Re: m.ID, Thread: m.Thread, Body: "approve"})
+					c.Send(msg.Message{ID: msg.NewID(), From: "desk/claude.other", To: wk, Re: m.ID, Thread: m.Thread, Body: signed(akPriv, m.ID, "approve")})
+					c.Send(msg.Message{ID: msg.NewID(), From: approver, To: wk, Re: m.ID, Thread: m.Thread, Body: "approve"})
+					c.Send(msg.Message{ID: msg.NewID(), From: approver, To: wk, Re: m.ID, Thread: m.Thread, Body: signed(otherPriv, m.ID, "approve")})
 					return
 				}
 			}
@@ -115,7 +127,7 @@ func TestWriteModeRunsOnlyWhatItsApproverApprovedOnABranch(t *testing.T) {
 	}()
 	w.Pass(context.Background())
 	if out, _ := exec.Command("git", "-C", repo, "rev-parse", "--verify", "aivoicebus/task-"+id3).CombinedOutput(); !strings.Contains(string(out), "fatal") {
-		t.Error("someone other than the approver got a task run")
+		t.Error("a task ran without the approver's own signed decision")
 	}
 	ms, _ = c.Thread(id3)
 	if last := ms[len(ms)-1]; !strings.Contains(last.Body, "no approval from "+approver) {

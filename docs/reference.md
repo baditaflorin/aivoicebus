@@ -488,15 +488,22 @@ the queue every `--every` (15s). A worker shows in `who` and `ping` as `<machine
 By default the worker's presets only read and answer. `--write` lets the agent change files, bounded
 three ways:
 
-    aivoicebus worker install --agent codex --write --repo ~/src/api --approver laptop-a/claude
+    aivoicebus approver init                         # on the approver's machine, by the person: a key sealed with a passphrase
+    aivoicebus approver show                         # its public half
+    aivoicebus worker install --agent codex --write --repo ~/src/api --approver laptop-a/claude --approver-key KEY
 
 - **Approved first.** For every task the worker sends the approver an urgent `[approval needed]`
   message (what the task says, who sent it, the branch it would use) and, when a notify URL is set,
-  a notification. It runs the task only after a signed reply from the approver saying approve
-  (`aivoicebus approve ID`, ID being that message's); `aivoicebus deny ID`, or no answer within
-  `--approve-within` (30m), runs nothing and tells the sender so. A reply from anyone else, or an
-  unsigned one, does not count. `--approver` is a machine, machine/tool or one session, like an
-  allowlist entry; it is required.
+  a notification. It runs the task only after the approver's decision signed with the **approver
+  key**: `aivoicebus approve ID` (ID being that message's) shows the request and asks for the
+  approver passphrase on the terminal, then signs "approve" for that request and that worker. Any
+  agent on a machine can sign with the machine key, so a reply that is only machine-signed (an
+  agent told to "run aivoicebus reply --re ID approve") does not count, nor does one signed by
+  another key, for another request or another worker, or sent by anyone but `--approver`.
+  `aivoicebus deny ID`, or no decision within `--approve-within` (30m), runs nothing and tells the
+  sender so. The approver key lives in `~/.config/aivoicebus/approver.key`, sealed with the
+  passphrase (PBKDF2-SHA256, 600000 rounds, AES-256-GCM); `approve` and `approver init` read it only
+  from a terminal, so an agent's tool shell, which has none, cannot get as far as the prompt.
 - **Its own worktree and branch.** The task runs in a new git worktree of `--repo`, on branch
   `aivoicebus/task-ID` made from the repository's HEAD, never in a checkout someone works in. What
   it changed is committed there (by "aivoicebus worker"), and the worktree is removed; the branch

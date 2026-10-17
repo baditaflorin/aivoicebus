@@ -80,6 +80,7 @@ func init() {
 		"watch":       watchCmd,
 		"schedule":    scheduleCmd,
 		"approve":     approveCmd,
+		"approver":    approverCmd,
 		"deny":        denyCmd,
 	}
 }
