@@ -49,13 +49,9 @@ removed, and `trust-key rm <fingerprint>` removes one you added.
 
 ## What CI checks
 
-There are two workflows. `release.yml` builds a tag into a draft release (see "Cutting a release"). `ci.yml` is the
-one described here, on every pull request and push to `main`.
-
-Every pull request and every push to `main` runs `.github/workflows/ci.yml`, which is one step: it
-installs `shellcheck` and `systemd` in the pinned `golang:1.25` container and runs
-`scripts/check.sh`, the same command you run by hand on a build host. That script is the single
-entry point, so nothing else is added to the pipeline: gofmt, vet, race tests, a stamped build,
+The project uses no hosted CI. `.woodpecker.yml` runs `scripts/check.sh` in the pinned image on a
+self-hosted Woodpecker for every pull request and push to `main`, and the same command runs by hand
+on any build host. That script is the single entry point: gofmt, vet, race tests, a stamped build,
 the golden smoke transcript, the mesh lab, `scripts/lint.sh` (shellcheck at warning level over
 `deploy/` and `scripts/`, `systemd-analyze verify` on a copy of the unit, and every hardening
 directive in `deploy/aivoicebus.service` pinned to its value; change one on purpose and change
@@ -64,7 +60,8 @@ directive in `deploy/aivoicebus.service` pinned to its value; change one on purp
 Run it yourself with `scripts/check.sh` on a build host (add `AIVOICEBUS_SKIP_LAB=1` to leave out
 the lab's few minutes). Without shellcheck installed it prints `lint skipped (no shellcheck)` and
 carries on; CI sets `AIVOICEBUS_REQUIRE_LINT=1`, so there a missing tool fails the run. Commits are
-never marked `[skip ci]`. To move the image, replace the digest in `scripts/build-image` (both workflows and `scripts/reproduce.sh` read it) with the one
+never marked `[skip ci]`. To move the image, replace the digest in `scripts/build-image` (`.woodpecker.yml` names the
+same digest, and `scripts/reproduce.sh` reads the file) with the one
 `docker inspect --format '{{index .RepoDigests 0}}' golang:1.25` prints after a pull.
 
 ## The mixed-version gate
@@ -92,7 +89,7 @@ older nodes do not have, add a line there.
 **Run it before every node rollout**, on the build host (Linux only; for example inside
 `golang:1.25` like the lab, with `python3` and `curl`), never on a laptop. It takes about a
 minute. A missing `dist/release-X` is downloaded with `gh release download` when `gh` is
-installed. The repository is private, so a CI runner without credentials cannot download
+installed. A build host without network access to GitHub cannot download
 releases: copy the signed release dirs to it and pass `--dir`. It is not part of
 `scripts/check.sh`, because that runs without the release dirs.
 
@@ -116,46 +113,17 @@ The build and the signing key are on different machines on purpose. Other sessio
 agents) merge to `main` while a release is in flight, so every step after the build works from
 the release itself, never from what `main` or your checkout says now.
 
-There are two ways to build the binaries, and the same signing and publishing after. The normal path
-is GitHub (CI builds, the key stays offline); the by-hand path is for a release without CI.
-
-### On GitHub: CI builds a draft, you sign it offline
-
-1. Bump `VERSION` (and `scripts/compat-releases.txt` when an older release exists), merge to `main`.
-   Note the merge commit: it is the release commit.
-2. Tag that commit `vX.Y.Z` and push the tag. `.github/workflows/release.yml` checks that the tag is
-   `v` + `VERSION`, builds darwin and linux for arm64 and amd64 in the pinned Go image
-   (`scripts/build-image`), writes `SHA256SUMS`, rebuilds the same commit a second time with
-   `scripts/reproduce.sh` and fails unless the bytes are identical, attaches a build-provenance
-   attestation to each binary, and creates a **draft** release holding the binaries and `SHA256SUMS`.
-   It never signs and never publishes: the signing key is not in CI, and a draft is invisible to everyone else.
-3. **Key machine:** download the draft and check it before you sign it.
-
-       gh release download vX.Y.Z -D dist/release
-       gh attestation verify dist/release/aivoicebus-linux-amd64 --repo OWNER/REPO   # each binary
-       scripts/reproduce.sh vX.Y.Z dist/release                                      # on a build host; needs docker
-
-   `gh attestation verify` says which workflow run and commit built a file; `reproduce.sh` rebuilds the
-   tag from `git archive` and compares every sha256 with `SHA256SUMS`. Neither needs the key.
-4. `scripts/release.sh sign dist/release` packs, signs, verifies and writes `SHA256SUMS` (details in
-   step 3 of the by-hand path below). For the first release there is no older release, so the
-   mixed-version gate is reported as not applicable; for later ones run `compat.sh` first.
-5. `NOTES=notes.md scripts/release.sh attach dist/release` checks that the draft holds exactly the
-   binaries you signed (the `SHA256SUMS` on the draft must equal yours), uploads `manifest.json`,
-   `manifest.sig` and the gate's record, and leaves the release a **draft**. Look at it in the web UI,
-   then `scripts/release.sh attach dist/release --publish` makes it public. `attach` never edits a release
-   that is already published.
-6. Steps 5 and 6 of the by-hand path below (the mixed-version gate on the nodes' releases, and the node
-   rollout) apply to both.
-
-### By hand: build on a build host, sign on the key machine
+### Build on a build host, sign on the key machine
 
 1. Bump `VERSION`, merge to `main`. Note the merge commit: it is the release commit.
 2. **Build host**, in a checkout of exactly that commit:
    `git worktree add --detach ../rel-X.Y.Z <commit>`, then from it
    `scripts/release.sh build dist/release` (stamped binaries for darwin and linux, arm64 and
    amd64; `scripts/build.sh` refuses nothing, but a dirty tree is stamped `-dirty` and will not
-   sign). Copy `dist/release` to the machine that holds the signing key.
+   sign). From a `git archive` of the commit instead of a checkout, set `AIVOICEBUS_COMMIT=<short sha>`.
+   Build it a second time and compare the sha256 of every binary (`scripts/reproduce.sh <commit>`
+   does both builds): a release is only signed when the two builds are byte-identical.
+   Copy `dist/release` to the machine that holds the signing key.
 3. **Key machine:** `scripts/release.sh sign dist/release` packs, signs, verifies and writes
    `SHA256SUMS`. It takes the release number and the commit **from the binaries**: it runs the one
    built for this machine (`aivoicebus version`) and checks every other binary carries the same

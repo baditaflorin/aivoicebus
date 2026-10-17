@@ -63,11 +63,11 @@ only transports the files: verification does not depend on it.
   node lists. A trusted key can make that machine install and run a binary, so the fingerprint must be typed (or
   given with `--fingerprint`) and the key file (`~/.config/aivoicebus/trusted-keys`) is ignored unless only you can
   read and write it. A fork can build its own key in with `AIVOICEBUS_TRUST_KEY` (see `docs/releasing.md`).
-- Every release ships `SHA256SUMS` next to the signed manifest. Release binaries are built by a GitHub workflow in a
-  pinned Go image from the tagged commit and carry a build-provenance attestation (`gh attestation verify <file> --repo
-  <owner>/<repo>`); the workflow never holds the signing key. The build is reproducible: `scripts/reproduce.sh <tag>
-  <release-dir>` rebuilds the tag and compares every binary with `SHA256SUMS`. Verify a downloaded release directory
-  with `aivoicebus release verify --dir <dir>`.
+- Every release ships `SHA256SUMS` next to the signed manifest. Release binaries are built on the maintainer's own
+  build host in a pinned Go image (`scripts/build-image`) from the tagged commit; that host never holds the signing
+  key. No hosted CI touches a release. The build is reproducible: `scripts/reproduce.sh <tag> <release-dir>` rebuilds
+  the tag and compares every binary with `SHA256SUMS`. Verify a downloaded release directory with
+  `aivoicebus release verify --dir <dir>`.
 
 ## In scope
 

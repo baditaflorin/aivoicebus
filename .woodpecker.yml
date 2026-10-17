@@ -1,0 +1,17 @@
+# Self-hosted Woodpecker: the same single gate as on a build host (docs/releasing.md, "What CI checks").
+# No hosted CI is used for this project. The image digest must match scripts/build-image.
+when:
+  - event: pull_request
+  - event: push
+    branch: main
+  - event: manual
+
+steps:
+  check:
+    image: golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80
+    environment:
+      AIVOICEBUS_REQUIRE_LINT: "1"
+      GOFLAGS: -buildvcs=false
+    commands:
+      - apt-get update -qq && apt-get install -y -qq shellcheck systemd >/dev/null
+      - scripts/check.sh
