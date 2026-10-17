@@ -44,10 +44,10 @@ How the suffix stays the same within a session:
   when the variable reaches it).
 
 `aivoicebus mcp` uses the same rules and, if no tool is found, the client's `clientInfo.name`
-(`codex-mcp-client` -> `codex.<4 chars>`), else `mcp.<4 chars>`. Only Claude
-Code has a session-start hook that `setup` installs; for the other tools there is nothing to
-install for the identity (their instruction files from `setup` already tell them to run
-`aivoicebus inbox --ack` at session start).
+(`codex-mcp-client` -> `codex.<4 chars>`), else `mcp.<4 chars>`. `setup` installs
+session-start hooks for Claude Code, Codex and Gemini CLI (see the table under
+[Session-start hook](#session-start-hook-automatic-inbox-check)); a tool without one is told by
+its instruction file to run `aivoicebus inbox --ack` at session start.
 
 | Tool | Process | Environment markers | Status |
 |------|---------|---------------------|--------|
@@ -547,6 +547,18 @@ Operating it (mixed versions, the allowance, a leaked secret, a session that is 
 [operations.md](operations.md#retracting-a-message-undo-send).
 
 ## Session-start hook (automatic inbox check)
+
+Which tools get what from `aivoicebus setup` (each only when its directory exists):
+
+| Tool | Hooks (messages shown at start and mid-session) | MCP tools | Instructions |
+|---|---|---|---|
+| Claude Code | `~/.claude/settings.json`: SessionStart, UserPromptSubmit | `claude mcp add --scope user aivoicebus` | `~/.claude/CLAUDE.md` |
+| Codex | `~/.codex/hooks.json`: SessionStart, UserPromptSubmit (plain text becomes context; Codex runs a new hook only after you trust it once in `/hooks`) | `[mcp_servers.aivoicebus]` in `~/.codex/config.toml` | `~/.codex/AGENTS.md` |
+| Gemini CLI | `~/.gemini/settings.json`: SessionStart, BeforeAgent (`hook --tool gemini` prints the JSON Gemini reads) | `mcpServers.aivoicebus` in the same file | `~/.gemini/GEMINI.md` |
+| Grok Build | none: it ignores what such hooks print | Claude Code's servers, which it reads | `~/.grok/AGENTS.md` |
+
+Codex also passes the session's model to the hook, which becomes its `model` label. `aivoicebus
+uninstall` takes all of it out again (a server registered by hand is left alone).
 
 `aivoicebus hook --tool claude` reads the hook JSON on stdin, gives the session
 its identity (exported to later shell commands through `CLAUDE_ENV_FILE`),
