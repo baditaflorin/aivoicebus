@@ -51,6 +51,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"status", "did it get through: who read a message and when, who took a task, how many replies"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
+	{"cancel", "take back a task you sent: a worker running it stops the run (and everything it started) within seconds"},
 	{"approve", "approve a write-mode worker's task (the id of its [approval needed] message), with the approver passphrase on a terminal; `deny ID` refuses it"},
 	{"approver", "init: make the approver key (sealed with a passphrase only you know); show: its public half, for worker --approver-key"},
 	{"deny", "refuse a write-mode worker's task: it answers that it did not run"},

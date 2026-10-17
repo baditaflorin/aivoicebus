@@ -25,6 +25,7 @@ type Result struct {
 	TimedOut       bool // killed at the time limit
 	Stopped        bool // killed because the worker was stopped
 	StartErr       error
+	Cancelled      bool // stopped because its sender took the task back (set by the worker)
 	Took           time.Duration
 }
 
@@ -172,6 +173,8 @@ func QuoteCommand(argv []string) string {
 func (r Result) Describe(timeout time.Duration) string {
 	took := r.Took.Round(time.Second)
 	switch {
+	case r.Cancelled:
+		return fmt.Sprintf("cancelled by its sender after %s: the run and everything it started were stopped", took)
 	case r.StartErr != nil:
 		return fmt.Sprintf("could not start the command: %v", r.StartErr)
 	case r.Stopped:

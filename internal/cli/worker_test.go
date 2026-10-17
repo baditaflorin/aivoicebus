@@ -325,3 +325,32 @@ func TestARepeatedTaskSaysSoAndShowsItsAnswer(t *testing.T) {
 		t.Error("it waited for an answer it had")
 	}
 }
+
+// cancel stops a running task: the worker kills the run within seconds and says so.
+func TestCancelStopsARunningTask(t *testing.T) {
+	workerSetup(t, "desk")
+	id := sendTask(t, boss, "lap", "a long job")
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		defer close(done)
+		runWorker(t, "--exec", "sleep 60")
+	}()
+	time.Sleep(3 * time.Second) // claimed and running by now
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if code, out, e := run(t, "", "cancel", id); code != 0 || !strings.Contains(out, "cancelled") {
+		t.Fatalf("cancel: %d %s %s", code, out, e)
+	}
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the run was not stopped")
+	}
+	if time.Since(start) > 15*time.Second {
+		t.Errorf("stopped only after %s", time.Since(start))
+	}
+	log := logEntries(t)
+	if len(log) == 0 || log[len(log)-1].Outcome != "cancelled" {
+		t.Errorf("log: %+v", log)
+	}
+}
