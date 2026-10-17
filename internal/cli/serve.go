@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ func serve(args []string, s Streams) error {
 	bmax := fs.Duration("bootstrap-max-age", 24*time.Hour, "stop serving the bundle when the file is older than this")
 	every := fs.Duration("sync-every", 3*time.Second, "peer pull interval")
 	rdir := fs.String("release-dir", "", "serve this release directory (manifest, signature, binaries) at /v1/release/")
+	requireSigned := fs.Bool("require-signed", os.Getenv("AIVOICEBUS_REQUIRE_SIGNED") == "1", "refuse messages that carry no valid signature (every client of 0.7.0 or later signs); also AIVOICEBUS_REQUIRE_SIGNED=1")
 	allowPublic := fs.Bool("allow-public", false, "listen on all interfaces, a public address or a host name (plain HTTP: put it behind TLS you control)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -48,6 +50,7 @@ func serve(args []string, s Streams) error {
 		BootstrapKey:    *bkey,
 		BootstrapMaxAge: *bmax,
 		ReleaseDir:      *rdir,
+		RequireSigned:   *requireSigned,
 		Out:             s.Out,
 	})
 }
