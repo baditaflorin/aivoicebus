@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -57,6 +58,32 @@ func send(args []string, s Streams) error { return sendWith(args, s, false) }
 // reply is send with --re taken from the last unread message when it is not given.
 func reply(args []string, s Streams) error { return sendWith(args, s, true) }
 
+// trailingFlags parses the flags written after the text (task laptop-b "do this" --wait-reply 10m):
+// the flag package stops at the first word that is not a flag, which would send "--wait-reply 10m"
+// as part of the text and never wait. Only a word that names one of this command's flags starts
+// them, so text such as "-5" stays text, and "--" keeps everything after it as text. It returns the
+// text's words.
+func trailingFlags(fs *flag.FlagSet, s Streams) ([]string, error) {
+	words := fs.Args()
+	for i, w := range words {
+		if w == "--" {
+			return append(words[:i:i], words[i+1:]...), nil
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(w, "-"), "=")
+		if !strings.HasPrefix(w, "-") || name == "" || fs.Lookup(name) == nil {
+			continue
+		}
+		if err := parseFlags(fs, words[i:], s); err != nil {
+			return nil, err
+		}
+		if fs.NArg() > 0 {
+			return nil, outbox.Usagef("text on both sides of the flags (%q after them): put the text in one place, quoted", view.OneLine(strings.Join(fs.Args(), " "), 60))
+		}
+		return words[:i], nil
+	}
+	return words, nil
+}
+
 // sendWith is send and reply. reply answers the newest unread message unless --re says which.
 func sendWith(args []string, s Streams, reply bool) error {
 	name := "send"
@@ -90,7 +117,11 @@ func sendWith(args []string, s Streams, reply bool) error {
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
-	body := strings.Join(fs.Args(), " ")
+	words, err := trailingFlags(fs, s)
+	if err != nil {
+		return err
+	}
+	body := strings.Join(words, " ")
 	if *end {
 		if *kind != "" && *kind != msg.KindEnd {
 			return outbox.Usagef("--end and --kind %s say different things; use one", *kind)

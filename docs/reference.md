@@ -283,7 +283,9 @@ every 3 seconds. Each side answers with `reply --re ID --wait-reply 10m "..."`, 
 "..."` closes the conversation (it sends `--kind end`), which the other side's wait reports. `aivoicebus wait
 [--thread T] [--from WHO] [--for 10m]` waits for anything addressed to this session (exit 6 if
 nothing came). `aivoicebus ping laptop-b` lists the sessions a target reaches and how long ago
-each was seen, to know whether anyone is there before waiting on them.
+each was seen, to know whether anyone is there before waiting on them. Flags may come before or after the text
+(`task laptop-b "..." --wait-reply 10m`); a client older than 0.3.0 takes only flags written before
+the text, and sends any after it as part of the text.
 
 Tasks, claims and ends need nodes of release 0.2.0 or later (they advertise `tasks` in
 `/v1/health`); a node older than that would quarantine them, so the client refuses to send one

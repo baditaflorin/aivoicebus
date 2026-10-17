@@ -133,3 +133,28 @@ func TestWaitingForATaskAnswerSkipsTheClaim(t *testing.T) {
 		t.Errorf("the claim was not reported as progress: %q", progress)
 	}
 }
+
+// Flags after the text are flags, not text: `task lap "..." --wait-reply 10m` (the form the usage
+// line shows) must wait, and must not send "--wait-reply 10m" as part of the task.
+func TestFlagsAfterTheTextAreFlags(t *testing.T) {
+	mesh(t)
+	present(t, sa)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, e := run(t, "", "task", "lap", "resize the image", "--wait-reply", "1s", "--ttl", "1h")
+	if code != exitTimeout || !strings.Contains(e, "aivoicebus wait --thread") {
+		t.Fatalf("task with trailing --wait-reply: %d %q %q", code, out, e)
+	}
+	id, _ := sentID(t, out)
+	if _, th, _ := run(t, "", "thread", id); !strings.Contains(th, "resize the image\n") || strings.Contains(th, "--wait-reply") || strings.Contains(th, "--ttl") {
+		t.Errorf("the flags went into the text:\n%s", th)
+	}
+	// Words that are not this command's flags stay text, and -- keeps the rest as text.
+	_, out, _ = run(t, "", "send", "--to", sa, "set", "the", "offset", "to", "-5", "--", "--wait-reply", "is", "a", "flag")
+	id, _ = sentID(t, out)
+	if _, th, _ := run(t, "", "thread", id); !strings.Contains(th, "set the offset to -5 --wait-reply is a flag") {
+		t.Errorf("text with dashes:\n%s", th)
+	}
+	if code, _, e := run(t, "", "send", "--to", sa, "before", "--prio", "fyi", "after"); code != exitUsage || !strings.Contains(e, "both sides") {
+		t.Errorf("text on both sides: %d %q", code, e)
+	}
+}
