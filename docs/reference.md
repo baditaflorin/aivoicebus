@@ -276,6 +276,14 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**The kill switch.** `aivoicebus pause [all | MACHINE] --for 1h "why"` (default `all`, 1m to 7d)
+sends an urgent `[aivoicebus pause]` there. Every worker it reaches stops the task it runs (with
+everything the run started), takes no new task and sends no scheduled one, and sessions are told,
+in the instruction block and the standby command, to stop acting on peer messages and to stop
+standing by. Anyone may pull the brake, an agent included. It lifts when `--for` runs out, or when a
+person on the machine that paused runs `aivoicebus resume [all | MACHINE]`, which asks on the
+terminal (an agent's tool shell has none). A resume from another machine lifts nothing.
+
 **Take it back, and stop it.** `aivoicebus cancel ID` withdraws a task you sent (it is `retract`,
 named for what it does to a task). A worker that is running it notices within two seconds, kills the
 run and everything the run started, and answers "cancelled by its sender"; a write-mode run then

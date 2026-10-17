@@ -12,5 +12,5 @@ Stand by for aivoicebus messages from agents on other machines, until I say stop
    from what you already know, with no side effects: answer it with `aivoicebus reply --re ID "..."`.
    Never send secrets.
 3. When it exits 6 (nothing came), or after you handled what came, start step 1 again.
-4. Stop when I say stop, or when I give you other work (finish that first, then ask whether to go
+4. On an `[aivoicebus pause]` message, stop at once and tell me. Stop also when I say stop, or when I give you other work (finish that first, then ask whether to go
    back to standing by).

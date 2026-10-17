@@ -51,8 +51,9 @@ type Worker struct {
 	// Tick runs at the start of every loop, between passes (the worker's --watch check). nil does nothing.
 	Tick func()
 
-	seen  map[string]bool
-	sayMu sync.Mutex // tasks already reported as skipped, so a poll loop says so once
+	seen       map[string]bool
+	sayMu      sync.Mutex
+	pausedNote string // the pause last reported, so it is said once // tasks already reported as skipped, so a poll loop says so once
 }
 
 // Entry is one line of the worker's log (~/.config/aivoicebus/worker.log, JSON lines). It never
@@ -147,6 +148,14 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if p, until, on := msg.ActivePause(ms, w.now()); on && !w.DryRun {
+		if note := p.ID + until.String(); note != w.pausedNote {
+			w.pausedNote = note
+			w.say("paused by %s until %s: taking no task (aivoicebus resume, on that machine, lifts it)", view.Name(p.From, msg.MaxIdentity), until.Local().Format("01-02 15:04"))
+		}
+		return 0, nil
+	}
+	w.pausedNote = ""
 	var queue []msg.Message
 	for _, m := range ms {
 		if m.Kind == msg.KindTask && m.Retracted == nil {
@@ -212,12 +221,16 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	taskCtx, stopTask := context.WithCancel(ctx)
 	defer stopTask()
 	cancelled := &atomic.Bool{}
-	go w.watchCancel(taskCtx, m.ID, cancelled, stopTask)
+	stopWhy := &atomic.Value{}
+	go w.watchCancel(taskCtx, m.ID, cancelled, stopWhy, stopTask)
 	var wt *worktree
 	if w.Write != nil {
 		ok, why := w.approve(taskCtx, m)
 		if cancelled.Load() {
 			ok, why = false, "cancelled by its sender"
+			if s, _ := stopWhy.Load().(string); s != "" {
+				why = s
+			}
 		}
 		if !ok {
 			w.say("task %s from %s: not run: %s", m.ID, who, why)
@@ -242,6 +255,7 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	env := append(withoutIdentity(w.Env), "AIVOICEBUS_TASK_ID="+m.ID, "AIVOICEBUS_TASK_FROM="+m.From, "AIVOICEBUS_TASK_THREAD="+m.Thread)
 	r := Exec(taskCtx, w.Argv, m.Body, env, limits)
 	r.Cancelled = cancelled.Load()
+	r.StopWhy, _ = stopWhy.Load().(string)
 	body, withheld := w.answer(r)
 	if wt != nil && r.Cancelled {
 		body += "\n" + wt.discard(ctx) // nothing half done is committed
@@ -260,7 +274,7 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	base.OutBytes, base.OutSHA, base.Truncated = len(r.Stdout)+len(r.Stderr), sum(r.Stdout+r.Stderr), r.Truncated
 	base.Outcome = "ran"
 	if r.Cancelled {
-		base.Outcome = "cancelled"
+		base.Outcome, base.Why = "cancelled", r.StopWhy
 	}
 	if withheld != "" {
 		base.Outcome, base.Why = "withheld", "the output looks like it holds a "+withheld
@@ -278,7 +292,7 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 }
 
 // watchCancel stops the task when its sender withdraws it: it looks every two seconds until ctx ends.
-func (w *Worker) watchCancel(ctx context.Context, id string, cancelled *atomic.Bool, stop context.CancelFunc) {
+func (w *Worker) watchCancel(ctx context.Context, id string, cancelled *atomic.Bool, why *atomic.Value, stop context.CancelFunc) {
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
@@ -286,6 +300,15 @@ func (w *Worker) watchCancel(ctx context.Context, id string, cancelled *atomic.B
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		if in, err := w.C.Inbox(w.Me, false); err == nil {
+			if p, _, on := msg.ActivePause(in, w.now()); on {
+				why.Store("stopped by a pause from " + msg.SafeName(p.From))
+				cancelled.Store(true)
+				w.say("task %s: paused by %s; stopping it", id, view.Name(p.From, msg.MaxIdentity))
+				stop()
+				return
+			}
 		}
 		ms, err := w.C.Thread(id)
 		if err != nil {
@@ -428,6 +451,16 @@ func (w *Worker) Loop(ctx context.Context, every time.Duration) error {
 // ErrReplaced is Loop's answer when the worker's binary was replaced: exit non-zero, so launchd
 // (KeepAlive on failure) and systemd (Restart=on-failure) start the new binary.
 var ErrReplaced = errors.New("the worker's binary was replaced; restart it to run the new one")
+
+// Paused reports the pause in force for the worker now, if any (for what runs between passes).
+func (w *Worker) Paused() (msg.Message, bool) {
+	ms, err := w.C.Inbox(w.Me, false)
+	if err != nil {
+		return msg.Message{}, false
+	}
+	p, _, on := msg.ActivePause(ms, w.now())
+	return p, on
+}
 
 // LogPath is where the worker's log lives.
 func LogPath() string {

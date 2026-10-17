@@ -25,7 +25,8 @@ type Result struct {
 	TimedOut       bool // killed at the time limit
 	Stopped        bool // killed because the worker was stopped
 	StartErr       error
-	Cancelled      bool // stopped because its sender took the task back (set by the worker)
+	Cancelled      bool   // stopped from outside the run (set by the worker): its sender took it back, or a pause
+	StopWhy        string // with Cancelled: "cancelled by its sender" or "stopped by a pause from ..."
 	Took           time.Duration
 }
 
@@ -174,7 +175,11 @@ func (r Result) Describe(timeout time.Duration) string {
 	took := r.Took.Round(time.Second)
 	switch {
 	case r.Cancelled:
-		return fmt.Sprintf("cancelled by its sender after %s: the run and everything it started were stopped", took)
+		why := r.StopWhy
+		if why == "" {
+			why = "cancelled by its sender"
+		}
+		return fmt.Sprintf("%s after %s: the run and everything it started were stopped", why, took)
 	case r.StartErr != nil:
 		return fmt.Sprintf("could not start the command: %v", r.StartErr)
 	case r.Stopped:
