@@ -276,6 +276,11 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
+one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
+at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.
+With nobody listening, the task goes to the plain target and waits for the next session there.
+
 **A task nobody takes moves on.** `aivoicebus task build-1 "run the suite" --wait-reply 15m
 --claim-within 2m --fallback build-2,laptop-b` gives build-1 two minutes to take it. If nothing
 there claims or answers it in that time, the waiting command takes it back (`retract`) and gives

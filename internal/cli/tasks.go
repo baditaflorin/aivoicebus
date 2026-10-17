@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"sort"
@@ -24,11 +25,12 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true}
 	var machine, tool, can, model, fallback, claimWithin string
+	anyListening := false
 	var rest []string
 	var words []int // indexes into rest of the plain words (not flags or their values)
 	for i := 0; i < len(args); i++ {
@@ -62,6 +64,10 @@ func taskCmd(args []string, s Streams) error {
 			}
 			continue
 		}
+		if key == "any" {
+			anyListening = true
+			continue
+		}
 		rest = append(rest, a)
 		if valued[key] && !hasEq && i+1 < len(args) {
 			i++
@@ -76,8 +82,19 @@ func taskCmd(args []string, s Streams) error {
 	if err != nil {
 		return outbox.Usagef("%v", err)
 	}
+	if to == "" && anyListening {
+		to = "all"
+	}
 	if to == "" {
 		return usage
+	}
+	if anyListening {
+		if fallback != "" {
+			return outbox.Usagef("--any picks one listening session itself; it does not combine with --fallback")
+		}
+		if to, err = pickListening(to, s); err != nil {
+			return err
+		}
 	}
 	head := []string{"--to", to, "--kind", msg.KindTask}
 	if claimWithin != "" && fallback == "" {
@@ -113,6 +130,34 @@ func taskCmd(args []string, s Streams) error {
 		return sendWith(append(head, rest...), s, false, mv)
 	}
 	return sendWith(append(head, rest...), s, false)
+}
+
+// pickListening is task --any: one of the sessions or workers target reaches that is waiting for
+// messages right now (it reads one within a second), chosen at random so several of them share
+// the work. With none listening the task goes to target as usual, to the next one there.
+func pickListening(target string, s Streams) (string, error) {
+	c, err := sessionClient()
+	if err != nil {
+		return "", err
+	}
+	roster, err := c.Roster()
+	if err != nil {
+		return "", err
+	}
+	me := identity.Me()
+	var free []string
+	for _, e := range roster {
+		if e.Listening && e.Me != me && msg.MatchesLabeled(target, e.Me, e.Labels) {
+			free = append(free, e.Me)
+		}
+	}
+	if len(free) == 0 {
+		fmt.Fprintf(s.Err, "  nobody at %s is listening right now: the task goes to %s and waits for the next session there\n", view.Name(target, msg.MaxIdentity), view.Name(target, msg.MaxIdentity))
+		return target, nil
+	}
+	pick := free[rand.IntN(len(free))]
+	fmt.Fprintf(s.Err, "  --any: %s (picked from %d listening now)\n", view.Name(pick, msg.MaxIdentity), len(free))
+	return pick, nil
 }
 
 // taskTarget is the narrowest address for who may take a task: a machine, a tool on it
