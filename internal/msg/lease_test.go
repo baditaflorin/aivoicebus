@@ -30,3 +30,31 @@ func TestLeaseHoldersAndKeys(t *testing.T) {
 		t.Error("a lease without a ttl accepted")
 	}
 }
+
+// A send moves a session's Seen on every node the message reaches, while those nodes may hold
+// older labels: the merge takes the labels declared last, not those of the latest sighting.
+func TestMergeRostersJudgesLabelsByWhenTheyWereDeclared(t *testing.T) {
+	t0 := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	fresh := RosterEntry{Me: "lap/claude.a1", Seen: t0.Add(time.Minute), LabelsAt: t0.Add(time.Minute), Labels: Labels{"rooms": "v07"}}
+	stale := RosterEntry{Me: "lap/claude.a1", Seen: t0.Add(2 * time.Minute), LabelsAt: t0, Labels: Labels{"tool": "claude"}}
+	for _, order := range [][]RosterEntry{{fresh, stale}, {stale, fresh}} {
+		m := MergeRosters(order[:1], order[1:])
+		if len(m) != 1 || m[0].Labels["rooms"] != "v07" || !m[0].Seen.Equal(t0.Add(2*time.Minute)) {
+			t.Errorf("%+v", m)
+		}
+	}
+}
+
+func TestShortTargetShowsTermsAsWritten(t *testing.T) {
+	for in, want := range map[string]string{
+		"@rooms=v07|v07+*|*+v07|*+v07+*":       "@room=v07",
+		"@repo=x,caps=run|run+*|*+run|*+run+*": "@repo=x,can=run",
+		"@caps!=gpu|gpu+*|*+gpu|*+gpu+*":       "@can!=gpu",
+		"lap/claude.a1":                        "lap/claude.a1",
+		"@rooms=odd|pattern":                   "@rooms=odd|pattern",
+	} {
+		if got := ShortTarget(in); got != want {
+			t.Errorf("ShortTarget(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

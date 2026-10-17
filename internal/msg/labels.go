@@ -122,6 +122,10 @@ type RosterEntry struct {
 	// Listening is set by the node a session is waiting on right now (in `aivoicebus wait` or
 	// --wait-reply): a message to it is read within a second. Not gossiped; MergeRosters ORs it.
 	Listening bool `json:"listening,omitempty"`
+	// LabelsAt is when the session declared these labels (an inbox read). Seen also moves when it
+	// sends, on every node the message reaches, while those nodes may hold older labels, so which
+	// labels are newest is judged by this; zero (an older node) falls back to Seen.
+	LabelsAt time.Time `json:"labels_at,omitempty"`
 }
 
 // MergeRosters combines the rosters several nodes reported into one: each session
@@ -142,8 +146,13 @@ func MergeRosters(lists ...[]RosterEntry) []RosterEntry {
 			if e.Seen.After(cur.Seen) {
 				cur.Seen = e.Seen
 			}
-			if len(e.Labels) > 0 && !e.Seen.Before(labelsAt[e.Me]) {
-				cur.Labels, labelsAt[e.Me] = e.Labels, e.Seen
+			when := e.LabelsAt
+			if when.IsZero() {
+				when = e.Seen
+			}
+			if len(e.Labels) > 0 && !when.Before(labelsAt[e.Me]) {
+				cur.Labels, labelsAt[e.Me] = e.Labels, when
+				cur.LabelsAt = e.LabelsAt
 			}
 			if e.Title != "" && !e.Seen.Before(titleAt[e.Me]) {
 				cur.Title, titleAt[e.Me] = e.Title, e.Seen

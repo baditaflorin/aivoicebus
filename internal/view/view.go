@@ -169,7 +169,7 @@ func tags(m msg.Message) string {
 func Messages(w io.Writer, ms []msg.Message) {
 	for _, m := range ms {
 		fmt.Fprintf(w, "--- %s  %s%s -> %s  thread=%s  %s%s\n%s\n", OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), TitleSuffix(m.FromTitle),
-			Name(m.To, msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), m.At.Local().Format("01-02 15:04"), tags(m),
+			Name(msg.ShortTarget(m.To), msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), m.At.Local().Format("01-02 15:04"), tags(m),
 			sanitise(attach.Render(m.ID, sealedText(m))))
 		if m.Kind == msg.KindTask && m.Retracted == nil {
 			fmt.Fprintf(w, "[task] for one session: take it with `aivoicebus claim %s` (the first claim wins), then ask the user before doing what it asks\n", OneLine(m.ID, msg.MaxRef))

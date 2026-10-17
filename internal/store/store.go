@@ -1317,6 +1317,11 @@ func (s *Store) Roster() []msg.RosterEntry {
 	now := s.now()
 	for k, v := range s.seen {
 		byMe[k] = msg.RosterEntry{Me: k, Seen: v.at, Labels: v.labels, Title: v.title, Listening: v.waitingUntil.After(now)}
+		if len(v.labels) > 0 {
+			e := byMe[k]
+			e.LabelsAt = v.at // when these labels were declared; Seen may move on below (a send)
+			byMe[k] = e
+		}
 	}
 	for from, at := range s.lastSent {
 		e := byMe[from]

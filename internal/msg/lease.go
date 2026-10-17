@@ -74,3 +74,40 @@ func Holders(live []Lease) []Lease {
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
+
+// ShortTarget is a target as people write it: a capability or room term that ExpandCaps or
+// ExpandRooms turned into four patterns ("rooms=x|x+*|*+x|*+x+*") is shown as "room=x" again.
+func ShortTarget(to string) string {
+	body, ok := strings.CutPrefix(to, "@")
+	if !ok {
+		return to
+	}
+	terms := strings.Split(body, ",")
+	for i, t := range terms {
+		for label, key := range map[string]string{RoomsLabel: "room", CapsLabel: "can"} {
+			for _, op := range []string{"!=", "="} {
+				v, found := strings.CutPrefix(t, label+op)
+				if !found {
+					continue
+				}
+				pats := strings.Split(v, "|")
+				if len(pats)%4 != 0 {
+					continue
+				}
+				var words []string
+				for j := 0; j < len(pats); j += 4 {
+					w := pats[j]
+					if pats[j+1] != w+"+*" || pats[j+2] != "*+"+w || pats[j+3] != "*+"+w+"+*" {
+						words = nil
+						break
+					}
+					words = append(words, w)
+				}
+				if words != nil {
+					terms[i] = key + op + strings.Join(words, "|")
+				}
+			}
+		}
+	}
+	return "@" + strings.Join(terms, ",")
+}
