@@ -15,6 +15,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/attach"
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
@@ -72,6 +73,7 @@ func withLine(text string, l attach.Link) string {
 // sendOpts are the send flags an attachment send needs beyond the plain request.
 type sendOpts struct {
 	file, tail, via string
+	waitReply       time.Duration
 	keep, wait      bool
 	dry             bool
 }
@@ -179,6 +181,20 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 	fmt.Fprintln(s.Out)
 	if len(plan.Notes) > 0 {
 		fmt.Fprintln(s.Err, "  "+strings.Join(plan.Notes, "; "))
+	}
+	if o.waitReply > 0 {
+		me := identity.Me()
+		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", o.waitReply.String(), out.Thread)
+		got, err := waitFor(c, me, waitFilter{thread: out.Thread}, o.waitReply, 3*time.Second)
+		if errors.Is(err, errWaitTimeout) {
+			fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", o.waitReply.String(), out.Thread)
+			return exitError{exitTimeout}
+		}
+		if err != nil {
+			return err
+		}
+		showArrived(c, me, got, true, s)
+		return nil
 	}
 	if o.wait && watch != "" {
 		read, err := fs.WatchRead(ctx, watch, attach.PipeTTL)

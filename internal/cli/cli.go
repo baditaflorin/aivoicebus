@@ -64,6 +64,11 @@ func init() {
 		"trust-key": trustKeyCmd,
 		"help":      helpCmd,
 		"view":      viewCmd,
+		"task":      taskCmd,
+		"claim":     claimCmd,
+		"queue":     queueCmd,
+		"wait":      waitCmd,
+		"ping":      pingCmd,
 	}
 }
 

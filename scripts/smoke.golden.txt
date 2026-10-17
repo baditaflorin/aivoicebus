@@ -19,7 +19,7 @@ Usage of send:
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
   -kind string
-    	question | answer: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
+    	question | answer | task | claim | end: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -prio string
     	fyi | ask | urgent (default ask): fyi is only counted at session start, urgent is shown first
   -queue
@@ -40,6 +40,8 @@ Usage of send:
     	with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe
   -wait
     	with --file: wait up to 5 minutes and say whether it was read
+  -wait-reply duration
+    	after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)
 [exit 2]
 $ aivoicebus send -h
 Usage of send:
@@ -54,7 +56,7 @@ Usage of send:
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
   -kind string
-    	question | answer: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
+    	question | answer | task | claim | end: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -prio string
     	fyi | ask | urgent (default ask): fyi is only counted at session start, urgent is shown first
   -queue
@@ -75,6 +77,8 @@ Usage of send:
     	with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe
   -wait
     	with --file: wait up to 5 minutes and say whether it was read
+  -wait-reply duration
+    	after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)
 [exit 0]
 # identity
 $ aivoicebus whoami
@@ -317,7 +321,7 @@ would change claude hook            <TMP>/home/.claude/settings.json
 would change claude instructions    <TMP>/home/.claude/CLAUDE.md
 skipped      codex instructions     no ~/.codex (tool not installed); setup adds it once it exists
 skipped      gemini instructions    no ~/.gemini (tool not installed); setup adds it once it exists
-would change state                  release <VER>, hook dd5d1a1e, snippet 92ebc416
+would change state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
 [exit 0]
 $ aivoicebus setup --yes --url http://127.0.0.1:<PORT>
 changed      env                    <TMP>/home/.config/aivoicebus/env
@@ -327,7 +331,7 @@ changed      claude hook            <TMP>/home/.claude/settings.json
 changed      claude instructions    <TMP>/home/.claude/CLAUDE.md
 skipped      codex instructions     no ~/.codex (tool not installed); setup adds it once it exists
 skipped      gemini instructions    no ~/.gemini (tool not installed); setup adds it once it exists
-changed      state                  release <VER>, hook dd5d1a1e, snippet 92ebc416
+changed      state                  release <VER>, hook dd5d1a1e, snippet 145e2ec5
 [exit 0]
 $ aivoicebus doctor --offline
 ok    binary                 aivoicebus <VER> (commit <C>, <PLATFORM>)
@@ -338,7 +342,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  from AIVOICEBUS_TOKEN
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet 92ebc416
+ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
 [exit 1]
 $ aivoicebus doctor --offline
@@ -350,7 +354,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet 92ebc416
+ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
 [exit 0]
 $ aivoicebus setup
@@ -372,10 +376,10 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet 92ebc416
+ok    claude instructions    snippet 145e2ec5
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
-ok    node features          smoke: files,quarantine,retract,retract-dry-run
+ok    node features          smoke: files,quarantine,retract,retract-dry-run,tasks
 [exit 0]
 $ aivoicebus uninstall --dry-run
 would change claude hook            <TMP>/home/.claude/settings.json

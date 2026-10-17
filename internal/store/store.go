@@ -75,7 +75,7 @@ type Store struct {
 	threads  map[string][]int        // thread id -> indices in arrival order
 	byTo     map[string][]int        // the exact `to` -> indices in arrival order
 	sels     map[string]msg.Selector // each distinct selector target, parsed (nil if malformed)
-	answers  map[string][]answerRef  // question id -> the answers to it
+	answers  map[string][]answerRef  // question or task id -> the answers and claims to it
 	lastSent map[string]time.Time    // sender -> time of its latest message
 	seen     map[string]seenInfo     // identity -> last contact with THIS node
 	now      func() time.Time        // the clock; replaced in tests
@@ -158,8 +158,14 @@ type dueList struct {
 	sorted bool
 }
 
-// answerRef is an answer to a question: its id (so a retraction of it can be found) and sender.
-type answerRef struct{ id, from string }
+// answerRef is an answer to a question or a claim on a task: its id (so a retraction of it can be
+// found), its sender, when the node stamped it (the earliest claim takes a task) and whether it is
+// a claim (a claim takes a task but answers no question).
+type answerRef struct {
+	id, from string
+	at       time.Time
+	claim    bool
+}
 
 // recentSend is a message a node accepted a moment ago, kept to recognise an
 // identical one sent again.
@@ -505,8 +511,8 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	if forged {
 		s.forged[m.ID] = true
 	}
-	if !forged && m.Kind == msg.KindAnswer && m.Re != "" { // a forged answer closes no question
-		s.answers[m.Re] = append(s.answers[m.Re], answerRef{id: m.ID, from: m.From})
+	if !forged && msg.Takes(m) { // a forged answer or claim closes nothing
+		s.answers[m.Re] = append(s.answers[m.Re], answerRef{id: m.ID, from: m.From, at: m.At, claim: m.Kind == msg.KindClaim})
 	}
 	if m.At.After(s.lastSent[m.From]) {
 		s.lastSent[m.From] = m.At
@@ -516,19 +522,48 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	}
 }
 
-// closedLocked reports whether m is a question to several sessions that someone
-// other than its sender has answered: it need not be put in front of anyone else. An answer
-// its sender retracted does not count, so retracting it opens the question again.
-func (s *Store) closedLocked(m msg.Message) bool {
-	if m.Kind != msg.KindQuestion || !msg.IsBulletin(m.To) {
+// closedForLocked reports whether m need not be put in front of me: a question to several
+// sessions that someone other than its sender has answered, or a task to several sessions that a
+// session other than me took first (see msg.TaskOwner). An answer or claim its sender retracted
+// does not count, so retracting it opens the question or the task again.
+func (s *Store) closedForLocked(m msg.Message, me string) bool {
+	if !msg.IsBulletin(m.To) {
 		return false
 	}
-	for _, a := range s.answers[m.ID] {
-		if a.from != m.From && !s.retractedLocked(a.id, a.from) {
-			return true
+	switch m.Kind {
+	case msg.KindQuestion:
+		for _, a := range s.answers[m.ID] {
+			if !a.claim && a.from != m.From && !s.retractedLocked(a.id, a.from) {
+				return true
+			}
 		}
+	case msg.KindTask:
+		owner, taken := s.taskOwnerLocked(m)
+		return taken && owner.From != me
 	}
 	return false
+}
+
+// taskOwnerLocked is the session that holds task m, if one has taken it.
+func (s *Store) taskOwnerLocked(m msg.Message) (msg.TakeRef, bool) {
+	var takes []msg.TakeRef
+	for _, a := range s.answers[m.ID] {
+		if !s.retractedLocked(a.id, a.from) {
+			takes = append(takes, msg.TakeRef{ID: a.id, From: a.from, At: a.at})
+		}
+	}
+	return msg.TaskOwner(m.From, takes)
+}
+
+// TaskOwner is the session that holds the task with this id, and whether anyone has taken it.
+func (s *Store) TaskOwner(id string) (msg.TakeRef, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, ok := s.idx[id]
+	if !ok || s.msgs[i].Kind != msg.KindTask {
+		return msg.TakeRef{}, false
+	}
+	return s.taskOwnerLocked(s.msgs[i])
 }
 
 // addRetractionLocked notes that by claims to retract message mid, as of at. A second claim by the
@@ -1094,7 +1129,7 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 		if !all && m.Expired(now) { // stale news is never delivered; --all still lists it
 			continue
 		}
-		if !all && (s.acks[m.ID][me] || s.closedLocked(m)) {
+		if !all && (s.acks[m.ID][me] || s.closedForLocked(m, me)) {
 			continue
 		}
 		if retracted {

@@ -22,7 +22,10 @@
  "default_priority": "ask",
  "kinds": [
   "question",
-  "answer"
+  "answer",
+  "task",
+  "claim",
+  "end"
  ],
  "ack_via": [
   "hook",

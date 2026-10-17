@@ -3,3 +3,4 @@
 # it is cut. Releases at or above the one being signed are ignored.
 # 0.1.0 was the first public release.
 0.1.0
+0.1.1

@@ -78,15 +78,27 @@ func sendWith(args []string, s Streams, reply bool) error {
 	keep := fs.Bool("keep", false, "with --file: let several sessions read the file (it is not burned by the first read)")
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
 	ackIt := new(bool)
+	end := new(bool)
 	if reply {
 		ackIt = fs.Bool("ack", false, "mark the message replied to as read once the reply is sent")
+		end = fs.Bool("end", false, "this reply closes the conversation: the other side's wait stops, and nobody needs to answer it")
 	}
 	trustRole := fs.Bool("trust-role", false, "use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	body := strings.Join(fs.Args(), " ")
+	if *end {
+		if *kind != "" && *kind != msg.KindEnd {
+			return outbox.Usagef("--end and --kind %s say different things; use one", *kind)
+		}
+		*kind = msg.KindEnd
+		if *waitReply > 0 {
+			return outbox.Usagef("--end closes the conversation, so there is no reply to wait for")
+		}
+	}
 	if *file != "" || *tail != "" {
 		if *file != "" && *tail != "" {
 			return errors.New("use --file or --tail, not both")
@@ -99,7 +111,7 @@ func sendWith(args []string, s Streams, reply bool) error {
 			return outbox.Usagef("reply with --file or --tail needs --re ID: nothing is inferred for an attachment")
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, keep: *keep, wait: *wait, dry: *dry}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)
@@ -165,6 +177,19 @@ func sendWith(args []string, s Streams, reply bool) error {
 	fmt.Fprintln(s.Err, "undo: aivoicebus retract "+out.ID) // on stderr with the notes: stdout stays one line a script can read the id from
 	if len(plan.Suspect) > 0 {
 		fmt.Fprintln(s.Err, "if that went out: aivoicebus retract --leak "+out.ID)
+	}
+	if *waitReply > 0 {
+		me := identity.Me()
+		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
+		got, err := waitFor(c, me, waitFilter{thread: out.Thread}, *waitReply, 3*time.Second)
+		if errors.Is(err, errWaitTimeout) {
+			fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), out.Thread)
+			return exitError{exitTimeout}
+		}
+		if err != nil {
+			return err
+		}
+		showArrived(c, me, got, true, s)
 	}
 	return nil
 }

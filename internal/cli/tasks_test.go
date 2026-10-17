@@ -1,0 +1,105 @@
+package cli
+
+import (
+	"strings"
+	"testing"
+)
+
+const boss, sa, sb = "desk/claude.z9", "lap/claude.a1", "lap/codex.b2"
+
+func sentID(t *testing.T, out string) (id, thread string) {
+	t.Helper()
+	f := strings.Fields(out)
+	if len(f) < 4 || f[0] != "sent" {
+		t.Fatalf("not a send: %q", out)
+	}
+	return f[1], f[3]
+}
+
+func TestATaskToAMachineIsTakenByOneSession(t *testing.T) {
+	mesh(t)
+	present(t, sa)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, e := run(t, "", "task", "lap", "send me the screenshot on the Desktop")
+	if code != 0 {
+		t.Fatalf("task: %d %s", code, e)
+	}
+	id, _ := sentID(t, out)
+
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if _, q, _ := run(t, "", "queue"); !strings.Contains(q, "[task]") || !strings.Contains(q, "aivoicebus claim "+id) {
+		t.Fatalf("queue on %s:\n%s", sa, q)
+	}
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if code, out, e := run(t, "", "claim", id, "--settle", "0s"); code != 0 || !strings.Contains(out, "is yours") {
+		t.Fatalf("claim by %s: %d %s %s", sb, code, out, e)
+	}
+	if _, q, _ := run(t, "", "queue"); strings.Contains(q, id) {
+		t.Errorf("the owner's queue still lists the task it claimed (it is acknowledged): %s", q)
+	}
+	t.Setenv("AIVOICEBUS_ME", sa)
+	if _, q, _ := run(t, "", "queue"); strings.Contains(q, id) {
+		t.Errorf("the task is still queued for a session that did not take it:\n%s", q)
+	}
+	if code, _, e := run(t, "", "claim", id, "--settle", "0s"); code == 0 || !strings.Contains(e, "already taken by "+sb) {
+		t.Errorf("a second claim: %d %q", code, e)
+	}
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if _, in, _ := run(t, "", "inbox"); !strings.Contains(in, "[claim]") || !strings.Contains(in, sb) {
+		t.Errorf("the sender is not told who took it:\n%s", in)
+	}
+	if code, _, e := run(t, "", "claim", id); code == 0 || !strings.Contains(e, "you sent task") {
+		t.Errorf("the sender claiming its own task: %d %q", code, e)
+	}
+}
+
+func TestWaitConversationsAndEnd(t *testing.T) {
+	mesh(t)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	// Nothing comes: --wait-reply gives up with exit 6 and says how to wait later.
+	code, out, e := run(t, "", "send", "--to", sb, "--wait-reply", "1s", "did the image arrive?")
+	if code != exitTimeout || !strings.Contains(e, "aivoicebus wait --thread") {
+		t.Fatalf("wait-reply with no answer: %d %q", code, e)
+	}
+	q, thread := sentID(t, out)
+
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if code, _, e := run(t, "", "reply", "--re", q, "yes, saved to ~/Desktop"); code != 0 {
+		t.Fatalf("reply: %s", e)
+	}
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, _ = run(t, "", "wait", "--thread", thread, "--for", "5s", "--every", "1s")
+	if code != 0 || !strings.Contains(out, "saved to ~/Desktop") || !strings.Contains(out, "UNTRUSTED") || !strings.Contains(out, "--wait-reply") {
+		t.Fatalf("wait: %d\n%s", code, out)
+	}
+	// What a wait showed is read: waiting again finds nothing.
+	if code, _, _ := run(t, "", "wait", "--thread", thread, "--for", "1s"); code != exitTimeout {
+		t.Errorf("a second wait returned what the first showed: %d", code)
+	}
+	// The other side ends it, and the wait says so.
+	t.Setenv("AIVOICEBUS_ME", sb)
+	if code, _, e := run(t, "", "reply", "--re", q, "--end", "done here"); code != 0 {
+		t.Fatalf("reply --end: %s", e)
+	}
+	if code, _, _ := run(t, "", "reply", "--re", q, "--end", "--wait-reply", "1m", "x"); code != exitUsage {
+		t.Errorf("--end with --wait-reply: %d", code)
+	}
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if _, out, _ := run(t, "", "wait", "--from", "lap", "--for", "5s", "--every", "1s"); !strings.Contains(out, "[end]") || !strings.Contains(out, "ended the conversation") {
+		t.Errorf("wait on an end:\n%s", out)
+	}
+}
+
+func TestPingSaysWhoIsThere(t *testing.T) {
+	mesh(t)
+	present(t, sa)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if code, out, _ := run(t, "", "ping", "lap"); code != 0 || !strings.Contains(out, sa) || !strings.Contains(out, "seen") {
+		t.Errorf("ping lap: %d %q", code, out)
+	}
+	if code, out, _ := run(t, "", "ping", "nowhere"); code != exitNotFound || !strings.Contains(out, "aivoicebus task nowhere") {
+		t.Errorf("ping nowhere: %d %q", code, out)
+	}
+}

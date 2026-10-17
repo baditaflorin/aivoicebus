@@ -23,6 +23,7 @@ const (
 	exitNotFound    = 3 // the message, thread or id asked for is not there
 	exitUnreachable = 4 // no node answered: the mesh may be away
 	exitRejected    = 5 // a node refused the token or what it may do
+	exitTimeout     = 6 // `wait` (or --wait): nothing arrived in the time given
 )
 
 // exitCode is the code for an error a command returned.

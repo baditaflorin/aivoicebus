@@ -22,6 +22,9 @@ var Priorities = []Word{
 var Kinds = []Word{
 	{KindQuestion, "[question]"},
 	{KindAnswer, "[answer]"},
+	{KindTask, "[task]"},
+	{KindClaim, "[claim]"},
+	{KindEnd, "[end]"},
 }
 
 func names(ws []Word) []string {

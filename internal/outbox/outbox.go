@@ -179,6 +179,11 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			r.TTL = "5m"
 		}
 	}
+	if m.Kind == msg.KindTask && m.Prio == "" {
+		// A task is shown on the next prompt of each session it reaches, and only until one of
+		// them takes it: an "ask" would wait for a session to start, which may be hours.
+		m.Prio = msg.PrioUrgent
+	}
 	if r.TTL != "" {
 		d, err := msg.ParseTTL(r.TTL)
 		if err != nil {
@@ -190,12 +195,18 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		switch {
 		case strings.HasPrefix(err.Error(), "priority"):
 			return p, Usagef("--prio: %v", err)
-		case strings.HasPrefix(err.Error(), "kind"), strings.HasPrefix(err.Error(), "an answer"):
+		case strings.HasPrefix(err.Error(), "kind"), strings.HasPrefix(err.Error(), "an answer"), strings.HasPrefix(err.Error(), "a claim"):
 			return p, Usagef("--kind: %v", err)
 		}
 		return p, err
 	}
 
+	if m.Kind == msg.KindTask || m.Kind == msg.KindClaim || m.Kind == msg.KindEnd {
+		// A node older than this quarantines the record instead of relaying it.
+		if old := nodeTooOldFor(c, msg.TaskSince); old != "" {
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a %s; update the nodes first", old, msg.TaskSince, m.Kind)
+		}
+	}
 	switch {
 	case sel.Advanced():
 		if old := nodeTooOldFor(c, msg.SelectorSince); old != "" {
@@ -227,7 +238,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		switch {
 		case known && n == 0:
 			return p, fmt.Errorf("no session seen in the last %s matches %s, and a file can be read for only five minutes, so it cannot wait for one to start", ReachWindowText, to)
-		case known && n > 1 && !r.Keep:
+		case known && n > 1 && !r.Keep && !strings.EqualFold(r.Kind, msg.KindTask): // a task has one reader: whoever takes it
 			return p, fmt.Errorf("%s reaches %d sessions but a file is burned by the first one to read it; send to one session, or add --keep to let each of them read it for five minutes", to, n)
 		}
 	}
@@ -238,7 +249,9 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	p.Context = contextChars(m)
 	if !r.Force {
-		if m.Priority() == msg.PrioUrgent && known && n >= UrgentFanout {
+		// A task interrupts the sessions it reaches only until one of them takes it, so a task to a
+		// machine with many sessions is not refused; a task to everyone still is.
+		if m.Priority() == msg.PrioUrgent && known && n >= UrgentFanout && (m.Kind != msg.KindTask || to == "all") {
 			return p, fmt.Errorf("an urgent message to %s would interrupt %d sessions; use --prio ask, narrow the target, or add --force if that is what you want", to, n)
 		}
 		if known && n >= BulkReaders && utf8.RuneCountInString(body) > BulkChars {

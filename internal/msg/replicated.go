@@ -68,9 +68,9 @@ func (m *Message) validateReplicated() error {
 		return errors.New("priority is not one of fyi, ask, urgent")
 	}
 	switch m.Kind {
-	case "", KindQuestion, KindAnswer:
+	case "", KindQuestion, KindAnswer, KindTask, KindClaim, KindEnd:
 	default:
-		return errors.New("kind is not one of question, answer")
+		return errors.New("kind is not one of question, answer, task, claim, end")
 	}
 	if m.Reach != nil && (*m.Reach < 0 || *m.Reach > replMaxReach) {
 		return errors.New("reach is out of range")

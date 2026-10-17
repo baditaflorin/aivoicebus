@@ -45,9 +45,12 @@ type Message struct {
 	Exp *time.Time `json:"exp,omitempty"`
 
 	// Kind is "question" (the sender wants an answer), "answer" (a reply that closes
-	// the question named by Re) or empty (a plain note). A question that can reach
-	// several sessions stops being delivered to the ones that have not read it once
-	// someone else has answered it; the thread still shows everything.
+	// the question named by Re), "task" (work for one session among those it reaches,
+	// usually every session on a machine), "claim" (a session takes the task named by Re),
+	// "end" (the sender leaves the conversation) or empty (a plain note). A question that
+	// can reach several sessions stops being delivered to the ones that have not read it
+	// once someone else has answered it; a task stops being delivered to everyone but the
+	// session that took it first (see TaskOwner). The thread still shows everything.
 	Kind string `json:"kind,omitempty"`
 	// Reach is how many sessions the sender's client counted as recipients when it
 	// sent the message. A display hint from the sender, never used for delivery;
@@ -71,7 +74,14 @@ type Message struct {
 const (
 	KindQuestion = "question"
 	KindAnswer   = "answer"
+	KindTask     = "task"
+	KindClaim    = "claim"
+	KindEnd      = "end"
 )
+
+// TaskSince is the first release whose nodes accept tasks, claims and ends. An older node
+// quarantines them, so a client sends one only to a mesh whose nodes advertise FeatureTasks.
+const TaskSince = "0.2.0"
 
 // MaxReach bounds the Reach a sender may claim.
 const MaxReach = 100000
@@ -165,6 +175,9 @@ func (m Message) ValidateOptions() error {
 	}
 	if m.Kind == KindAnswer && m.Re == "" {
 		return errors.New("an answer must say which message it answers (re)")
+	}
+	if m.Kind == KindClaim && m.Re == "" {
+		return errors.New("a claim must say which task it takes (re)")
 	}
 	if m.Reach != nil && (*m.Reach < 0 || *m.Reach > MaxReach) {
 		return errors.New("reach is out of range")

@@ -38,11 +38,12 @@ const (
 	FeatureQuarantine    = "quarantine"      // replaces a record that fails replication checks by a placeholder
 	FeatureRetract       = "retract"         // /v1/retract: a sender withdraws a message
 	FeatureRetractDryRun = "retract-dry-run" // /v1/retract answers a dry run without writing
+	FeatureTasks         = "tasks"           // accepts task, claim and end, and delivers a task to its owner only
 )
 
 // NodeFeatures is what this release of the node can do, sorted.
 func NodeFeatures() []string {
-	return []string{FeatureFiles, FeatureQuarantine, FeatureRetract, FeatureRetractDryRun}
+	return []string{FeatureFiles, FeatureQuarantine, FeatureRetract, FeatureRetractDryRun, FeatureTasks}
 }
 
 // Has reports whether the node advertised feature f. False also for a node that advertises
