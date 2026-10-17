@@ -239,13 +239,21 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if *ackIt && plan.Msg.Re != "" { // the reply is out: its message is handled
 		_ = c.AckVia(plan.Msg.Re, identity.Me(), msg.ViaCLI, 0)
 	}
-	if *asJSON {
+	if *asJSON && *waitReply == 0 {
 		return writeJSON(s.Out, sentView{ID: out.ID, Thread: out.Thread, To: view.Name(out.To, msg.MaxIdentity), Re: out.Re, Reach: reachOf(plan), Notes: append([]string{}, plan.Notes...)})
 	}
-	fmt.Fprintln(s.Out, "sent", out.ID, "thread", out.Thread)
+	sentOut := s.Out
+	if *asJSON { // with --wait-reply, stdout is the one result object at the end
+		sentOut = s.Err
+	}
+	fmt.Fprintln(sentOut, "sent", out.ID, "thread", out.Thread)
 	repeat := out.ID != plan.Msg.ID // the node already held these very words from this sender (store dupWindow)
 	if repeat {
-		fmt.Fprintf(s.Err, "  the same words went to the same target %s ago as %s, and the node keeps one copy of them for 10 minutes: this is that message, not a new one (change the words to send it again)\n", outbox.SpanText(time.Since(out.At).Round(time.Second)), out.ID)
+		ago := "moments"
+		if d := time.Since(out.At).Round(time.Second); d >= time.Second {
+			ago = d.String()
+		}
+		fmt.Fprintf(s.Err, "  the same words went to the same target %s ago as %s, and the node keeps one copy of them for 10 minutes: this is that message, not a new one (change the words to send it again)\n", ago, out.ID)
 	}
 	if len(plan.Notes) > 0 {
 		fmt.Fprintln(s.Err, "  "+strings.Join(plan.Notes, "; "))
@@ -256,11 +264,28 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	}
 	if *waitReply > 0 {
 		me := identity.Me()
+		takenBy := ""
+		deliver := func(cur msg.Message, got []msg.Message, ack bool) error {
+			if !*asJSON {
+				showArrived(c, me, got, ack, s)
+				return nil
+			}
+			for _, m := range got {
+				if ack {
+					_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
+				}
+			}
+			if takenBy == "" && cur.Kind == msg.KindTask { // a claim this wait did not see (a repeat): the nodes know
+				if r, err := c.Receipts(cur.ID); err == nil && r.Owner != nil {
+					takenBy = r.Owner.By
+				}
+			}
+			return writeJSON(s.Out, resultOf(cur, takenBy, got))
+		}
 		if repeat { // its answer may be in already, read by the first wait: show it rather than wait for another
 			if done := answeredIn(c, out, me); len(done) > 0 {
 				fmt.Fprintln(s.Err, "that message was answered already:")
-				showArrived(c, me, done, false, s)
-				return nil
+				return deliver(out, done, false)
 			}
 		}
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
@@ -273,10 +298,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			}
 			claimed := false
 			progress := claimProgress(s)
-			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) { claimed = true; progress(m) }}, window, 3*time.Second)
+			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) { claimed, takenBy = true, m.From; progress(m) }}, window, 3*time.Second)
 			if err == nil {
-				showArrived(c, me, got, true, s)
-				return nil
+				return deliver(cur, got, true)
 			}
 			if !errors.Is(err, tasks.ErrTimeout) {
 				return err
@@ -289,6 +313,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 					continue
 				}
 				fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), cur.Thread)
+				if *asJSON {
+					_ = writeJSON(s.Out, resultOf(cur, takenBy, nil))
+				}
 				return exitError{exitTimeout}
 			}
 			// Nobody took it in --claim-within: take it back there and give it to the next target.

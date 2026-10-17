@@ -148,7 +148,8 @@ Read this only when you need to message another agent.
 - Route a task: `--tool codex` (that machine's Codex sessions), `--can gpu`, `--model 'gpt-*'`.
   If it may sit untaken: `task <m1> "..." --wait-reply 15m --claim-within 2m --fallback <m2>,<m3>`
   takes it back and gives it to the next machine when nobody took it in time. `task --any --tool
-  codex "..."` gives it to one Codex session or worker that is listening right now.
+  codex "..."` gives it to one Codex session or worker that is listening right now. Add `--json`
+  to `--wait-reply` for one result object (taken_by, answers, a worker's exit code and branch).
   Hand work over with everything the other agent needs: `aivoicebus handoff <target> "goal"
   --done "..." --diff` (repo, branch, commit, push state, your uncommitted changes as a diff).
 - Before editing something another agent may touch: `aivoicebus lease take <repo>:<path> --ttl
