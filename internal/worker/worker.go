@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -50,10 +51,16 @@ type Worker struct {
 	// Write, when set, lets the agent change files: each task runs in a new git worktree of
 	// Write.Repo on its own branch, only after Write.Approver approved it (see write.go).
 	Write *WriteMode
+	// Budget is how many tokens (in and out, as the agents report them) the worker's runs may use
+	// in any 24 hours: over it, it takes no task until older runs fall out of the window. 0 is none.
+	Budget int
+	// Alert tells the person out of band (the notify URL); nil does nothing.
+	Alert func(text string)
 	// Tick runs at the start of every loop, between passes (the worker's --watch check). nil does nothing.
 	Tick func()
 
 	seen       map[string]bool
+	overNote   bool // the budget was said to be used up, once
 	sayMu      sync.Mutex
 	pausedNote string // the pause last reported, so it is said once // tasks already reported as skipped, so a poll loop says so once
 }
@@ -162,6 +169,20 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	w.pausedNote = ""
+	if w.Budget > 0 && !w.DryRun {
+		if spent := SpentTokens(w.now().Add(-24 * time.Hour)); spent >= w.Budget {
+			if !w.overNote {
+				w.overNote = true
+				line := fmt.Sprintf("the worker %s used %d tokens in the last 24h, over its budget of %d: it takes no task until older runs fall out of the window (worker --budget)", w.Me, spent, w.Budget)
+				w.say("%s", line)
+				if w.Alert != nil {
+					w.Alert("aivoicebus: " + line)
+				}
+			}
+			return 0, nil
+		}
+		w.overNote = false
+	}
 	var queue []msg.Message
 	for _, m := range ms {
 		if m.Kind == msg.KindTask && m.Retracted == nil {
@@ -478,6 +499,24 @@ func (w *Worker) Paused() (msg.Message, bool) {
 	}
 	p, _, on := msg.ActivePause(ms, w.now())
 	return p, on
+}
+
+// SpentTokens adds up the tokens the runs in worker.log since since reported (in and out).
+func SpentTokens(since time.Time) int {
+	f, err := os.Open(LogPath())
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	n := 0
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var e Entry
+		if json.Unmarshal(sc.Bytes(), &e) == nil && e.Usage != nil && !e.At.Before(since) {
+			n += e.Usage.Total()
+		}
+	}
+	return n
 }
 
 // LogPath is where the worker's log lives.

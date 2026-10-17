@@ -149,6 +149,7 @@ func workerInstall(args []string, s Streams) error {
 	approver := fs.String("approver", "", "with --write: who approves each task")
 	approveWithin := fs.Duration("approve-within", 30*time.Minute, "with --write: how long to wait for the approval")
 	approverKey := fs.String("approver-key", "", "with --write: the approver key's public half (`aivoicebus approver show`)")
+	budget := fs.Int("budget", 0, "tokens the runs may use in any 24 hours (see `worker --budget`)")
 	watchFor := fs.Duration("watch", 0, "also alert when a task this machine sent waits untaken this long (see `aivoicebus watch`)")
 	dry := fs.Bool("dry-run", false, "print the service file and change nothing")
 	if err := parseFlags(fs, args, s); err != nil {
@@ -207,6 +208,9 @@ func workerInstall(args []string, s Streams) error {
 	}
 	if *watchFor > 0 {
 		argv = append(argv, "--watch", watchFor.String())
+	}
+	if *budget > 0 {
+		argv = append(argv, "--budget", strconv.Itoa(*budget))
 	}
 	if *write {
 		if *repo == "" || *approver == "" || *approverKey == "" {

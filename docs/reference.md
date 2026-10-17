@@ -461,6 +461,11 @@ cached), 7 out, $0.0123).` (cost when the CLI reports one), the `--wait-reply --
 `tokens_in`, `tokens_out` and `cost_usd`, and every run's `usage` is in `worker.log`. A command
 given with `--exec` is run as it is, and reports nothing.
 
+A budget. `--budget 200000` (also on `worker install`) caps the tokens, in and out as the agents
+report them, that the worker's runs use in any 24 hours. Over it the worker takes no task (they stay
+for the sessions there), says so once, and alerts through the notify URL; it takes tasks again as
+older runs fall out of the window. `aivoicebus tokens` shows what was spent.
+
 What it takes. A task from a sender on the allowlist, sent to this machine (`task laptop-b`,
 `laptop-b/*`) or to the worker by name (`laptop-b/worker`), and at most an hour old (`--max-age`).
 It leaves alone a task sent to `all`, to a selector or to another session, a task from anyone not on
