@@ -34,6 +34,10 @@ var askLine = func(s Streams, prompt string) (string, error) {
 	fmt.Fprint(s.Err, prompt)
 	line, err := bufio.NewReader(f).ReadString('\n')
 	if err != nil && line == "" {
+		if errors.Is(err, io.EOF) { // /dev/null is a character device too: nobody is there to answer
+			fmt.Fprintln(s.Err)
+			return "", errNoTerminal
+		}
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
