@@ -86,11 +86,50 @@ func TestFindAndRender(t *testing.T) {
 	}
 }
 
-func TestNoServiceIsConfiguredByDefault(t *testing.T) {
+func TestDefaultsAndOff(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AIVOICEBUS_URL", "")
 	t.Setenv("AIVOICEBUS_PIPE_URL", "")
 	t.Setenv("AIVOICEBUS_TAIL_URL", "")
-	if ps := Providers(); len(ps) != 0 {
-		t.Errorf("an upload target exists with nothing configured: %d providers", len(ps))
+	ps := Providers()
+	if len(ps) != 1 || ps[0].(*Pipe).Base != DefaultPipeURL {
+		t.Fatalf("with nothing set: %d providers, want only the default pipe", len(ps))
+	}
+	for _, off := range []string{"off", "OFF", "none"} {
+		t.Setenv("AIVOICEBUS_PIPE_URL", off)
+		if ps := Providers(); len(ps) != 0 {
+			t.Errorf("AIVOICEBUS_PIPE_URL=%s: %d providers", off, len(ps))
+		}
+	}
+	// A node link is recognised only for a node this machine is configured with.
+	t.Setenv("AIVOICEBUS_URL", "http://127.0.0.1:7777,https://node.example")
+	ps = Providers()
+	n, ok := ps[len(ps)-1].(*Node)
+	if !ok {
+		t.Fatalf("no node provider with nodes configured")
+	}
+	key := strings.Repeat("ab", 32)
+	id := strings.Repeat("A", 22)
+	for raw, want := range map[string]bool{
+		"https://node.example/v1/files/" + id + "#" + key:      true,
+		"http://127.0.0.1:7777/v1/files/" + id + "#" + key:     true,
+		"http://node.example/v1/files/" + id + "#" + key:       false, // scheme differs from the configured one
+		"https://evil.example/v1/files/" + id + "#" + key:      false,
+		"https://node.example/v1/files/" + id + "?x=1#" + key:  false,
+		"https://node.example/v1/files/short#" + key:           false,
+		"https://node.example/v1/files/" + id + "#" + key[:63]: false,
+		"https://user@node.example/v1/files/" + id + "#" + key: false,
+		"https://node.example/v1/release/" + id + "#" + key:    false,
+		"https://node.example/v1/files/" + id + "/read#" + key: false,
+	} {
+		u, _ := url.Parse(raw)
+		if got := n.Handles(u); got != want {
+			t.Errorf("Handles(%s) = %v, want %v", raw, got, want)
+		}
+	}
+	l := Link{URL: "https://node.example/v1/files/" + id + "#" + key, Name: "r.txt", Size: 5}
+	if out := Render("m9", "see\n"+l.Line()); strings.Contains(out, key) || !strings.Contains(out, "held by a node") || !strings.Contains(out, "aivoicebus get m9") {
+		t.Errorf("node link rendered as %q", out)
 	}
 }
 

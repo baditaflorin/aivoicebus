@@ -18,7 +18,7 @@ const internalPrefix = "github.com/baditaflorin/aivoicebus/internal/"
 // must be added here, with the smallest set it needs.
 var allowed = map[string][]string{
 	"msg":       {},
-	"attach":    {},
+	"attach":    {"config"}, // config: the node list, so a link to a node is recognised
 	"secrets":   {},
 	"credstore": {},
 	"config":    {},

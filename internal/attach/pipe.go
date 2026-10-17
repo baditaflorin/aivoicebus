@@ -22,10 +22,12 @@ import (
 	"time"
 )
 
-// The two services have no built-in address: nothing is ever uploaded unless the user sets
-// AIVOICEBUS_PIPE_URL (files) or AIVOICEBUS_TAIL_URL (log streams) to a server they chose.
+// DefaultPipeURL is the public pipe run by the project's author: it holds only ciphertext (the
+// file is encrypted on the sender's machine and the key never leaves the message), for five
+// minutes, in memory. AIVOICEBUS_PIPE_URL picks another pipe, or "off" for none. The tail has
+// no built-in address: nothing is streamed unless AIVOICEBUS_TAIL_URL names a server.
 const (
-	DefaultPipeURL = ""
+	DefaultPipeURL = "https://pipe.0exec.com"
 	DefaultTailURL = ""
 )
 

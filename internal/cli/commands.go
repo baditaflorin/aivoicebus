@@ -72,7 +72,8 @@ func sendWith(args []string, s Streams, reply bool) error {
 	queue := fs.Bool("queue", false, "send a selector message even if no session seen in the last 24h matches it (it waits for one that starts later)")
 	dry := fs.Bool("dry-run", false, "check the message and say who it would reach and what it would cost, without sending")
 	force := fs.Bool("force", false, "send despite the guardrails (urgent to many sessions, a long body to many sessions)")
-	file := fs.String("file", "", "send a file: it is encrypted here, held by pipe server for 5 minutes (read once), and the message carries the link; the reader runs: aivoicebus get ID")
+	file := fs.String("file", "", "send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID")
+	via := fs.String("via", "", "with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe")
 	tail := fs.String("tail", "", "point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME")
 	keep := fs.Bool("keep", false, "with --file: let several sessions read the file (it is not burned by the first read)")
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
@@ -98,7 +99,7 @@ func sendWith(args []string, s Streams, reply bool) error {
 			return outbox.Usagef("reply with --file or --tail needs --re ID: nothing is inferred for an attachment")
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, keep: *keep, wait: *wait, dry: *dry}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, keep: *keep, wait: *wait, dry: *dry}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)

@@ -12,12 +12,15 @@
 package attach
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/baditaflorin/aivoicebus/internal/config"
 )
 
 const linePrefix = "[attach]"
@@ -55,7 +58,8 @@ type Provider interface {
 	Describe(l Link, msgID string) string
 }
 
-// Providers are the services this machine is configured to use, in the order they are tried.
+// Providers are the services this machine is configured to use, in the order they are tried:
+// the pipe, the tail, then the mesh's own nodes (whose token the caller adds before using it).
 func Providers() []Provider {
 	var ps []Provider
 	if b, err := baseURL("AIVOICEBUS_PIPE_URL", DefaultPipeURL); err == nil {
@@ -63,6 +67,9 @@ func Providers() []Provider {
 	}
 	if b, err := baseURL("AIVOICEBUS_TAIL_URL", DefaultTailURL); err == nil {
 		ps = append(ps, &Tail{Base: b})
+	}
+	if urls := config.URLs(); len(urls) > 0 {
+		ps = append(ps, &Node{URLs: urls})
 	}
 	return ps
 }
@@ -226,12 +233,21 @@ func Sanitize(s string) string {
 	}, strings.ToValidUTF8(s, "?"))
 }
 
+// ErrOff is a service the user turned off (AIVOICEBUS_PIPE_URL=off).
+var ErrOff = errors.New("turned off")
+
 // baseURL reads a service's server from the environment: https only, except plain http to a
-// loopback address (tests, a local instance). No trailing slash.
+// loopback address (tests, a local instance). No trailing slash. "off" or "none" turns it off.
 func baseURL(env, def string) (string, error) {
 	raw := strings.TrimRight(strings.TrimSpace(os.Getenv(env)), "/")
-	if raw == "" {
+	switch strings.ToLower(raw) {
+	case "":
 		raw = def
+	case "off", "none":
+		return "", fmt.Errorf("%s: %w", env, ErrOff)
+	}
+	if raw == "" {
+		return "", fmt.Errorf("%s: %w", env, ErrOff)
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {

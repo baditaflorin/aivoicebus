@@ -11,7 +11,7 @@ Usage of send:
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
   -file string
-    	send a file: it is encrypted here, held by pipe server for 5 minutes (read once), and the message carries the link; the reader runs: aivoicebus get ID
+    	send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID
   -force
     	send despite the guardrails (urgent to many sessions, a long body to many sessions)
   -json
@@ -36,6 +36,8 @@ Usage of send:
     	use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'
   -ttl string
     	how long the message stays relevant, e.g. 90m, 2h, 3d; expired messages are not delivered. Default: 1d for fyi and 3d otherwise when it can reach several sessions, never for one session
+  -via string
+    	with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe
   -wait
     	with --file: wait up to 5 minutes and say whether it was read
 [exit 2]
@@ -44,7 +46,7 @@ Usage of send:
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
   -file string
-    	send a file: it is encrypted here, held by pipe server for 5 minutes (read once), and the message carries the link; the reader runs: aivoicebus get ID
+    	send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID
   -force
     	send despite the guardrails (urgent to many sessions, a long body to many sessions)
   -json
@@ -69,6 +71,8 @@ Usage of send:
     	use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'
   -ttl string
     	how long the message stays relevant, e.g. 90m, 2h, 3d; expired messages are not delivered. Default: 1d for fyi and 3d otherwise when it can reach several sessions, never for one session
+  -via string
+    	with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe
   -wait
     	with --file: wait up to 5 minutes and say whether it was read
 [exit 0]
@@ -371,7 +375,7 @@ ok    hook runs              last run ok
 ok    claude instructions    snippet 92ebc416
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
-ok    node features          smoke: quarantine,retract,retract-dry-run
+ok    node features          smoke: files,quarantine,retract,retract-dry-run
 [exit 0]
 $ aivoicebus uninstall --dry-run
 would change claude hook            <TMP>/home/.claude/settings.json

@@ -34,6 +34,7 @@ type Health struct {
 
 // Features a node advertises in Health.Features.
 const (
+	FeatureFiles         = "files"           // /v1/files: holds an encrypted file for a few minutes
 	FeatureQuarantine    = "quarantine"      // replaces a record that fails replication checks by a placeholder
 	FeatureRetract       = "retract"         // /v1/retract: a sender withdraws a message
 	FeatureRetractDryRun = "retract-dry-run" // /v1/retract answers a dry run without writing
@@ -41,7 +42,7 @@ const (
 
 // NodeFeatures is what this release of the node can do, sorted.
 func NodeFeatures() []string {
-	return []string{FeatureQuarantine, FeatureRetract, FeatureRetractDryRun}
+	return []string{FeatureFiles, FeatureQuarantine, FeatureRetract, FeatureRetractDryRun}
 }
 
 // Has reports whether the node advertised feature f. False also for a node that advertises

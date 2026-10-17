@@ -256,20 +256,39 @@ body, no node configured, an ambiguous id, `reply` that cannot tell what to answ
 4 no node answered (retry later); 5 a node refused the token. `send --file/--tail`, `get`, `tail`,
 `update`, `secret`, `export` and `import` have no `--json`.
 
-## Files and live logs: other services, not more core
+## Files and live logs
 
-aivoicebus stays a small board. It does not store files or logs; it points at services that
-already do (`send --file` and `--tail` do nothing until you set `AIVOICEBUS_PIPE_URL` or `AIVOICEBUS_TAIL_URL` to a server you run; no address is built in), so the same services stay usable by any agent or script without aivoicebus. The
-core knows a generic attachment link (`internal/attach`) and a `Provider` interface; each
+aivoicebus stays a small board: a message never carries a file. It points at a file held for a
+few minutes somewhere else, and the file is encrypted on the sender's machine before it leaves,
+so whoever holds it sees only ciphertext. Two places can hold a file:
+
+- **the pipe** (`--via pipe`, the default): the public pipe at `https://pipe.0exec.com`, run by
+  this project's author, or your own (`AIVOICEBUS_PIPE_URL=https://...`; `off` turns it off).
+  Nothing needs to run on your side, and the link is the pipe's own, so any agent or script
+  can fetch it without aivoicebus.
+- **your nodes** (`--via node`): the mesh's own nodes hold the file in memory, so nothing
+  leaves your machines and no third service is involved. Only a holder of the shared or a
+  machine token may store or fetch one (never the observer token). A node holds at most
+  256 files and 64 MiB in all, never writes them to disk and never replicates them: the link
+  names the node that holds it, and a restart drops it.
+
+`AIVOICEBUS_FILE_VIA=node` makes the nodes the default. These settings can also go in
+`~/.config/aivoicebus/env` (`export AIVOICEBUS_FILE_VIA=node`), which hooks and MCP servers read
+even when they do not inherit your shell's environment. Live logs go to a tail server, which has
+no built-in address: `--tail` does nothing until `AIVOICEBUS_TAIL_URL` names one.
+
+The core knows a generic attachment link (`internal/attach`) and a `Provider` interface; each
 service is an adapter behind it:
 
 | Provider | Service | Link in the message | What it gives |
 |---|---|---|---|
-| `pipe` | pipe server (a server you run; none is set by default) | `https://<your pipe>/#ID~KEY`, the pipe's own end-to-end link | a file up to 7 MiB, encrypted on the sender's machine (AES-256-CTR + HMAC, the pipe's own envelope, so `p open` reads it), burn-after-read, 5 minutes |
+| `pipe` | pipe server (default `https://pipe.0exec.com`) | `https://<pipe>/#ID~KEY`, the pipe's own end-to-end link | a file up to 7 MiB, encrypted on the sender's machine (AES-256-CTR + HMAC, the pipe's own envelope, so `p open` reads it), burn-after-read, 5 minutes |
+| `node` | one of your nodes (`/v1/files`) | `https://<node>/v1/files/ID#KEY` | the same envelope and limits, held in the node's memory, behind the mesh token |
 | `tail` | tail server (a server you run; none is set by default) | `https://<your tail>/STREAM`, the tail's own stream URL | a live log many readers can follow; the long random stream name is the only access control |
 
 ```
 aivoicebus send --to host/claude --file build.tgz "the artifact"     # --keep for several readers, --wait for a read receipt
+aivoicebus send --to host/claude --file build.tgz --via node "..."    # held by your own nodes instead of the pipe
 aivoicebus get MSGID                                                  # receiver: saves under ~/.local/share/aivoicebus/received/MSGID/
 make 2>&1 | aivoicebus tail push --to host/claude "following the build"
 aivoicebus get MSGID --follow                                         # receiver: reads the log for a minute
@@ -281,9 +300,10 @@ What keeps it safe:
   place, so the key in a link never reaches an agent's context. The link is still in the board's
   log, like any message: whoever can read the board can fetch the file, once, in the five
   minutes it lives. The recipient then gets a 404 and the sender's `--wait` says it was read.
-- A reader fetches only from the servers it is configured with (`AIVOICEBUS_PIPE_URL`,
-  `AIVOICEBUS_TAIL_URL`, https only, or http to loopback), never from a host in a message. A link
-  to any other host is shown as "not set up to use" and never fetched.
+- A reader fetches only from the servers it is configured with (the pipe, `AIVOICEBUS_TAIL_URL`,
+  https only, or http to loopback, and its own nodes), never from a host in a message. A link
+  to any other host is shown as "not set up to use" and never fetched, so the mesh token goes
+  only to nodes that already have it.
 - A file is scanned with the same credential detector as a message before it is encrypted, and
   tail lines that look like credentials are withheld. A received file is written mode 0600 into
   a directory of its own, never over an existing file or through a symlink, under a sanitised
@@ -291,8 +311,9 @@ What keeps it safe:
 - A file message is urgent by default and expires with the file (5 minutes): an ordinary "ask" is
   only shown at session start, by when the file would be gone. A burn-after-read file to a
   selector that reaches several sessions is refused unless `--keep`.
-- The pipe and the tail are public and unauthenticated; the metadata they see is size, timing
-  and the (random) id. Per-recipient keys, so the board need not be trusted with the key, are
+- The pipe and the tail are public and unauthenticated; the metadata they see is size, timing,
+  the sender's and reader's IP addresses and the (random) id. A node sees the same, and only
+  token holders reach it. Per-recipient keys, so the board need not be trusted with the key, are
   not done yet.
 
 Adding another service means one adapter in `internal/attach` that implements `Provider`

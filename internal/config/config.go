@@ -12,7 +12,9 @@ import (
 )
 
 // envFileKeys are the settings ~/.config/aivoicebus/env may provide.
-var envFileKeys = []string{"AIVOICEBUS_URL", "AIVOICEBUS_HOST", "AIVOICEBUS_CAPS"}
+// The file and log services are here too, so a hook or an MCP server that does not inherit the
+// shell's environment still sends files the way the user set up.
+var envFileKeys = []string{"AIVOICEBUS_URL", "AIVOICEBUS_HOST", "AIVOICEBUS_CAPS", "AIVOICEBUS_PIPE_URL", "AIVOICEBUS_TAIL_URL", "AIVOICEBUS_FILE_VIA"}
 
 // Dir returns the per-user config directory, or "" when there is no home.
 func Dir() string {
@@ -23,7 +25,7 @@ func Dir() string {
 	return h + "/.config/aivoicebus"
 }
 
-// LoadEnvFile fills AIVOICEBUS_URL, AIVOICEBUS_HOST and AIVOICEBUS_CAPS from
+// LoadEnvFile fills the envFileKeys settings from
 // ~/.config/aivoicebus/env when they are unset, so hooks and non-interactive
 // shells work without sourcing it.
 // SafeNodeURLs refuses a comma-separated node list that holds anything but the characters a node

@@ -99,10 +99,10 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	leaks := cfg.tokens.Canaries()
 	latest := &latestRelease{dir: cfg.releaseDir}
 	mux := http.NewServeMux()
-	// guard authenticates the request and, when observerOK, also lets a read-only
+	// guardCap authenticates the request and, when observerOK, also lets a read-only
 	// token through (for GET only). Every token is always compared, so the time
-	// taken does not say which one was close.
-	guard := func(observerOK, machineOK bool, h principalHandler) http.HandlerFunc {
+	// taken does not say which one was close. The request body is capped at maxBody.
+	guardCap := func(observerOK, machineOK bool, maxBody int64, h principalHandler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			got := []byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 			who, known := cfg.tokens.Lookup(got)
@@ -125,9 +125,12 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 				w.Header().Set(msg.HeaderLatest, v)
 			}
 			w.Header().Set(msg.HeaderVersion, cfg.version)
-			r.Body = http.MaxBytesReader(w, r.Body, msg.MaxBody+4096)
+			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 			h(w, r, who)
 		}
+	}
+	guard := func(observerOK, machineOK bool, h principalHandler) http.HandlerFunc {
+		return guardCap(observerOK, machineOK, msg.MaxBody+4096, h)
 	}
 	wrap := func(h principalHandler) http.HandlerFunc { return guard(false, true, h) }
 	readonly := func(h principalHandler) http.HandlerFunc { return guard(true, true, h) }
@@ -368,6 +371,8 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 		js(w, out)
 	}))
+	// Files: the agent tokens only (never the observer), the upload with its own larger cap.
+	fileRoutes(mux, newFileBox(), func(h principalHandler) http.HandlerFunc { return guardCap(false, true, MaxFileEnvelope, h) }, wrap)
 	mux.HandleFunc("/v1/release/", wrap(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		name := strings.TrimPrefix(r.URL.Path, "/v1/release/")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {

@@ -24,13 +24,32 @@ import (
 // attach package's providers (pipe server, tail server). Nothing here knows how either
 // service works beyond the FileStore and LogStream interfaces.
 
-func fileStore() (attach.FileStore, error) {
-	for _, p := range attach.Providers() {
-		if f, ok := p.(attach.FileStore); ok {
-			return f, nil
-		}
+// fileStore is where a file is sent: the pipe (the default) or the mesh's own nodes, chosen by
+// via, else AIVOICEBUS_FILE_VIA.
+func fileStore(c *client.Client, via string) (attach.FileStore, error) {
+	if via == "" {
+		via = strings.TrimSpace(os.Getenv("AIVOICEBUS_FILE_VIA"))
 	}
-	return nil, errors.New("no file service is configured (AIVOICEBUS_PIPE_URL)")
+	switch strings.ToLower(via) {
+	case "", "pipe":
+		for _, p := range attach.Providers() {
+			if f, ok := p.(*attach.Pipe); ok {
+				return f, nil
+			}
+		}
+		return nil, errors.New("the pipe is turned off (AIVOICEBUS_PIPE_URL=off); send it with --via node, or set AIVOICEBUS_PIPE_URL to a pipe you run")
+	case "node":
+		return &attach.Node{URLs: c.URLs, Token: c.Token}, nil
+	}
+	return nil, outbox.Usagef("--via is pipe or node, not %q", via)
+}
+
+// withToken gives a node provider the token it needs to fetch; other providers need none.
+func withToken(p attach.Provider, c *client.Client) attach.Provider {
+	if n, ok := p.(*attach.Node); ok {
+		return &attach.Node{URLs: n.URLs, Token: c.Token}
+	}
+	return p
 }
 
 func logStream() (attach.LogStream, error) {
@@ -52,9 +71,9 @@ func withLine(text string, l attach.Link) string {
 
 // sendOpts are the send flags an attachment send needs beyond the plain request.
 type sendOpts struct {
-	file, tail string
-	keep, wait bool
-	dry        bool
+	file, tail, via string
+	keep, wait      bool
+	dry             bool
 }
 
 // sendAttachment sends a message that points at a file in the pipe or a live log in the tail.
@@ -100,7 +119,7 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 		return nil
 	}
 
-	fs, err := fileStore()
+	fs, err := fileStore(c, o.via)
 	if err != nil {
 		return err
 	}
@@ -113,7 +132,7 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 	case !fi.Mode().IsRegular():
 		return fmt.Errorf("%s is not a regular file", o.file)
 	case fi.Size() > attach.MaxFile:
-		return fmt.Errorf("%s is %s; the pipe takes at most %s", o.file, attach.HumanSize(fi.Size()), attach.HumanSize(attach.MaxFile))
+		return fmt.Errorf("%s is %s; a file may be at most %s", o.file, attach.HumanSize(fi.Size()), attach.HumanSize(attach.MaxFile))
 	case fi.Size() == 0:
 		return fmt.Errorf("%s is empty", o.file)
 	}
@@ -136,7 +155,7 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 	}
 	if o.dry {
 		plan.Describe(s.Out)
-		fmt.Fprintf(s.Out, "  file      %s, %s, would be encrypted here and uploaded for five minutes\n", name, attach.HumanSize(int64(len(data))))
+		fmt.Fprintf(s.Out, "  file      %s, %s, would be encrypted here and held for five minutes by the %s\n", name, attach.HumanSize(int64(len(data))), fs.Name())
 		return nil
 	}
 	if plan.Role != nil {
@@ -227,6 +246,9 @@ func getCmd(args []string, s Streams) error {
 		return err
 	}
 	prov := attach.ProviderFor(l)
+	if prov != nil {
+		prov = withToken(prov, c)
+	}
 	if prov == nil {
 		return errors.New("the attachment is a link to a service this machine is not set up to use, so it was not fetched")
 	}

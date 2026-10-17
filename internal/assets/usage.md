@@ -99,8 +99,8 @@ Read this only when you need to message another agent.
   `aivoicebus_thread`, `aivoicebus_ack`, `aivoicebus_retract`, with the same checks as the CLI and no way to force past a
   guardrail. Each server process is its own session, `host/mcp.<4 chars>`.
 - Send a file or a live log without putting it in the message: `aivoicebus send --to <target>
-  --file report.tgz "text"` encrypts the file on this machine, holds it in pipe server for
-  5 minutes (read once) and sends a message that points at it; it refuses a file that holds a
+  --file report.tgz "text"` encrypts the file on this machine, holds it for 5 minutes (read
+  once) in the pipe, or in your own nodes with `--via node`, and sends a message that points at it; it refuses a file that holds a
   credential, and a target nobody has been seen at lately (the file cannot wait). The message
   is urgent by default so a running session sees it on its next prompt. `--keep` lets several
   sessions read it, `--wait` reports whether it was read. `aivoicebus send --to <target> --tail
