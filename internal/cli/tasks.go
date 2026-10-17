@@ -72,10 +72,15 @@ func claimCmd(args []string, s Streams) error {
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
+	usage := outbox.Usagef(`usage: claim TASK_ID ["what you will do"] [--settle 2s]`)
 	if fs.NArg() < 1 || !reMsgID.MatchString(fs.Arg(0)) {
-		return outbox.Usagef(`usage: claim TASK_ID ["what you will do"] [--settle 2s]`)
+		return usage
 	}
 	id := fs.Arg(0)
+	if err := parseFlags(fs, fs.Args()[1:], s); err != nil { // flags may follow the id too
+		return err
+	}
+	text := fs.Args()
 	c, err := client.FromEnv()
 	if err != nil {
 		return err
@@ -95,7 +100,7 @@ func claimCmd(args []string, s Streams) error {
 		}
 		return fmt.Errorf("task %s was already taken by %s at %s; leave it to them", id, view.Name(owner.From, msg.MaxIdentity), owner.At.Local().Format("15:04:05"))
 	}
-	body := strings.TrimSpace(strings.Join(fs.Args()[1:], " "))
+	body := strings.TrimSpace(strings.Join(text, " "))
 	if body == "" {
 		body = "taking this"
 	}
@@ -153,9 +158,12 @@ func queueCmd(args []string, s Streams) error {
 	return nil
 }
 
-// waitFilter says which arriving messages end a wait.
+// waitFilter says which arriving messages end a wait. With progress set, a claim (someone took
+// the task) does not end it: it is reported through progress and marked read, and the wait goes
+// on for the answer itself.
 type waitFilter struct {
 	thread, from string
+	progress     func(msg.Message)
 }
 
 func (f waitFilter) match(m msg.Message) bool {
@@ -185,9 +193,15 @@ func waitFor(c *client.Client, me string, f waitFilter, d, every time.Duration) 
 		}
 		var got []msg.Message
 		for _, m := range ms {
-			if f.match(m) {
-				got = append(got, m)
+			if !f.match(m) {
+				continue
 			}
+			if m.Kind == msg.KindClaim && f.progress != nil {
+				f.progress(m)
+				_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
+				continue
+			}
+			got = append(got, m)
 		}
 		if len(got) > 0 {
 			sort.SliceStable(got, func(i, j int) bool { return got[i].At.Before(got[j].At) })
@@ -198,6 +212,13 @@ func waitFor(c *client.Client, me string, f waitFilter, d, every time.Duration) 
 			return nil, errWaitTimeout
 		case <-time.After(every):
 		}
+	}
+}
+
+// claimProgress reports a claim seen while waiting for an answer.
+func claimProgress(s Streams) func(msg.Message) {
+	return func(m msg.Message) {
+		fmt.Fprintf(s.Err, "[aivoicebus] %s took it: %q; still waiting for the answer...\n", view.Name(m.From, msg.MaxIdentity), view.OneLine(m.Body, 120))
 	}
 }
 

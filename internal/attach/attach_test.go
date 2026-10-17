@@ -305,3 +305,43 @@ func TestOpensTheEnvelopeThePipeHelperMakes(t *testing.T) {
 		t.Fatalf("open: %q %v", got, err)
 	}
 }
+
+// A fetch whose first connection is dropped before any answer is tried once more: an entry that
+// was never served was never burned. An answer, even an error, is final.
+func TestGetTriesAgainWhenTheFirstAttemptGotNoAnswer(t *testing.T) {
+	key, _ := newKey()
+	env, _ := seal(key, []byte("image bytes"))
+	var mu sync.Mutex
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		n := hits
+		mu.Unlock()
+		if n == 1 { // drop the connection without answering, as a stalled TLS handshake ends
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				conn.Close()
+			}
+			return
+		}
+		w.Write(env)
+	}))
+	defer srv.Close()
+	p := &Pipe{Base: srv.URL}
+	got, err := p.Get(context.Background(), Link{URL: srv.URL + "/#Abcd1234~" + key})
+	if err != nil || string(got) != "image bytes" || hits != 2 {
+		t.Fatalf("got %q %v after %d requests", got, err, hits)
+	}
+	hits = 0
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	defer gone.Close()
+	if _, err := (&Pipe{Base: gone.URL}).Get(context.Background(), Link{URL: gone.URL + "/#Abcd1234~" + key}); err != ErrGone || hits != 1 {
+		t.Errorf("a 404 was retried or misread: %v after %d requests", err, hits)
+	}
+}

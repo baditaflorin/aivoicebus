@@ -185,7 +185,7 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 	if o.waitReply > 0 {
 		me := identity.Me()
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", o.waitReply.String(), out.Thread)
-		got, err := waitFor(c, me, waitFilter{thread: out.Thread}, o.waitReply, 3*time.Second)
+		got, err := waitFor(c, me, waitFilter{thread: out.Thread, progress: claimProgress(s)}, o.waitReply, 3*time.Second)
 		if errors.Is(err, errWaitTimeout) {
 			fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", o.waitReply.String(), out.Thread)
 			return exitError{exitTimeout}

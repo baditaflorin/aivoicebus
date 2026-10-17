@@ -143,11 +143,7 @@ func (p *Pipe) Get(ctx context.Context, l Link) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Base+"/"+id, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := httpClient(2 * time.Minute).Do(req)
+	resp, err := getOnce(ctx, p.Base+"/"+id, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch from the pipe: %v", err)
 	}
@@ -202,6 +198,36 @@ func (p *Pipe) WatchRead(ctx context.Context, watch string, wait time.Duration) 
 			return false, nil
 		}
 	}
+}
+
+// getOnce GETs u, trying a second time when the first attempt got no answer at all (a refused
+// connection, a TLS handshake that timed out). That is safe for a burn-after-read entry: a request
+// that got no response was never served, so nothing was burned. Once any answer arrives, it is
+// what the caller gets. header may add request headers.
+func getOnce(ctx context.Context, u string, header http.Header) (*http.Response, error) {
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, last
+			case <-time.After(2 * time.Second):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range header {
+			req.Header[k] = v
+		}
+		resp, err := httpClient(2 * time.Minute).Do(req)
+		if err == nil {
+			return resp, nil
+		}
+		last = err
+	}
+	return nil, last
 }
 
 // httpClient never follows a redirect: a hostile or misconfigured server could otherwise send

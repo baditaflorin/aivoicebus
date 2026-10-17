@@ -3,6 +3,10 @@ package cli
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
 
 const boss, sa, sb = "desk/claude.z9", "lap/claude.a1", "lap/codex.b2"
@@ -101,5 +105,30 @@ func TestPingSaysWhoIsThere(t *testing.T) {
 	}
 	if code, out, _ := run(t, "", "ping", "nowhere"); code != exitNotFound || !strings.Contains(out, "aivoicebus task nowhere") {
 		t.Errorf("ping nowhere: %d %q", code, out)
+	}
+}
+
+// Waiting for the answer to a task: the claim is progress, not the answer.
+func TestWaitingForATaskAnswerSkipsTheClaim(t *testing.T) {
+	mesh(t)
+	present(t, sb)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	_, out, _ := run(t, "", "task", "lap", "resize the image")
+	id, thread := sentID(t, out)
+	t.Setenv("AIVOICEBUS_ME", sb)
+	run(t, "", "claim", id, "--settle", "0s", "on it")
+	run(t, "", "reply", "--re", id, "done: 800x600")
+	t.Setenv("AIVOICEBUS_ME", boss)
+	c, err := client.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var progress []string
+	got, err := waitFor(c, boss, waitFilter{thread: thread, progress: func(m msg.Message) { progress = append(progress, m.Body) }}, 3*time.Second, time.Second)
+	if err != nil || len(got) != 1 || got[0].Body != "done: 800x600" {
+		t.Fatalf("wait returned %+v %v", got, err)
+	}
+	if len(progress) != 1 || progress[0] != "on it" {
+		t.Errorf("the claim was not reported as progress: %q", progress)
 	}
 }

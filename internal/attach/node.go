@@ -136,7 +136,7 @@ func (n *Node) Get(ctx context.Context, l Link) ([]byte, error) {
 	if err != nil || !n.Handles(u) {
 		return nil, errors.New("not a link to one of this machine's nodes")
 	}
-	resp, err := n.do(ctx, http.MethodGet, n.base(u)+u.Path, nil, 2*time.Minute)
+	resp, err := getOnce(ctx, n.base(u)+u.Path, http.Header{"Authorization": {"Bearer " + n.Token}})
 	if err != nil {
 		return nil, fmt.Errorf("fetch from the node: %v", err)
 	}
