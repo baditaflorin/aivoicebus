@@ -62,13 +62,17 @@ func Run(args []string, stdin io.Reader, out io.Writer) {
 	if _, err := os.Stat(OptOutFile); err == nil {
 		return
 	}
-	if toolArg(args) == "gemini" {
+	if tool := toolArg(args); tool == "gemini" || tool == "codex" {
 		// Gemini CLI reads a hook's stdout as JSON only: text goes into the conversation as
 		// hookSpecificOutput.additionalContext (anything else would be shown as a system message).
-		var buf bytes.Buffer
-		orig := out
-		defer func() { geminiJSON(orig, buf.String()) }()
-		out = &buf
+		// Codex takes plain text too, but reads output that starts with '[' or '{' as JSON, and
+		// "[aivoicebus] ..." then fails as "invalid session start JSON output" and is dropped: it
+		// gets the same JSON, with the hookEventName its schema requires.
+		event := "SessionStart"
+		if hookEvent(args) == "prompt" {
+			event = "UserPromptSubmit"
+		}
+		out = jsonWriter{out, tool, event} // each run writes once, before it acknowledges anything
 	}
 	if hookEvent(args) == "prompt" {
 		runPromptEvent(args, stdin, out)
@@ -359,12 +363,29 @@ var trustedKeys = release.TrustedKeys
 // a fraction of a second, once a day.
 func refreshNodes() { discovery.RefreshIfDue(trustedKeys(), time.Now(), discovery.StartBudget) }
 
-// geminiJSON writes text the way a Gemini CLI hook must: one JSON object, nothing when there is nothing to say.
-func geminiJSON(out io.Writer, text string) {
+// jsonWriter turns each Write into one toolJSON object. A hook run writes its output in one call,
+// and only then acknowledges what it showed, so the wrapping must happen in that call, not later.
+type jsonWriter struct {
+	w           io.Writer
+	tool, event string
+}
+
+func (j jsonWriter) Write(p []byte) (int, error) {
+	toolJSON(j.w, j.tool, j.event, string(p))
+	return len(p), nil
+}
+
+// toolJSON writes text the way a Gemini CLI or Codex hook must: one JSON object, nothing when there
+// is nothing to say. Codex's schema requires hookEventName (SessionStart or UserPromptSubmit).
+func toolJSON(out io.Writer, tool, event, text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"additionalContext": text}})
+	o := map[string]any{"additionalContext": text}
+	if tool == "codex" {
+		o["hookEventName"] = event
+	}
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": o})
 	_, _ = out.Write(append(b, '\n'))
 }
 
