@@ -476,6 +476,32 @@ taken within a second, and it shows in `who` and `ping` as listening; with an ol
 the queue every `--every` (15s). A worker shows in `who` and `ping` as `<machine>/worker` with the title
 `aivoicebus worker`, so a sender can see it is there.
 
+#### Write mode: a worker that changes code, each task approved
+
+By default the worker's presets only read and answer. `--write` lets the agent change files, bounded
+three ways:
+
+    aivoicebus worker install --agent codex --write --repo ~/src/api --approver laptop-a/claude
+
+- **Approved first.** For every task the worker sends the approver an urgent `[approval needed]`
+  message (what the task says, who sent it, the branch it would use) and, when a notify URL is set,
+  a notification. It runs the task only after a signed reply from the approver saying approve
+  (`aivoicebus approve ID`, ID being that message's); `aivoicebus deny ID`, or no answer within
+  `--approve-within` (30m), runs nothing and tells the sender so. A reply from anyone else, or an
+  unsigned one, does not count. `--approver` is a machine, machine/tool or one session, like an
+  allowlist entry; it is required.
+- **Its own worktree and branch.** The task runs in a new git worktree of `--repo`, on branch
+  `aivoicebus/task-ID` made from the repository's HEAD, never in a checkout someone works in. What
+  it changed is committed there (by "aivoicebus worker"), and the worktree is removed; the branch
+  stays.
+- **Nothing leaves the machine.** The branch is not pushed. The answer says which branch, the
+  diffstat, and how to look at it (`git show`), keep it (merge it yourself) or drop it
+  (`git branch -D`). A task that changed nothing leaves no branch.
+
+The write presets: Claude Code with edits accepted, `codex exec` in its workspace-write sandbox,
+Gemini CLI with edits approved; or `--exec` with your own command. One task runs at a time, the
+approval wait included.
+
 Agents that speak MCP have the same two steps as tools: `aivoicebus_claim` (take a task) and
 `aivoicebus_wait` (block up to 10 minutes per call for the next message in a thread or from someone).
 

@@ -51,6 +51,8 @@ var helpTopics = []struct{ name, summary string }{
 	{"status", "did it get through: who read a message and when, who took a task, how many replies"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
+	{"approve", "approve a write-mode worker's task (the id of its [approval needed] message); `deny ID` refuses it"},
+	{"deny", "refuse a write-mode worker's task: it answers that it did not run"},
 	{"schedule", "recurring tasks with no person and no cron: add NAME (--every 6h | --at 09:00) MACHINE \"...\"; the worker sends them when due"},
 	{"watch", "alert (a line, and a POST to `watch notify set URL`) when a task this machine sent waits untaken; the worker runs it with --watch"},
 	{"trust-codex", "trust the Codex hooks setup installed (Codex runs new hooks only once you trust them); --check only reports"},

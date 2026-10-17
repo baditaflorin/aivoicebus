@@ -14,6 +14,7 @@ import (
 type Limits struct {
 	Timeout   time.Duration // the run is killed (its whole process group) after this long
 	MaxOutput int           // bytes of stdout, and of stderr, kept; the rest is read and dropped
+	Dir       string        // where it runs ("" is the worker's own directory); write mode: the task's worktree
 }
 
 // Result is how one run went.
@@ -36,6 +37,7 @@ func Exec(ctx context.Context, argv []string, stdin string, env []string, l Limi
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	cmd.Env = env
+	cmd.Dir = l.Dir
 	cmd.Stdin = strings.NewReader(stdin)
 	out, errOut := &capped{max: l.MaxOutput}, &capped{max: l.MaxOutput}
 	cmd.Stdout, cmd.Stderr = out, errOut

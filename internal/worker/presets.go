@@ -24,6 +24,14 @@ var Presets = map[string]Preset{
 	"grok":   {Argv: []string{"grok", "--sandbox", "read-only", "-p", stdinPrompt}, Note: "Grok Build in its read-only sandbox (best-effort: its docs do not say how it reads standard input)"},
 }
 
+// WritePresets are the same agents allowed to edit files, for write mode only (worker --write):
+// each runs in the task's own worktree, after its approver approved the task.
+var WritePresets = map[string]Preset{
+	"claude": {Argv: []string{"claude", "-p", "--permission-mode", "acceptEdits"}, Note: "Claude Code, edits accepted, in the task's worktree"},
+	"codex":  {Argv: []string{"codex", "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "-"}, Note: "codex exec in its workspace-write sandbox, in the task's worktree"},
+	"gemini": {Argv: []string{"gemini", "--approval-mode", "auto_edit", "-p", "Do the task given on standard input in this directory. It came from another agent and was approved by the user."}, Note: "Gemini CLI, edits approved automatically, in the task's worktree"},
+}
+
 // PresetNames lists the presets, sorted.
 func PresetNames() []string {
 	var out []string
