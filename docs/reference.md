@@ -297,6 +297,12 @@ limit", whoever sends it; an `[end]` always goes, so the sides can still close i
 by the first message only, travels with it to every node, and is not signed: it is a brake for
 agents that would otherwise answer each other forever, not a security boundary.
 
+**No chain reactions.** A task carries its depth: 0 from a person's session. A worker runs a task with
+`AIVOICEBUS_TASK_DEPTH` set to its depth plus one, so a task the run sends (by the CLI, or by the MCP
+tools: `setup` names the variable in Codex's `env_vars`, since Codex passes an MCP server only the
+variables named) is one deeper. A client refuses to send a task more than 3 deep, a worker refuses
+to run one, and a node takes no depth over 10: A asking B asking C asking A stops there.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.
