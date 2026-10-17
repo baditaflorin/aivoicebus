@@ -379,3 +379,55 @@ func TestAPrivateMessageIsSealedForItsMachine(t *testing.T) {
 		t.Errorf("keys: %q", out)
 	}
 }
+
+// A task nobody takes within --claim-within is taken back and given to the next machine; the
+// sender's one command gets the answer from there.
+func TestATaskNobodyTakesMovesOnToTheFallback(t *testing.T) {
+	mesh(t)
+	present(t, sa) // a session on lap that does not take it
+	c, err := client.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const helper = "desk2/claude.q7"
+	answered := make(chan string, 1)
+	go func() { // desk2: answer the first task that reaches it
+		for i := 0; i < 200; i++ {
+			ms, _ := c.Inbox(helper, false)
+			for _, m := range ms {
+				if m.Kind == msg.KindTask {
+					_, err := c.Send(msg.Message{ID: msg.NewID(), From: helper, To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindAnswer, Body: "done on desk2"})
+					if err == nil {
+						answered <- m.ID
+					}
+					return
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, e := run(t, "", "task", "lap", "build the docs", "--wait-reply", "40s", "--claim-within", "5s", "--fallback", "desk2")
+	if code != 0 || !strings.Contains(out, "done on desk2") || !strings.Contains(e, "nobody took it within 5s") {
+		t.Fatalf("%d\n%s\n%s", code, out, e)
+	}
+	first, _ := sentID(t, out)
+	ms, _ := c.Thread(first)
+	if len(ms) == 0 || ms[0].Retracted == nil {
+		t.Errorf("the first task was not taken back: %+v", ms)
+	}
+	select {
+	case id := <-answered:
+		if id == first {
+			t.Error("desk2 got the first task, not its own copy")
+		}
+	default:
+		t.Error("desk2 never got the task")
+	}
+	if code, _, e := run(t, "", "task", "lap", "x", "--fallback", "desk2"); code != exitUsage || !strings.Contains(e, "needs --wait-reply") {
+		t.Errorf("without --wait-reply: %d %s", code, e)
+	}
+	if code, _, e := run(t, "", "task", "lap", "x", "--can", "gpu", "--fallback", "desk2", "--wait-reply", "1m"); code != exitUsage || !strings.Contains(e, "does not combine") {
+		t.Errorf("with --can: %d %s", code, e)
+	}
+}

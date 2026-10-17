@@ -276,6 +276,14 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**A task nobody takes moves on.** `aivoicebus task build-1 "run the suite" --wait-reply 15m
+--claim-within 2m --fallback build-2,laptop-b` gives build-1 two minutes to take it. If nothing
+there claims or answers it in that time, the waiting command takes it back (`retract`) and gives
+the same task to build-2, then to laptop-b, and goes on waiting for the answer from whichever takes
+it. `--tool codex` applies to each machine. A task that was taken waits for its answer for the rest
+of `--wait-reply`. It needs `--wait-reply` (the waiting command is what moves it on) and names
+machines, not `--can` or `--model`.
+
 **A conversation goes back and forth until one side ends it.** `send --wait-reply 10m` (and
 `reply --wait-reply 10m`) sends, then waits in the same command for an answer in that thread and
 prints it, marked read. The agent spends no tokens while it waits; the command asks the nodes

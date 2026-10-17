@@ -24,11 +24,11 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m] [--ttl 1d] [--file F]   (one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true}
-	var machine, tool, can, model string
+	var machine, tool, can, model, fallback, claimWithin string
 	var rest []string
 	var words []int // indexes into rest of the plain words (not flags or their values)
 	for i := 0; i < len(args); i++ {
@@ -40,7 +40,7 @@ func taskCmd(args []string, s Streams) error {
 		}
 		key, val, hasEq := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		switch key {
-		case "tool", "can", "model":
+		case "tool", "can", "model", "fallback", "claim-within":
 			if !hasEq {
 				if i+1 >= len(args) {
 					return usage
@@ -53,6 +53,10 @@ func taskCmd(args []string, s Streams) error {
 				tool = val
 			case "can":
 				can = val
+			case "fallback":
+				fallback = val
+			case "claim-within":
+				claimWithin = val
 			default:
 				model = val
 			}
@@ -75,7 +79,40 @@ func taskCmd(args []string, s Streams) error {
 	if to == "" {
 		return usage
 	}
-	return sendWith(append([]string{"--to", to, "--kind", msg.KindTask}, rest...), s, false)
+	head := []string{"--to", to, "--kind", msg.KindTask}
+	if claimWithin != "" && fallback == "" {
+		return outbox.Usagef("--claim-within goes with --fallback: it is how long each machine has before the next")
+	}
+	if fallback != "" {
+		// The next machines, in order, for when nobody at the first one takes it in --claim-within.
+		if can != "" || model != "" || machine == "" {
+			return outbox.Usagef("--fallback names the next machines after MACHINE; it does not combine with --can or --model")
+		}
+		var next []string
+		for _, m := range strings.Split(fallback, ",") {
+			if m = strings.TrimSpace(m); m == "" {
+				continue
+			}
+			t, err := taskTarget(m, tool, "", "")
+			if err != nil {
+				return outbox.Usagef("--fallback: %v", err)
+			}
+			next = append(next, t)
+		}
+		if len(next) == 0 {
+			return usage
+		}
+		mv := taskMove{next: next, claimWithin: 2 * time.Minute}
+		if claimWithin != "" {
+			d, err := time.ParseDuration(claimWithin)
+			if err != nil {
+				return outbox.Usagef("--claim-within: %v", err)
+			}
+			mv.claimWithin = d
+		}
+		return sendWith(append(head, rest...), s, false, mv)
+	}
+	return sendWith(append(head, rest...), s, false)
 }
 
 // taskTarget is the narrowest address for who may take a task: a machine, a tool on it

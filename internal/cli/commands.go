@@ -85,7 +85,13 @@ func trailingFlags(fs *flag.FlagSet, s Streams) ([]string, error) {
 }
 
 // sendWith is send and reply. reply answers the newest unread message unless --re says which.
-func sendWith(args []string, s Streams, reply bool) error {
+// taskMove is task --fallback: the next targets, in order, and how long each has to take it.
+type taskMove struct {
+	next        []string
+	claimWithin time.Duration
+}
+
+func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	name := "send"
 	if reply {
 		name = "reply"
@@ -130,6 +136,21 @@ func sendWith(args []string, s Streams, reply bool) error {
 		*kind = msg.KindEnd
 		if *waitReply > 0 {
 			return outbox.Usagef("--end closes the conversation, so there is no reply to wait for")
+		}
+	}
+	var fallbacks []string
+	claimWithin := new(time.Duration)
+	if len(moves) > 0 {
+		fallbacks, *claimWithin = moves[0].next, moves[0].claimWithin
+		switch {
+		case *kind != msg.KindTask:
+			return outbox.Usagef("--fallback is for tasks: aivoicebus task MACHINE \"...\" --fallback M2")
+		case *waitReply <= 0:
+			return outbox.Usagef("--fallback needs --wait-reply: the waiting command is what moves the task on")
+		case *claimWithin < 5*time.Second || *claimWithin >= *waitReply:
+			return outbox.Usagef("--claim-within is at least 5s and shorter than --wait-reply")
+		case *private || *file != "" || *tail != "":
+			return outbox.Usagef("--fallback does not combine with --private, --file or --tail")
 		}
 	}
 	if *private && (*file != "" || *tail != "") {
@@ -243,15 +264,51 @@ func sendWith(args []string, s Streams, reply bool) error {
 			}
 		}
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
-		got, err := waitFor(c, me, tasks.Filter{Thread: out.Thread, Progress: claimProgress(s)}, *waitReply, 3*time.Second)
-		if errors.Is(err, tasks.ErrTimeout) {
-			fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), out.Thread)
-			return exitError{exitTimeout}
+		deadline := time.Now().Add(*waitReply)
+		cur := out
+		for {
+			window := time.Until(deadline)
+			if len(fallbacks) > 0 {
+				window = min(window, *claimWithin)
+			}
+			claimed := false
+			progress := claimProgress(s)
+			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) { claimed = true; progress(m) }}, window, 3*time.Second)
+			if err == nil {
+				showArrived(c, me, got, true, s)
+				return nil
+			}
+			if !errors.Is(err, tasks.ErrTimeout) {
+				return err
+			}
+			if claimed {
+				fallbacks = nil // taken: wait for its answer for the rest of --wait-reply
+			}
+			if len(fallbacks) == 0 || time.Until(deadline) < time.Second {
+				if time.Until(deadline) >= time.Second {
+					continue
+				}
+				fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), cur.Thread)
+				return exitError{exitTimeout}
+			}
+			// Nobody took it in --claim-within: take it back there and give it to the next target.
+			if _, err := c.Retract(cur.ID, me, false, false); err != nil {
+				fmt.Fprintf(s.Err, "nobody took %s within %s, and it could not be taken back (%v): not moving it on\n", cur.ID, claimWithin.String(), err)
+				fallbacks = nil
+				continue
+			}
+			next := fallbacks[0]
+			fallbacks = fallbacks[1:]
+			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true}, io.Discard)
+			if err != nil {
+				return fmt.Errorf("moving the task on to %s: %w", next, err)
+			}
+			if cur, err = np.Send(c); err != nil {
+				return fmt.Errorf("moving the task on to %s: %w", next, err)
+			}
+			fmt.Fprintf(s.Err, "nobody took it within %s: took %s back and gave it to %s as %s\n", claimWithin.String(), out.ID, view.Name(next, msg.MaxIdentity), cur.ID)
+			out = cur
 		}
-		if err != nil {
-			return err
-		}
-		showArrived(c, me, got, true, s)
 	}
 	return nil
 }
