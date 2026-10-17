@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -133,4 +134,56 @@ func TestWriteModeRunsOnlyWhatItsApproverApprovedOnABranch(t *testing.T) {
 	if last := ms[len(ms)-1]; !strings.Contains(last.Body, "no approval from "+approver) {
 		t.Errorf("not the approver: %q", last.Body)
 	}
+}
+
+// On the phone: the notification's Approve button POSTs the one-time code to a node's /v1/decide;
+// the request itself carries only its hash.
+func TestWriteModeTakesAPhoneDecisionWithTheOneTimeCode(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	workerSetup(t, "desk")
+	repo := t.TempDir()
+	gitT(t, repo, "init", "-q", "-b", "main")
+	os.WriteFile(filepath.Join(repo, "README"), []byte("hi\n"), 0o644)
+	gitT(t, repo, "add", "-A")
+	gitT(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+	t.Setenv("AIVOICEBUS_ME", wk)
+	c, _ := client.FromEnv()
+	allow, _ := worker.LoadAllow()
+	akPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	actions := make(chan string, 4)
+	w := &worker.Worker{C: c, Me: wk, Allow: allow, Argv: []string{"sh", "-c", "echo phone > by-phone.txt"}, Env: os.Environ(),
+		Limits: worker.Limits{Timeout: 20 * time.Second, MaxOutput: 4000}, MaxAge: time.Hour, Out: io.Discard, AllowUnsigned: true,
+		Write: &worker.WriteMode{Repo: repo, Root: t.TempDir(), Approver: "desk/claude.ok", ApproverKey: akPub, Within: 20 * time.Second,
+			PhoneURL: c.URLs[0], Notify: func(text, a string) { actions <- a }}}
+	press := func(button string) {
+		a := <-actions
+		for _, part := range strings.Split(a, ";") {
+			f := strings.Split(part, ",")
+			if len(f) >= 3 && strings.TrimSpace(f[1]) == button {
+				r, err := http.Post(strings.TrimSpace(f[2]), "text/plain", nil)
+				if err != nil || r.StatusCode != 200 {
+					t.Errorf("pressing %s: %v %v", button, err, r)
+				}
+				return
+			}
+		}
+		t.Errorf("no %s button in %q", button, a)
+	}
+	id, _ := c.Send(msg.Message{ID: msg.NewID(), From: boss, To: "lap", Kind: msg.KindTask, Prio: msg.PrioUrgent, Body: "from the phone"})
+	go press("Approve")
+	if n, err := w.Pass(context.Background()); n != 1 || err != nil {
+		t.Fatalf("pass: %d %v", n, err)
+	}
+	if got := gitT(t, repo, "show", "aivoicebus/task-"+id.ID+":by-phone.txt"); got != "phone" {
+		t.Errorf("not run: %q", got)
+	}
+	reqs, _ := c.Inbox("desk/claude.ok", true)
+	for _, m := range reqs {
+		if strings.HasPrefix(m.Body, "[approval needed]") && strings.Contains(m.Body, "phone-check: sha256:") {
+			return // the request carries the hash; the code went only to the notification
+		}
+	}
+	t.Error("the request does not carry the code's hash")
 }

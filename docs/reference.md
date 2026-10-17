@@ -504,6 +504,15 @@ three ways:
   sender so. The approver key lives in `~/.config/aivoicebus/approver.key`, sealed with the
   passphrase (PBKDF2-SHA256, 600000 rounds, AES-256-GCM); `approve` and `approver init` read it only
   from a terminal, so an agent's tool shell, which has none, cannot get as far as the prompt.
+- **Or on the phone.** With a notify URL set (`watch notify set https://ntfy.sh/YOUR-TOPIC`), the
+  worker also makes a one-time code and sends the notification with **Approve** and **Deny** buttons
+  (ntfy action buttons). A button POSTs the code to a node's `/v1/decide` (`--phone-url`, default
+  the first node: your phone must reach it, e.g. on the tailnet with the Tailscale app). The request
+  on the mesh carries only the code's SHA-256, so the approver's machine, and any agent on it, never
+  sees the code; the node checks the code against the request, records the decision once (at most
+  60 an hour per node, within 2 hours of the request), and the worker checks the code again.
+  `/v1/decide` is the one route that takes no token, and it can do nothing else. The code does pass
+  through the ntfy server: use a topic nobody can guess, or your own ntfy server with access control.
 - **Its own worktree and branch.** The task runs in a new git worktree of `--repo`, on branch
   `aivoicebus/task-ID` made from the repository's HEAD, never in a checkout someone works in. What
   it changed is committed there (by "aivoicebus worker"), and the worktree is removed; the branch

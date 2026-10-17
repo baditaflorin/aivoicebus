@@ -393,7 +393,7 @@ ok    hook runs              last run ok
 ok    claude instructions    snippet 76b7db32
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
-ok    node features          smoke: files,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,tasks
+ok    node features          smoke: decide,files,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run
 [exit 0]
 $ aivoicebus uninstall --dry-run
 would change claude hook            <TMP>/home/.claude/settings.json

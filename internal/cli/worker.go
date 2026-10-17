@@ -72,6 +72,7 @@ func workerCmd(args []string, s Streams) error {
 	repo := fs.String("repo", "", "with --write: the git repository a task's worktree is made from (its HEAD)")
 	approver := fs.String("approver", "", "with --write: who approves each task with `aivoicebus approve ID` (a machine, machine/tool or one session; signed)")
 	approveWithin := fs.Duration("approve-within", 30*time.Minute, "with --write: how long to wait for the approval before answering that it did not run")
+	phoneURL := fs.String("phone-url", "", "with --write and a notify URL: the node the phone's Approve/Deny buttons call (default: the first node; the phone must reach it, e.g. on the tailnet)")
 	approverKey := fs.String("approver-key", "", "with --write: the approver key's public half (`aivoicebus approver show` where the approver is); only decisions signed with it count")
 	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m")
 	if err := parseFlags(fs, args, s); err != nil {
@@ -163,7 +164,11 @@ func workerCmd(args []string, s Streams) error {
 		root, _ := os.Getwd()
 		wm := &worker.WriteMode{Repo: abs, Root: root, Approver: *approver, ApproverKey: ak, Within: *approveWithin}
 		if nu := notifyURL(); nu != "" {
-			wm.Notify = func(text string) { _ = tasks.Notify(nu, text) }
+			wm.Notify = func(text, actions string) { _ = tasks.NotifyActions(nu, "aivoicebus: approval needed", text, actions) }
+			wm.PhoneURL = *phoneURL
+			if wm.PhoneURL == "" && len(c.URLs) > 0 {
+				wm.PhoneURL = c.URLs[0] // a node on the tailnet: the phone reaches it when it is on the tailnet too
+			}
 		}
 		w.Write = wm
 		fmt.Fprintf(s.Err, "[aivoicebus] write mode: tasks change files in worktrees of %s, each only after %s approves it.\n", abs, *approver)

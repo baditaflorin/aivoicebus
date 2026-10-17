@@ -53,12 +53,21 @@ func AlertText(s Stuck, now time.Time) string {
 // Notify posts text as a plain-text body to url, the way ntfy and most webhook relays take it.
 // The text names ids and machines only, never what the task says.
 func Notify(url, text string) error {
+	return NotifyActions(url, "aivoicebus: a task is waiting", text, "")
+}
+
+// NotifyActions is Notify with a title and ntfy action buttons (the Actions header; "" for none).
+func NotifyActions(url, title, text, actions string) error {
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(text))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	req.Header.Set("Title", "aivoicebus: a task is waiting")
+	req.Header.Set("Title", title)
+	if actions != "" {
+		req.Header.Set("Actions", actions)
+		req.Header.Set("Priority", "high")
+	}
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
 		return fmt.Errorf("the notify URL's host %s did not answer", req.URL.Host) // the error would quote the URL
