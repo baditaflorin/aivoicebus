@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
@@ -354,5 +355,34 @@ func TestCancelStopsARunningTask(t *testing.T) {
 	log := logEntries(t)
 	if len(log) == 0 || log[len(log)-1].Outcome != "cancelled" {
 		t.Errorf("log: %+v", log)
+	}
+}
+
+// A task sent from the run of a task is a task deeper; past MaxTaskDepth it is neither sent nor run.
+func TestTaskChainsStopAtTheDepthLimit(t *testing.T) {
+	workerSetup(t, "desk")
+	sendTask(t, boss, "lap", "say how deep")
+	if _, out, e := runWorker(t, "--exec", `sh -c 'echo depth=$AIVOICEBUS_TASK_DEPTH'`); !strings.Contains(inboxOf(t, boss), "depth=1") {
+		t.Fatalf("the run did not get depth 1: %s %s", out, e)
+	}
+	t.Setenv("AIVOICEBUS_TASK_DEPTH", "4")
+	t.Setenv("AIVOICEBUS_ME", boss)
+	if code, _, e := run(t, "", "task", "lap", "go deeper"); code == 0 || !strings.Contains(e, "chain reaction") {
+		t.Errorf("a task 4 deep was sent: %d %s", code, e)
+	}
+	t.Setenv("AIVOICEBUS_TASK_DEPTH", "3")
+	code, out, e := run(t, "", "task", "lap", "three deep")
+	if code != 0 {
+		t.Fatalf("3 deep: %d %s", code, e)
+	}
+	id, _ := sentID(t, out)
+	c, _ := client.FromEnv()
+	if ms, _ := c.Thread(id); len(ms) == 0 || ms[0].Depth != 3 {
+		t.Errorf("depth not carried: %+v", ms)
+	}
+	t.Setenv("AIVOICEBUS_TASK_DEPTH", "")
+	c.Send(msg.Message{ID: msg.NewID(), From: boss, To: "lap", Kind: msg.KindTask, Prio: msg.PrioUrgent, Body: "four deep", Depth: 4})
+	if _, out, _ := runWorker(t, "--exec", "/bin/cat"); !strings.Contains(out, "chain reaction") {
+		t.Errorf("the worker took a task 4 deep: %s", out)
 	}
 }

@@ -56,6 +56,10 @@ type Message struct {
 	// (claims not counted): nodes of TurnsSince or later refuse more, except an [end], so two
 	// agents talking cannot go on for ever. 0 is no limit. Not signed: a brake, not a promise.
 	MaxTurns int `json:"max_turns,omitempty"`
+	// Depth is how many tasks deep this task was sent from: 0 from a person's session, 1 from a
+	// run a worker started for a task, and so on (the worker passes AIVOICEBUS_TASK_DEPTH to the
+	// run). A task deeper than MaxTaskDepth is not sent and not run: no chain reactions.
+	Depth int `json:"depth,omitempty"`
 	// Reach is how many sessions the sender's client counted as recipients when it
 	// sent the message. A display hint from the sender, never used for delivery;
 	// nil when the client could not tell.
@@ -195,6 +199,9 @@ func (m Message) ValidateOptions() error {
 	if m.Kind == KindClaim && m.Re == "" {
 		return errors.New("a claim must say which task it takes (re)")
 	}
+	if m.Depth < 0 || m.Depth > MaxDepthField {
+		return fmt.Errorf("depth is 0 to %d", MaxDepthField)
+	}
 	if m.MaxTurns < 0 || m.MaxTurns > MaxTurnsLimit {
 		return fmt.Errorf("max turns is 0 (none) to %d", MaxTurnsLimit)
 	}
@@ -330,6 +337,8 @@ type Record struct {
 // MaxTurnsLimit bounds max_turns; TurnsSince is the release whose nodes enforce it.
 const (
 	MaxTurnsLimit = 1000
+	MaxTaskDepth  = 3  // tasks sent from runs of tasks, at most this deep
+	MaxDepthField = 10 // what a node takes at all
 	TurnsSince    = "0.10.0"
 	FeatureTurns  = "turns"
 )

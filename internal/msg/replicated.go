@@ -77,6 +77,9 @@ func (m *Message) validateReplicated() error {
 	if m.Reach != nil && (*m.Reach < 0 || *m.Reach > replMaxReach) {
 		return errors.New("reach is out of range")
 	}
+	if m.Depth < 0 || m.Depth > MaxDepthField {
+		return errors.New("depth is out of range")
+	}
 	if m.MaxTurns < 0 || m.MaxTurns > MaxTurnsLimit {
 		return errors.New("max_turns is out of range")
 	}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,6 +105,9 @@ func (w *Worker) Decide(m msg.Message) (why, entry string) {
 	tool, _, _ := strings.Cut(strings.TrimPrefix(w.Me, host+"/"), ".")
 	if to := strings.ToLower(m.To); to != host && to != host+"/*" && to != w.Me && to != host+"/"+tool {
 		return fmt.Sprintf("it was sent to %s, not to this machine or this worker by name", view.Name(m.To, msg.MaxIdentity)), entry
+	}
+	if m.Depth > msg.MaxTaskDepth {
+		return fmt.Sprintf("it is %d tasks deep (sent from the run of a task sent from ...): more than %d is a chain reaction", m.Depth, msg.MaxTaskDepth), entry
 	}
 	if age := w.now().Sub(m.At); w.MaxAge > 0 && age > w.MaxAge {
 		return fmt.Sprintf("it is %s old (more than --max-age %s)", age.Round(time.Minute), w.MaxAge), entry
@@ -252,7 +256,8 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 		limits.Dir = wt.dir
 	}
 	w.say("task %s from %s (allowed by %q): running %s", m.ID, who, entry, QuoteCommand(w.Argv))
-	env := append(withoutIdentity(w.Env), "AIVOICEBUS_TASK_ID="+m.ID, "AIVOICEBUS_TASK_FROM="+m.From, "AIVOICEBUS_TASK_THREAD="+m.Thread)
+	env := append(withoutIdentity(w.Env), "AIVOICEBUS_TASK_ID="+m.ID, "AIVOICEBUS_TASK_FROM="+m.From, "AIVOICEBUS_TASK_THREAD="+m.Thread,
+		"AIVOICEBUS_TASK_DEPTH="+strconv.Itoa(m.Depth+1)) // what the run sends is a task deeper
 	r := Exec(taskCtx, w.Argv, m.Body, env, limits)
 	r.Cancelled = cancelled.Load()
 	r.StopWhy, _ = stopWhy.Load().(string)

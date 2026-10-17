@@ -146,7 +146,9 @@ const (
 
 func codexMCPBlock(bin string) string {
 	b, _ := json.Marshal(bin) // a JSON string is a valid TOML basic string
-	return tomlBegin + "\n[mcp_servers.aivoicebus]\ncommand = " + string(b) + "\nargs = [\"mcp\"]\n" + tomlEnd + "\n"
+	// env_vars: Codex passes an MCP server only the variables named; a worker's run must reach
+	// the server with its task depth, or a task sent through the tools would start at depth 0.
+	return tomlBegin + "\n[mcp_servers.aivoicebus]\ncommand = " + string(b) + "\nargs = [\"mcp\"]\nenv_vars = [\"AIVOICEBUS_TASK_DEPTH\", \"AIVOICEBUS_TASK_ID\"]\n" + tomlEnd + "\n"
 }
 
 // cutBlock returns s without the marked block, and whether there was one.

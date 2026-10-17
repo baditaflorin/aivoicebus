@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -179,6 +180,13 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,
 		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns}
+	if d, err := strconv.Atoi(os.Getenv("AIVOICEBUS_TASK_DEPTH")); err == nil && d > 0 {
+		// Sent from a run a worker started for a task: what this sends is one task deeper.
+		m.Depth = min(d, msg.MaxDepthField)
+		if m.Kind == msg.KindTask && d > msg.MaxTaskDepth {
+			return p, fmt.Errorf("refused: this would be a task %d tasks deep (a task sent from the run of a task sent from ...); more than %d is a chain reaction, not work: tell the user instead", d, msg.MaxTaskDepth)
+		}
+	}
 	if r.MaxTurns != 0 {
 		if r.Re != "" || r.Thread != "" {
 			return p, Usagef("--max-turns goes on the message that starts a conversation, not on a reply")
