@@ -72,14 +72,19 @@ func takeJSON(args []string, asJSON *bool) []string {
 	return out
 }
 
-// isTerminal reports whether r is an interactive terminal.
+// isTerminal reports whether r is an interactive terminal. /dev/null is a character device too,
+// and it is what an agent's tool call often gets as stdin: nobody is there.
 func isTerminal(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
 		return false
 	}
 	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(fi, null)
 }
 
 // writeJSON prints v as indented JSON, the shape every --json output has.

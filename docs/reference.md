@@ -886,7 +886,10 @@ on drift (missing or stale hook, stale snippet, token readable by others, no
 installed binary) and when the mesh rejects this machine's token (it asks the nodes
 `/v1/token`, or the roster on a node too old for that), and only warns for an
 unreachable mesh or a hook whose last run failed (the live check decides: the
-record may predate a fix).
+record may predate a fix). It also warns when nothing on the machine can be approved by a
+person (`approval`): no approver key (`aivoicebus approver init`), no notify URL for the phone
+(`aivoicebus watch notify set URL`), and no terminal (stdin `/dev/null`, as in an agent's tool
+call, is none). A token install or a write-mode worker's task would then wait for nobody.
 
 `doctor --fix` runs that same `setup` (only the managed blocks and hook entries are
 rewritten; the rest of your files is kept, and an instruction file whose block cannot be

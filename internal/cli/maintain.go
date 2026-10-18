@@ -11,6 +11,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/agentcfg"
 	"github.com/baditaflorin/aivoicebus/internal/assets"
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
@@ -189,7 +190,7 @@ func doctor(args []string, s Streams) error {
 			return err
 		}
 	}
-	checks := agentcfg.Doctor(opts)
+	checks := append(agentcfg.Doctor(opts), approvalCheck(isTerminal(s.In)))
 	if latest != "" {
 		checks = append(checks, releaseCheck(latest))
 	}
@@ -292,6 +293,33 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// approvalCheck says whether a person can approve what this machine asks (a token install, a
+// write-mode worker's task): with the approver key from any terminal, on the phone through the
+// notify URL, or by answering y/N at the terminal doctor runs in. With none of them a request from
+// an agent's session waits for nobody: the M1 Pro stalled three times that way on 2026-10-18.
+func approvalCheck(atTerminal bool) agentcfg.Check {
+	const name = "approval"
+	var ways []string
+	_, keyErr := config.ApproverPublic()
+	if keyErr == nil {
+		ways = append(ways, "the approver key ("+config.ApproverPath()+")")
+	}
+	if notifyURL() != "" {
+		ways = append(ways, "the phone (notify URL)")
+	}
+	if len(ways) > 0 {
+		return agentcfg.Check{Name: name, Level: agentcfg.LevelOK, Detail: "a person approves with " + strings.Join(ways, " or ")}
+	}
+	fix := "aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)"
+	if _, err := os.Stat(config.ApproverPath()); err == nil { // there, but not one this release reads
+		fix = "the approver key is unreadable (" + keyErr.Error() + "); move it aside and run " + fix
+	}
+	if atTerminal {
+		return agentcfg.Check{Name: name, Level: agentcfg.LevelOK, Detail: "only by y/N at a terminal: a request from an agent's session waits for nobody. For those: " + fix}
+	}
+	return agentcfg.Check{Name: name, Level: agentcfg.LevelWarn, Detail: "nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: " + fix}
 }
 
 // tokenKindCheck says whether this machine still uses the mesh's shared token, with which anyone
