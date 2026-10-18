@@ -247,6 +247,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 		if cfg.requireSigned && !msg.IsProbe(m.From) {
 			if signed, valid := m.VerifySig(); !signed || !valid {
+				cfg.metrics.unsigned.Add(1)
 				http.Error(w, "refused: this node takes only signed messages (serve --require-signed), and this one is unsigned or its signature does not verify: update the client (0.7.0 or later signs every message)", http.StatusForbidden)
 				return
 			}

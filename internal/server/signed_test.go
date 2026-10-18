@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -45,5 +46,34 @@ func TestRequireSignedRefusesUnsignedMessages(t *testing.T) {
 	}
 	if c := send(msg.Message{ID: msg.NewID(), From: "lap/" + msg.ProbeSenderAgent, To: "lap/" + msg.ProbeReaderAgent, Body: "probe"}); c != http.StatusOK {
 		t.Errorf("probe: %d", c)
+	}
+}
+
+// /metrics names what was refused and why, so a dashboard sees loops and brakes as they happen.
+func TestMetricsCountRefusalsByReason(t *testing.T) {
+	s, _ := store.Open(t.TempDir(), "n1")
+	srv := httptest.NewServer(NewHandler(s, "t", WithRequireSigned(true)))
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/send", bytes.NewReader([]byte(`{"from":"a/b.c","to":"all","body":"unsigned"}`)))
+	req.Header.Set("Authorization", "Bearer t")
+	r, _ := srv.Client().Do(req)
+	r.Body.Close()
+	root, _ := s.Send(msg.Message{From: "a/b.c", To: "x/y.z", Body: "count: 1"})
+	for i := 0; i < 3; i++ {
+		s.Send(msg.Message{From: "x/y.z", To: "a/b.c", Re: root.ID, Body: fmt.Sprintf("number %d", 7+i)}) // the third is a loop
+	}
+	mr, _ := http.NewRequest("GET", srv.URL+"/metrics", nil)
+	mr.Header.Set("Authorization", "Bearer t")
+	resp, err := srv.Client().Do(mr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var b bytes.Buffer
+	b.ReadFrom(resp.Body)
+	for _, want := range []string{`aivoicebus_refused_total{reason="unsigned"} 1`, `aivoicebus_refused_total{reason="loop"} 1`, "aivoicebus_messages_last_hour 3"} {
+		if !bytes.Contains(b.Bytes(), []byte(want)) {
+			t.Errorf("metrics lack %q", want)
+		}
 	}
 }
