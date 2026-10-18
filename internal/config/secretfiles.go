@@ -98,3 +98,7 @@ func splitLines(text string) []string {
 	}
 	return out
 }
+
+// SecretFileLines is the credential(s) in one token file: its non-blank lines, without comments
+// (none if it is missing or not a regular file). For matching and masking only, never printing.
+func SecretFileLines(path string) []string { return splitLines(readSecretFile(path)) }

@@ -99,6 +99,7 @@ func init() {
 		"resume":      resumeCmd,
 		"approver":    approverCmd,
 		"deny":        denyCmd,
+		"incident":    incidentCmd,
 	}
 }
 
