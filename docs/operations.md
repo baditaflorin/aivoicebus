@@ -251,6 +251,10 @@ refused. Each node must come back with its peer links up before the next is touc
   hide: like any agent token it can read a thread by id, the roster and health. If a machine is
   lost, `revoke` closes everything it could do as that machine; the board's contents were
   readable to it, as to any agent. `/v1/token` tells a script what kind of token it holds.
+  `/v1/token/seen?host=laptop-a` says which kind of token (machine or shared, and its name in the
+  token file) a node last saw act as that machine, and which kind sent its last message: the proof
+  that a machine really switched to its own token. Each node knows only what reached it since it
+  started, so ask them all (`aivoicebus token hand` does).
 - **Observer**: read-only, for the dashboard and exporters ([observer.md](observer.md)).
 
 ## Backup and restore

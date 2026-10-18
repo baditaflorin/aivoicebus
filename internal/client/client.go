@@ -801,6 +801,13 @@ func (c *Client) TokenInfo() (TokenInfo, error) {
 	return t, err
 }
 
+// TokenSeen asks every node which kind of token last acted as host (msg.TokenSeen), and returns
+// the answers of the nodes that gave one. Nodes older than msg.FeatureTokenSeen answer 404, which
+// is returned when no node knows it (see IsNotFound).
+func (c *Client) TokenSeen(host string) ([]msg.TokenSeen, error) {
+	return gather[msg.TokenSeen](c, "/v1/token/seen?host="+url.QueryEscape(host))
+}
+
 // Health is a node's own account of itself: see msg.Health.
 // TokenKind asks a node what kind of token this client holds: "shared" (anyone holding it can send
 // as any machine), "machine" (bound to host), or "observer"; "" from a node too old to say.
