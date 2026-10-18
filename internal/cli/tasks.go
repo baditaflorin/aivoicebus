@@ -286,7 +286,11 @@ func waitFor(c *client.Client, me string, f tasks.Filter, d, every time.Duration
 // claimProgress reports a claim seen while waiting for an answer.
 func claimProgress(s Streams) func(msg.Message) {
 	return func(m msg.Message) {
-		fmt.Fprintf(s.Err, "[aivoicebus] %s took it: %q; still waiting for the answer...\n", view.Name(m.From, msg.MaxIdentity), view.OneLine(m.Body, 120))
+		said := "took it"
+		if m.Kind == msg.KindProgress {
+			said = "says"
+		}
+		fmt.Fprintf(s.Err, "[aivoicebus] %s %s: %q; still waiting for the answer...\n", view.Name(m.From, msg.MaxIdentity), said, view.OneLine(m.Body, 120))
 	}
 }
 

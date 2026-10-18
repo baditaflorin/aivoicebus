@@ -19,7 +19,7 @@ Usage of send:
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
   -kind string
-    	question | answer | task | claim | end | lease: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
+    	question | answer | task | claim | end | lease | progress: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -max-turns int
     	start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever
   -prio string
@@ -60,7 +60,7 @@ Usage of send:
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
   -kind string
-    	question | answer | task | claim | end | lease: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
+    	question | answer | task | claim | end | lease | progress: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -max-turns int
     	start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever
   -prio string

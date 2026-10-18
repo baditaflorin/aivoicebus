@@ -402,6 +402,16 @@ never the text; `AIVOICEBUS_USAGE=off` keeps none) and `worker.log`. (It found t
 20 000 characters into a session for one call: it now lists the 25 sessions seen most recently with
 their repo, branch, model and rooms; `labels: true` shows every label.)
 
+**How it goes, and asking the person.** `aivoicebus progress --re ID "step 3/5"` (`--kind progress`)
+tells whoever waits on a task how it goes: a `--wait-reply` or `wait` prints it and goes on waiting
+for the answer, and a worker sends one every 2 minutes while a run lasts (nodes of 0.10.0 or later
+hold the kind). `aivoicebus ask-human "deploy to staging?" --choices yes,no --wait 30m [--json]` lets an
+agent ask this machine's person and wait: the question goes to `<machine>/human`, which no agent
+session reads; with a notify URL the phone notification carries one button per choice (one-time
+code, the same path as approvals); in a terminal the person runs `aivoicebus answer` to list open
+questions and `aivoicebus answer ID` to type the answer (it refuses in an agent's session). The
+result says whether the answer came from the phone or the terminal; exit 6 when none came.
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads

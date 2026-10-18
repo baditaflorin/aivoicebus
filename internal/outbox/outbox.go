@@ -243,6 +243,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a lease; update the nodes first", old, msg.LeaseSince)
 		}
 	}
+	if m.Kind == msg.KindProgress {
+		if m.Re == "" {
+			return p, Usagef("a progress message says which task it is about: --re ID")
+		}
+		if old := nodeTooOldFor(c, msg.ProgressSince); old != "" {
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a progress message; update the nodes first", old, msg.ProgressSince)
+		}
+	}
+
 	switch {
 	case sel.Advanced():
 		if old := nodeTooOldFor(c, msg.SelectorSince); old != "" {

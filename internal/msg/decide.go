@@ -52,7 +52,7 @@ func PhoneDecisionBody(say, code string) string { return "phone " + say + " " + 
 // ParsePhoneDecision reads a recorded phone decision: the word and the code.
 func ParsePhoneDecision(body string) (say, code string, ok bool) {
 	f := strings.Fields(body)
-	if len(f) != 3 || f[0] != "phone" || (f[1] != "approve" && f[1] != "deny") || !phoneCode.MatchString(f[2]) {
+	if len(f) != 3 || f[0] != "phone" || !ValidChoice(f[1]) || !phoneCode.MatchString(f[2]) {
 		return "", "", false
 	}
 	return f[1], f[2], true

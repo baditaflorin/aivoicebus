@@ -26,6 +26,7 @@ var Kinds = []Word{
 	{KindClaim, "[claim]"},
 	{KindEnd, "[end]"},
 	{KindLease, "[lease]"},
+	{KindProgress, "[progress]"},
 }
 
 func names(ws []Word) []string {

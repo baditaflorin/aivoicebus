@@ -306,6 +306,7 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 		home, _ := os.UserHomeDir()
 		argv, _, _ = Sandboxed(argv, home)
 	}
+	go w.heartbeat(taskCtx, m) // a long run says it is alive, so the sender does not give up on it
 	r := Exec(taskCtx, argv, m.Body, env, limits)
 	if w.Format != FormatText {
 		r.Stdout, r.Usage = ParseOutput(w.Format, r.Stdout)
@@ -349,6 +350,27 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	}
 	w.log(base)
 	return true
+}
+
+// HeartbeatEvery is how often a running task says it is still running.
+var HeartbeatEvery = 2 * time.Minute
+
+// heartbeat sends a [progress] message to the task's sender every HeartbeatEvery until ctx ends.
+func (w *Worker) heartbeat(ctx context.Context, m msg.Message) {
+	start := w.now()
+	t := time.NewTicker(HeartbeatEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		body := fmt.Sprintf("[worker on %s] still running, %s in", msg.HostOf(w.Me), w.now().Sub(start).Round(time.Second))
+		if plan, err := outbox.Prepare(w.C, outbox.Request{To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindProgress, Body: body, TargetSaid: true}, io.Discard); err == nil {
+			_, _ = plan.Send(w.C)
+		}
+	}
 }
 
 // watchCancel stops the task when its sender withdraws it: it looks every two seconds until ctx ends.
