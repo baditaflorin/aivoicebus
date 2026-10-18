@@ -973,9 +973,13 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
    approver key (`aivoicebus approve ID` in any terminal on that machine, with the approver passphrase;
    `aivoicebus approver init` makes the key once), or the Approve button on the phone when a notify URL
    is set. It refuses when it can ask nobody. Only after the approval does it answer `[token ready]`.
-3. `hand` then puts the token in a one-time, end-to-end-encrypted file held by one of the mesh's nodes
-   (`--via node`, the default, so nothing leaves the mesh's machines; `--via pipe` uses the pipe) and
-   sends only the link, in the thread, to the session that said ready. The link is good for one read
+3. `hand` then puts the token in a one-time, end-to-end-encrypted file and sends only the link, in
+   the thread, to the session that said ready. Where the file is held is any of the attachment
+   services (the same as `send --file`): `--via node`, one of the mesh's nodes, or `--via pipe`, the
+   pipe server (`AIVOICEBUS_PIPE_URL`, the fleet pipe by default), whose links are the pipe's own
+   `p -e` envelope, so `p save` reads them too. Without `--via` it follows `AIVOICEBUS_FILE_VIA`, else
+   a node: for a credential, the node keeps even the ciphertext on the mesh's own machines, behind
+   the mesh token, where a pipe link can be fetched by anyone who has it. The link is good for one read
    within five minutes, which is why it is made after the approval, not before.
 4. `install` fetches it from a node this machine is configured with, and asks the nodes with the new
    token what it is. Only a machine token bound to this machine passes: another machine's, the
@@ -987,7 +991,9 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
    if a node saw the answer arrive with laptop-a's machine token. The peer's own word is not enough.
 
 `install` also takes the id of a message that carries such a link, or the link itself, for a
-hand-over done by hand. `--json` gives the result as an object on both sides. Exit 0 from `hand` means
+hand-over done by hand (a pipe link made with `p -e -f`, say). A link pasted through zsh gets a
+backslash before its `#` and `~`, which fish keeps; `install` takes those out, and refuses a
+link with a backslash anywhere else. `--json` gives the result as an object on both sides. Exit 0 from `hand` means
 installed and proven. The token is in no message, argument, output or log. A message that holds a
 raw token is refused by the send scan (the deploy machine's `machine-tokens/` and
 `AIVOICEBUS_MACHINE_TOKENS_DIR` count as secrets) and by the nodes. If `AIVOICEBUS_TOKEN` is set on
