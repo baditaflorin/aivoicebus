@@ -330,6 +330,13 @@ tools: `setup` names the variable in Codex's `env_vars`, since Codex passes an M
 variables named) is one deeper. A client refuses to send a task more than 3 deep, a worker refuses
 to run one, and a node takes no depth over 10: A asking B asking C asking A stops there.
 
+**Fan out, gather back.** `aivoicebus task --each build-1,build-2,laptop-b "run the tests" --wait-all
+15m [--tool codex] [--json]` sends the same task to each machine and waits for all the answers at
+once, under one deadline. It prints each machine's answer (who took it, what came back), or that it
+was taken but not answered, or not taken, and "N of M answered"; with `--json` one object
+(`answered`, `of`, `results`). It exits 6 when not every machine answered in time. Without
+`--wait-all` it only sends and lists the ids.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.
