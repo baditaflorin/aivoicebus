@@ -83,6 +83,9 @@ func (m *Message) validateReplicated() error {
 	if m.MaxTurns < 0 || m.MaxTurns > MaxTurnsLimit {
 		return errors.New("max_turns is out of range")
 	}
+	if m.Deadline < 0 || m.Deadline > MaxDeadline {
+		return errors.New("deadline is out of range")
+	}
 	return nil
 }
 

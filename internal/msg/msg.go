@@ -56,6 +56,9 @@ type Message struct {
 	// (claims not counted): nodes of TurnsSince or later refuse more, except an [end], so two
 	// agents talking cannot go on for ever. 0 is no limit. Not signed: a brake, not a promise.
 	MaxTurns int `json:"max_turns,omitempty"`
+	// Deadline, on the message that starts a thread, is how many seconds after it the thread stays
+	// open: nodes of TurnsSince or later refuse a later message in it, except an [end]. 0 is none.
+	Deadline int64 `json:"deadline,omitempty"`
 	// Depth is how many tasks deep this task was sent from: 0 from a person's session, 1 from a
 	// run a worker started for a task, and so on (the worker passes AIVOICEBUS_TASK_DEPTH to the
 	// run). A task deeper than MaxTaskDepth is not sent and not run: no chain reactions.
@@ -209,6 +212,9 @@ func (m Message) ValidateOptions() error {
 	if m.MaxTurns < 0 || m.MaxTurns > MaxTurnsLimit {
 		return fmt.Errorf("max turns is 0 (none) to %d", MaxTurnsLimit)
 	}
+	if m.Deadline < 0 || m.Deadline > MaxDeadline {
+		return fmt.Errorf("deadline is 0 (none) to %d seconds", MaxDeadline)
+	}
 	if m.Kind == KindLease && m.TTL == 0 {
 		return errors.New("a lease must say how long it lasts (ttl)")
 	}
@@ -341,8 +347,9 @@ type Record struct {
 // MaxTurnsLimit bounds max_turns; TurnsSince is the release whose nodes enforce it.
 const (
 	MaxTurnsLimit = 1000
-	MaxTaskDepth  = 3  // tasks sent from runs of tasks, at most this deep
-	MaxDepthField = 10 // what a node takes at all
+	MaxDeadline   = 30 * 24 * 3600 // seconds
+	MaxTaskDepth  = 3              // tasks sent from runs of tasks, at most this deep
+	MaxDepthField = 10             // what a node takes at all
 	TurnsSince    = "0.10.0"
 	FeatureTurns  = "turns"
 )

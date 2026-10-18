@@ -337,6 +337,11 @@ was taken but not answered, or not taken, and "N of M answered"; with `--json` o
 (`answered`, `of`, `results`). It exits 6 when not every machine answered in time. Without
 `--wait-all` it only sends and lists the ids.
 
+**A conversation with a deadline.** `send --to X --deadline 1h "..."` (or `task ... --deadline 1h`)
+closes the thread an hour after its first message: every node (0.10.0 or later) refuses a later
+message in it with 409, an `[end]` always goes. It combines with `--max-turns`; set by the first
+message only, at most 30 days.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.

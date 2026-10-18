@@ -29,7 +29,7 @@ func taskCmd(args []string, s Streams) error {
 	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
-	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true}
+	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true}
 	var machine, tool, can, model, fallback, claimWithin, each, waitAll string
 	anyListening := false
 	var rest []string
