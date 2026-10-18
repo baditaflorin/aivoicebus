@@ -32,8 +32,9 @@ func asCLI(t *testing.T, home, me, urls string, args ...string) *exec.Cmd {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
+	pipe := os.Getenv("AIVOICEBUS_PIPE_URL") // off, unless the test runs a pipe of its own
 	cmd.Env = append(cmd.Env, "AIVOICEBUS_TEST_AS_CLI=1", "HOME="+home, "AIVOICEBUS_ME="+me, "AIVOICEBUS_URL="+urls,
-		"AIVOICEBUS_DETECT=off", "AIVOICEBUS_PIPE_URL=off", "AIVOICEBUS_NO_CLAUDE_MCP=1")
+		"AIVOICEBUS_DETECT=off", "AIVOICEBUS_PIPE_URL="+pipe, "AIVOICEBUS_NO_CLAUDE_MCP=1")
 	return cmd
 }
 
@@ -76,12 +77,25 @@ func writeSecret(t *testing.T, path, v string) {
 }
 
 // The whole exchange, as it runs between two machines: the deploy machine on node a hands air,
-// whose session reads from node b, its token. Each side is its own process; this test is the
-// person on air who approves, with the approver key.
+// whose session reads from node b, its token, held by a node or by the pipe. Each side is its own
+// process; this test is the person on air who approves, with the approver key.
 func TestTokenHandOverBetweenTwoMachinesOnTwoNodes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs two CLI processes against two replicating nodes")
 	}
+	t.Run("held by a node", func(t *testing.T) { handOverTwoNodes(t, "node") })
+	t.Run("held by the pipe", func(t *testing.T) {
+		held, _ := services(t)
+		handOverTwoNodes(t, "pipe")
+		for _, env := range held() { // what is left of it there is the sealed envelope, never the token
+			if strings.Contains(string(env), thAir) {
+				t.Error("the pipe holds the token in the clear")
+			}
+		}
+	})
+}
+
+func handOverTwoNodes(t *testing.T, via string) {
 	a, b := twoNodes(t)
 	deployHome, airHome := t.TempDir(), t.TempDir()
 	writeSecret(t, filepath.Join(deployHome, ".config/aivoicebus/token"), thShared)
@@ -100,7 +114,7 @@ func TestTokenHandOverBetweenTwoMachinesOnTwoNodes(t *testing.T) {
 
 	// the deploy machine hands air its token
 	var handOut, handErr strings.Builder
-	hand := asCLI(t, deployHome, "deploy/claude.1", a+","+b, "token", "hand", "air", "--json", "--wait", "2m")
+	hand := asCLI(t, deployHome, "deploy/claude.1", a+","+b, "token", "hand", "air", "--via", via, "--json", "--wait", "2m")
 	hand.Stdout = &handOut
 	pipe, _ := hand.StderrPipe()
 	if err := hand.Start(); err != nil {
@@ -195,14 +209,18 @@ func TestTokenHandOverBetweenTwoMachinesOnTwoNodes(t *testing.T) {
 		if err != nil || len(recs) < 6 || strings.Contains(string(raw), thAir) {
 			t.Errorf("node %s: %d records, holds the token: %v (%v)", u, len(recs), strings.Contains(string(raw), thAir), err)
 		}
-		if !strings.Contains(string(raw), "[attach] "+a+"/v1/files/") {
-			t.Errorf("node %s: no link message (the exchange went some other way)", u)
+		want := "[attach] " + a + "/v1/files/"
+		if via == "pipe" {
+			want = "[attach] " + os.Getenv("AIVOICEBUS_PIPE_URL") + "/#"
+		}
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("node %s: no link message to %s (the exchange went some other way)", u, want)
 		}
 	}
 	errMu.Lock()
 	outputs := handOut.String() + handErr.String() + instOut.String() + instErr.String()
 	errMu.Unlock()
-	if strings.Contains(outputs, thAir) || strings.Contains(outputs, thShared) || strings.Contains(outputs, "/v1/files/") {
+	if strings.Contains(outputs, thAir) || strings.Contains(outputs, thShared) || strings.Contains(outputs, "/v1/files/") || strings.Contains(outputs, "~") {
 		t.Error("a token or the link was printed")
 	}
 	allowed := map[string]bool{

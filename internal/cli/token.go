@@ -44,7 +44,7 @@ import (
 // message renders it as a summary).
 
 const (
-	tokenHandTag      = "[token hand v1]"
+	tokenHandTag      = msg.TokenHandTag
 	tokenReadyTag     = "[token ready]"
 	tokenLinkTag      = "[token link]"
 	tokenInstalledTag = "[token installed]"
@@ -115,6 +115,33 @@ func cleanToken(raw []byte) (string, error) {
 	return t, nil
 }
 
+// tokenVia is where hand keeps the encrypted token: --via, else the machine's choice for files
+// (AIVOICEBUS_FILE_VIA), else a node. Any attach.FileStore will do; the node is the default for a
+// credential because then even its ciphertext stays on the mesh's own machines and the token that
+// reads it is the mesh token, while the pipe is a service anyone with the link can read from.
+func tokenVia(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	if v := strings.TrimSpace(os.Getenv("AIVOICEBUS_FILE_VIA")); v != "" {
+		return v
+	}
+	return "node"
+}
+
+// cleanLink undoes what a shell paste does to a link: zsh puts a backslash before # and ~ (and
+// fish keeps it), which turns the pipe's https://pipe/#id~key into a link nothing serves. A
+// backslash anywhere else is refused, so nothing is fetched from a link that was changed some other way.
+func cleanLink(raw string) (string, error) {
+	l := strings.TrimSpace(raw)
+	l = strings.Trim(l, `'"`)
+	l = strings.NewReplacer(`\#`, "#", `\~`, "~").Replace(l)
+	if strings.Contains(l, `\`) {
+		return "", errors.New("the link has a backslash in it, so a shell or an editor changed it: pass it in single quotes, or give the id of the message that carries it")
+	}
+	return l, nil
+}
+
 // --- the deploy side ---------------------------------------------------------------------------
 
 type handResult struct {
@@ -133,7 +160,7 @@ type handResult struct {
 func tokenHand(args []string, s Streams) error {
 	fs := newFlagSet("token hand")
 	to := fs.String("to", "", "send the task to this one session on HOST, not to any session there")
-	via := fs.String("via", "node", "where the encrypted file is held: node (one of the mesh's nodes) or pipe")
+	via := fs.String("via", "", "where the encrypted file is held: node (one of the mesh's nodes) or pipe (the pipe server, AIVOICEBUS_PIPE_URL); default AIVOICEBUS_FILE_VIA, else node")
 	wait := fs.Duration("wait", 30*time.Minute, "how long to wait for a session to take it, the person to approve and the install")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	var host string
@@ -164,7 +191,7 @@ func tokenHand(args []string, s Streams) error {
 		return err
 	}
 	res := handResult{Host: host}
-	err = handOver(c, me, host, *to, *via, *wait, &res, s)
+	err = handOver(c, me, host, *to, tokenVia(*via), *wait, &res, s)
 	if err != nil {
 		res.Error = err.Error()
 	}
@@ -562,7 +589,11 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 	var body string            // the message with the [attach] line
 	var task, from msg.Message // the task, and the message the answer goes to
 	if strings.Contains(ref, "://") {
-		body = "[attach] " + strings.TrimSpace(ref)
+		l, err := cleanLink(ref)
+		if err != nil {
+			return err
+		}
+		body = "[attach] " + l
 	} else {
 		ids := outbox.NewIDResolver(c, me)
 		ids.Say = s.Err

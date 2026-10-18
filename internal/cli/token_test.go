@@ -477,3 +477,50 @@ func TestTokenHandBelievesOnlyWhatTheNodesSaw(t *testing.T) {
 		t.Errorf("old nodes: %v %q", ok, why)
 	}
 }
+
+// A pipe link given by hand (made with the pipe's own client, p -e -f) works as well, also after a
+// zsh paste put a backslash before its # and ~; any other backslash is refused before a fetch.
+func TestTokenInstallTakesAPipeLinkEvenAsAShellPastedIt(t *testing.T) {
+	n := tokenMachine(t, approved)
+	held, _ := services(t)
+	put := func() string {
+		l, _, err := (&attach.Pipe{Base: os.Getenv("AIVOICEBUS_PIPE_URL")}).Put(context.Background(), []byte(thAir+"\n"), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l.URL
+	}
+	link := put()
+	if code, _, e := run(t, "", "token", "install", strings.Replace(link, "#", `#\`, 1)); code == 0 || !strings.Contains(e, "backslash") {
+		t.Errorf("a link changed some other way: %d %q", code, e)
+	}
+	if len(held()) != 1 {
+		t.Fatal("a refused link was fetched")
+	}
+	pasted := strings.NewReplacer("#", `\#`, "~", `\~`).Replace(link)
+	code, out, e := run(t, "", "token", "install", pasted, "--json")
+	var res installResult
+	if err := json.Unmarshal([]byte(out), &res); code != 0 || err != nil || !res.Installed || res.Name != "air" || res.Answer != "" {
+		t.Fatalf("%d %q %q (%v)", code, out, e, err)
+	}
+	if tokenNow(t) != thAir {
+		t.Error("not installed")
+	}
+	if ms, _ := n.c.Inbox("deploy/claude.9", true); len(ms) != 0 {
+		t.Errorf("a link given by hand has nobody to answer: %d messages sent", len(ms))
+	}
+}
+
+func TestTokenHandKeepsItOnANodeUnlessToldOtherwise(t *testing.T) {
+	t.Setenv("AIVOICEBUS_FILE_VIA", "")
+	if v := tokenVia(""); v != "node" {
+		t.Errorf("default: %q", v)
+	}
+	t.Setenv("AIVOICEBUS_FILE_VIA", "pipe")
+	if v := tokenVia(""); v != "pipe" {
+		t.Errorf("the machine's choice for files: %q", v)
+	}
+	if v := tokenVia("node"); v != "node" {
+		t.Errorf("--via wins: %q", v)
+	}
+}
