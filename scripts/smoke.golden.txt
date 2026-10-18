@@ -8,6 +8,8 @@ error: unknown command "frobnicate"
 $ aivoicebus send --bogus
 flag provided but not defined: -bogus
 Usage of send:
+  -deadline duration
+    	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
   -file string
@@ -49,6 +51,8 @@ Usage of send:
 [exit 2]
 $ aivoicebus send -h
 Usage of send:
+  -deadline duration
+    	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
   -file string

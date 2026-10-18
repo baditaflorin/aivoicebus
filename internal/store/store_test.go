@@ -610,3 +610,24 @@ func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
 		t.Fatalf("after %d replies across two nodes: %v", n, err)
 	}
 }
+
+// A thread started with a deadline takes no message after it, except an end.
+func TestADeadlineClosesAThread(t *testing.T) {
+	s, err := Open(t.TempDir(), "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	s.SetClock(func() time.Time { return now })
+	root, _ := s.Send(msg.Message{From: "lap/claude.a1", To: "box/codex.b2", Body: "quick one", Deadline: 600})
+	if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Body: "in time"}); err != nil {
+		t.Fatalf("before the deadline: %v", err)
+	}
+	now = now.Add(11 * time.Minute)
+	if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Body: "too late"}); !errors.Is(err, ErrTurnLimit) {
+		t.Errorf("after the deadline: %v", err)
+	}
+	if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Kind: msg.KindEnd, Body: "closing"}); err != nil {
+		t.Errorf("an end must go: %v", err)
+	}
+}

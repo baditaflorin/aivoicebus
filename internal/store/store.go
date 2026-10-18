@@ -975,7 +975,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 		}
 	}
 	if m.Thread != m.ID {
-		m.MaxTurns = 0 // only the message that starts a thread sets its limit
+		m.MaxTurns, m.Deadline = 0, 0 // only the message that starts a thread sets its limits
 		if err := s.turnsLeftLocked(m); err != nil {
 			s.limited++
 			return msg.Message{}, err
@@ -1149,13 +1149,21 @@ func (s *Store) AckWith(a msg.Ack) error {
 var ErrReservedID = errors.New("that message id is reserved for a retraction notice; leave the id out")
 
 // ErrTurnLimit is what Send says of one message too many in a thread that set max_turns.
-var ErrTurnLimit = errors.New("the conversation reached its turn limit")
+var ErrTurnLimit = errors.New("the conversation reached its turn limit or deadline")
 
 // turnsLeftLocked refuses m when its thread started with a turn limit that is used up. Claims do
 // not count, and an [end] always goes: closing a conversation is what the limit is for.
 func (s *Store) turnsLeftLocked(m msg.Message) error {
 	root, ok := s.byIDLocked(m.Thread)
-	if !ok || root.MaxTurns == 0 || m.Kind == msg.KindEnd || m.Kind == msg.KindClaim {
+	if !ok || m.Kind == msg.KindEnd || m.Kind == msg.KindClaim {
+		return nil
+	}
+	if root.Deadline > 0 {
+		if end := root.At.Add(time.Duration(root.Deadline) * time.Second); s.now().After(end) {
+			return fmt.Errorf("%w: its deadline passed at %s: close it with `reply --end`, or start a new conversation", ErrTurnLimit, end.UTC().Format(time.RFC3339))
+		}
+	}
+	if root.MaxTurns == 0 {
 		return nil
 	}
 	n := 0

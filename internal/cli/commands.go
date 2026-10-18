@@ -114,6 +114,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	private := fs.Bool("private", false, "seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)")
+	deadline := fs.Duration("deadline", 0, "start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes")
 	maxTurns := fs.Int("max-turns", 0, "start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever")
 	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
 	ackIt := new(bool)
@@ -186,7 +187,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		return err
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
-		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns}, s.Err)
+		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline}, s.Err)
 	if err != nil {
 		return err
 	}
