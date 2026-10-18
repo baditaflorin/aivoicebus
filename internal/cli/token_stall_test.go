@@ -69,6 +69,9 @@ func TestTokenInstallWithNobodyToAskRefusesAtOnceAndAnswersWhy(t *testing.T) {
 	if failed.ID == "" || failed.To != "deploy/claude.9" || !strings.Contains(failed.Body, "aivoicebus token install "+task.ID) || !strings.Contains(failed.Body, "approver init") {
 		t.Errorf("the answer in the thread: %+v", failed)
 	}
+	if why := msg.HoldReason(failed); why != "" {
+		t.Errorf("the hand side's agents would not see the answer: %s", why)
+	}
 	ms, _ := n.c.Inbox("air/human", true)
 	for _, m := range ms {
 		if strings.HasPrefix(m.Body, "[approval needed]") {
@@ -102,6 +105,9 @@ func handFor(t *testing.T, n *tokenNode, respond func(task msg.Message)) (handRe
 			ms, _ := n.c.Inbox("air/claude.1", true)
 			for _, m := range ms {
 				if strings.HasPrefix(m.Body, tokenHandTag+" air") && m.Kind == msg.KindTask {
+					if why := msg.HoldReason(m); why != "" {
+						t.Errorf("the task is held back from the agents on air: %s", why)
+					}
 					if respond != nil {
 						respond(m)
 					}
@@ -132,13 +138,21 @@ func (n *tokenNode) answer(t *testing.T, task msg.Message, kind, body string) ms
 // When hand's wait runs out it says how far the exchange got, and while it waits it says what for.
 func TestTokenHandSaysWhereItStalled(t *testing.T) {
 	if testing.Short() {
-		t.Skip("four waits of five seconds")
+		t.Skip("six waits of five seconds")
 	}
 	t.Run("nobody took it", func(t *testing.T) {
 		n := tokenMachine(t, approved)
 		res, _ := handFor(t, n, nil)
 		if res.Stalled != "untaken" || !strings.Contains(res.Error, "nobody took it") || res.Session != "" {
 			t.Errorf("%+v", res)
+		}
+	})
+	t.Run("run again, a new task", func(t *testing.T) {
+		n := tokenMachine(t, approved)
+		first, _ := handFor(t, n, nil)
+		again, _ := handFor(t, n, nil)
+		if first.Task == "" || first.Task == again.Task || again.Stalled != "untaken" {
+			t.Errorf("a hand run again within ten minutes got task %s back (first %s): %+v", again.Task, first.Task, again)
 		}
 	})
 	t.Run("taken, then nothing", func(t *testing.T) {
@@ -199,8 +213,12 @@ func TestAStoppedOrKilledInstallLeavesTheTokenFileAlone(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = cmd.Process.Kill() })
-		if m := n.inThread(t, task, tokenWaitingTag+" air", 30*time.Second); m.ID == "" || m.Kind != msg.KindProgress || m.To != "deploy/claude.9" {
+		m := n.inThread(t, task, tokenWaitingTag+" air", 30*time.Second)
+		if m.ID == "" || m.Kind != msg.KindProgress || m.To != "deploy/claude.9" || !strings.Contains(m.Body, "(request ") {
 			t.Fatalf("no progress before the wait: %+v\n%s", m, o.String())
+		}
+		if why := msg.HoldReason(m); why != "" {
+			t.Errorf("the progress is held back from the hand side's agents: %s", why)
 		}
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		exited := make(chan error, 1)
@@ -216,8 +234,8 @@ func TestAStoppedOrKilledInstallLeavesTheTokenFileAlone(t *testing.T) {
 		if !strings.Contains(o.String(), "background command") {
 			t.Errorf("the agent was not told to run it in the background: %q", o.String())
 		}
-		if m := n.inThread(t, task, tokenFailedTag+" air", 10*time.Second); m.ID == "" || !strings.Contains(m.Body, "stopped") {
-			t.Errorf("the hand side was not told: %+v\n%s", m, o.String())
+		if m := n.inThread(t, task, tokenFailedTag+" air", 10*time.Second); m.ID == "" || !strings.Contains(m.Body, "stopped") || msg.HoldReason(m) != "" {
+			t.Errorf("the hand side was not told: %+v %q\n%s", m, msg.HoldReason(m), o.String())
 		}
 		if tokenNow(t) != thShared {
 			t.Error("the token file changed")

@@ -266,7 +266,8 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		"checks with the nodes that it is %s's own, and only then replaces the token file (the old one is put back if anything fails). "+
 		"The token itself is in no message.\n"+
 		"An agent runs it as a background command: it waits for the person's approval (up to 30 minutes), longer than a tool call lasts. "+
-		"Tell your user it asks for their approval; never run aivoicebus approve yourself.", tokenHandTag, host, me, host, host, host, host)
+		"Tell your user it asks for their approval, which is theirs to give, not yours.\n"+
+		"(hand-over %s)", tokenHandTag, host, me, host, host, host, host, handOverID())
 	plan, err := outbox.Prepare(c, outbox.Request{To: target, Body: body, Kind: msg.KindTask, Prio: msg.PrioUrgent, TTL: "1h", Queue: true, TargetSaid: true}, s.Err)
 	if err != nil {
 		return err
@@ -400,6 +401,15 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	// The proof: a node saw that answer arrive with HOST's machine token.
 	res.Proven, res.Proof = proveSent(c, host, info.Name, answer.ID, 20*time.Second)
 	return nil
+}
+
+// handOverID tells one hand-over from the next: a node takes the same words sent again within ten
+// minutes as the same message, so without it a hand run again after a failure would get back the
+// old task, already taken and answered, and wait on it for nothing.
+func handOverID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // proveSent asks every node, for up to within, whether message id was sent as host with host's
@@ -710,8 +720,8 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 			return
 		}
 		// Tell the hand side now, so it can say what it waits for instead of nothing for half an hour.
-		body := fmt.Sprintf("%s %s\n%s took it and asked the person on %s to approve (request %s): %s. It waits up to %s.",
-			tokenWaitingTag, host, me, host, id, how, wait)
+		body := peerSafe(fmt.Sprintf("%s %s\n%s took it and asked the person on %s to approve (request %s): %s. It waits up to %s.",
+			tokenWaitingTag, host, me, host, id, how, wait))
 		plan, err := outbox.Prepare(c, outbox.Request{To: task.From, Re: task.ID, Thread: task.Thread, Kind: msg.KindProgress, Body: body, TargetSaid: true}, io.Discard)
 		if err == nil {
 			_, err = plan.Send(c)
@@ -922,9 +932,17 @@ func writeAtomic(path string, data []byte) error {
 	return os.Rename(f.Name(), path)
 }
 
+// rePersonsCommand is the person's own commands, which a message to an agent never names: the
+// receiving side holds such a message back from its agents (msg.HoldReason).
+var rePersonsCommand = regexp.MustCompile(`(?i)\baivoicebus\s+(approve|deny|approver)\b`)
+
+// peerSafe is body as it goes to another agent: the person's commands named without the program,
+// so the answer is not held back as instructions to an agent ("approver init", not the full command).
+func peerSafe(body string) string { return rePersonsCommand.ReplaceAllString(body, "$1") }
+
 // tokenSay replies to to (in its thread) with body.
 func tokenSay(c *client.Client, me string, to msg.Message, re, body string, s Streams) (msg.Message, error) {
-	plan, err := outbox.Prepare(c, outbox.Request{To: to.From, Re: re, Thread: to.Thread, Body: body, Prio: msg.PrioUrgent, TargetSaid: true}, s.Err)
+	plan, err := outbox.Prepare(c, outbox.Request{To: to.From, Re: re, Thread: to.Thread, Body: peerSafe(body), Prio: msg.PrioUrgent, TargetSaid: true}, s.Err)
 	if err != nil {
 		return msg.Message{}, err
 	}
