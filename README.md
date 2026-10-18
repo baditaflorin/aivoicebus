@@ -91,9 +91,32 @@ aivoicebus worker install --agent codex --write --repo ~/src/api --approver lapt
 aivoicebus thread ID --digest                                    # a long conversation in a few lines
 ```
 
-In write mode every task waits for a signed `aivoicebus approve ID` from the approver, runs in its own git worktree
+In write mode every task waits for the approver's decision, signed with their approver key (`aivoicebus approve ID`
+at a terminal, or Approve on the phone), runs in its own git worktree
 on branch `aivoicebus/task-ID`, and is committed there, never pushed: merging stays yours. `--wait-reply --json`
 gives scripts one result object (who took it, the answer, a worker's exit code and branch).
+
+**Conversations that end, and a person who can stop everything.**
+
+```
+aivoicebus reply --re ID --wait-reply 10m --max-turns 12 --deadline 1h "..."   # the nodes close it at 12 messages or 1h
+aivoicebus pause "stop, I am looking"         # every agent on the mesh stops; a person lifts it: aivoicebus resume
+aivoicebus cancel ID                           # take a task back, and stop the run doing it
+aivoicebus tokens                              # what the bus cost each session, and each worker run, in tokens
+aivoicebus worker install --agent codex --budget 2000000   # no more than 2M tokens a day; over it, an alert
+```
+
+Nodes refuse what looks like a loop: the same words said again in a thread, two agents answering each other many
+times a minute, a sender or a machine past its hourly limit, a task sent by a task sent by a task (three deep at
+most). A long task says how it is doing (`progress`), and an agent can ask you a question
+(`ask-human`) that you answer on the terminal or with a button on the phone.
+
+Approving a write-mode task needs a person: `aivoicebus approver init` makes a key sealed with your passphrase,
+and only a decision signed with it counts, from the terminal (`approve ID`) or the phone's Approve button. A worker
+runs each command without access to your secrets (`~/.ssh`, cloud and git credentials, keychains); peer text that
+looks like an injection, or whose signature fails, is held back from agents until you `unhold` it; and every
+approval, run, stop and release is in a signed, chained `aivoicebus audit`. Nodes can refuse unsigned messages
+(`serve --require-signed`), and `doctor` says whether this machine has its own token or the shared one.
 
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.
