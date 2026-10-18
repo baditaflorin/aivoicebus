@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -21,6 +22,14 @@ const (
 	decideLimit  = 60
 	decideMaxAge = 2 * time.Hour
 )
+
+// decideOutcomes counts /v1/decide answers by outcome, for /metrics.
+var decideOutcomes sync.Map // outcome -> *atomic.Int64
+
+func countDecide(outcome string) {
+	v, _ := decideOutcomes.LoadOrStore(outcome, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1)
+}
 
 type decider struct {
 	mu      sync.Mutex
@@ -87,6 +96,7 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 			return
 		}
 		if !msg.PhoneCodeMatches(req.Body, code) {
+			countDecide("bad_code")
 			http.Error(w, "the code does not match the request", http.StatusForbidden)
 			return
 		}
@@ -100,6 +110,7 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 			return
 		}
 		d.done(id)
+		countDecide("recorded")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("recorded: " + say + ". The worker on " + msg.HostOf(req.From) + " reads it within seconds.\n"))
 	}

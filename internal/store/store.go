@@ -102,6 +102,8 @@ type Store struct {
 	sends        map[string][]time.Time  // sender -> when it sent recently, oldest first
 	recent       map[[32]byte]recentSend // fingerprint of a recent message -> its id
 	sendLimit    int                     // messages a sender may send per sendWindow
+	refusedBy    map[string]int64        // sends refused since start, by reason (metrics)
+	arrivals     []time.Time             // when messages were taken in, the last hour of them (metrics)
 	machineLimit int                     // messages a machine may send per sendWindow (SetSendLimit raises it too)
 	hostSends    map[string][]time.Time  // per machine, for machineLimit
 	pairSends    map[string][]time.Time  // per pair of sessions, for pairLimit
@@ -273,7 +275,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
-		sends: map[string][]time.Time{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
+		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
 		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit}
 	for _, o := range opts {
 		o(s)
@@ -470,6 +472,7 @@ func (s *Store) applyLocked(r msg.Record) bool {
 	s.changed = make(chan struct{})
 	if r.Msg != nil {
 		s.addMsgLocked(*r.Msg)
+		s.arrivals = append(s.arrivals, s.now()) // for Stats.LastHour, trimmed there
 	}
 	if r.Ack != nil {
 		if mid, leak, ok := msg.RetractedID(r.Ack.ID); ok {
@@ -960,6 +963,12 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	}
 	if err := s.allowSendLocked(m.From, m.To, m.Re, now); err != nil {
 		s.limited++
+		reason := "rate_sender"
+		var rl *RateLimitError
+		if errors.As(err, &rl) && rl.Scope != "" {
+			reason = "rate_" + rl.Scope
+		}
+		s.refusedBy[reason]++
 		return msg.Message{}, err
 	}
 	m.At = now
@@ -979,6 +988,14 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 		m.MaxTurns, m.Deadline = 0, 0 // only the message that starts a thread sets its limits
 		if err := s.turnsLeftLocked(m); err != nil {
 			s.limited++
+			switch e := err.Error(); {
+			case strings.Contains(e, "deadline passed"):
+				s.refusedBy["deadline"]++
+			case strings.Contains(e, "looks like a loop"):
+				s.refusedBy["loop"]++
+			default:
+				s.refusedBy["turns"]++
+			}
 			return msg.Message{}, err
 		}
 	}
@@ -1557,6 +1574,11 @@ type Stats struct {
 	RateLimited int64 // sends refused by the rate limit since start
 	Quarantined int   // placeholders held, each in place of a record that failed msg.Record.ValidateReplicated
 	Refused     int64 // records dropped for an origin that cannot be kept, since start
+	// RefusedBy is the sends refused since start, by reason: rate_sender, rate_machine, rate_pair,
+	// turns, deadline, loop.
+	RefusedBy map[string]int64
+	// LastHour is the messages this node took in during the last hour.
+	LastHour int
 
 	Retracted              int // messages held that are retracted (hidden from inboxes, tombstones in threads)
 	RetractionsIneffective int // retractions held for a message by an identity not on its sender's machine, which change nothing
@@ -1569,6 +1591,14 @@ func (s *Store) Stats() Stats {
 	st := Stats{Messages: len(s.msgs), Acks: s.nAck, Sessions: len(s.seen), Duplicates: s.dups, RateLimited: s.limited,
 		Quarantined: s.quarantined, Refused: s.refused}
 	st.Retracted, st.RetractionsIneffective = s.nRetracted, s.nInert // a claim on a message not held yet is neither: it is decided when the message arrives
+	st.RefusedBy = maps.Clone(s.refusedBy)
+	hour := s.now().Add(-time.Hour)
+	k := 0
+	for k < len(s.arrivals) && !s.arrivals[k].After(hour) {
+		k++
+	}
+	s.arrivals = s.arrivals[k:]
+	st.LastHour = len(s.arrivals)
 	return st
 }
 

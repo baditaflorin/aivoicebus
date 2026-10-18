@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +22,7 @@ import (
 type metrics struct {
 	unauthorized atomic.Int64
 	secrets      atomic.Int64
+	unsigned     atomic.Int64 // sends refused by --require-signed
 	mu           sync.Mutex
 	requests     map[string]*atomic.Int64
 }
@@ -69,6 +72,25 @@ func (m *metrics) write(w io.Writer, h msg.Health, st store.Stats) {
 	p("# HELP aivoicebus_rate_limited_total Sends refused by the per-sender rate limit since start.")
 	p("# TYPE aivoicebus_rate_limited_total counter")
 	p("aivoicebus_rate_limited_total %d", st.RateLimited)
+	p("# HELP aivoicebus_messages_last_hour Messages this node took in during the last hour.")
+	p("# TYPE aivoicebus_messages_last_hour gauge")
+	p("aivoicebus_messages_last_hour %d", st.LastHour)
+	p("# HELP aivoicebus_refused_total Sends refused since start, by reason: rate_sender, rate_machine, rate_pair (two agents replying in a loop), turns, deadline, loop (the same thing said over and over), unsigned.")
+	p("# TYPE aivoicebus_refused_total counter")
+	reasons := map[string]int64{"rate_sender": 0, "rate_machine": 0, "rate_pair": 0, "turns": 0, "deadline": 0, "loop": 0}
+	for k, v := range st.RefusedBy {
+		reasons[k] = v
+	}
+	reasons["unsigned"] = m.unsigned.Load()
+	for _, k := range slices.Sorted(maps.Keys(reasons)) {
+		p(`aivoicebus_refused_total{reason="%s"} %d`, label(k), reasons[k])
+	}
+	p("# HELP aivoicebus_decide_total Phone decisions (/v1/decide) since start, by outcome.")
+	p("# TYPE aivoicebus_decide_total counter")
+	decideOutcomes.Range(func(k, v any) bool {
+		p(`aivoicebus_decide_total{outcome="%s"} %d`, label(k.(string)), v.(*atomic.Int64).Load())
+		return true
+	})
 	p("# HELP aivoicebus_quarantined_records Records held only as a placeholder, because the original failed the replication check.")
 	p("# TYPE aivoicebus_quarantined_records gauge")
 	p("aivoicebus_quarantined_records %d", st.Quarantined)

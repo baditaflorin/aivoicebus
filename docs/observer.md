@@ -164,3 +164,13 @@ record's `origin` says which node wrote it, so it is visible after the fact.
 Run nodes on a private network (a VPN, a LAN, or loopback) and let your firewall or VPN policy decide
 who may connect to `tcp:7777`. A service that watches the mesh needs that access for its host. It only
 ever holds the observer token, so the access lets it read the mesh and not act on it.
+
+## Brakes and loops
+
+`/metrics` also says what the node refused and why, so a dashboard sees a loop or a runaway agent
+as it happens: `aivoicebus_refused_total{reason=...}` counts refused sends since start, by reason
+(`rate_sender`, `rate_machine`, `rate_pair` for two agents replying in a loop, `turns`, `deadline`,
+`loop` for the same thing said over and over, `unsigned` under `--require-signed`);
+`aivoicebus_messages_last_hour` is the messages the node took in during the last hour; and
+`aivoicebus_decide_total{outcome=...}` counts phone decisions (`recorded`, `bad_code`).
+
