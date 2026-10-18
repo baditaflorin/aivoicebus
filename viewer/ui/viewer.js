@@ -66,10 +66,14 @@ function ago(iso) {
   return Math.floor(s / 86400) + "d ago";
 }
 
-/** @param {string} iso */
+/** Local time: the clock alone for today, else the date and the zone too (as the CLI shows it).
+ * @param {string} iso */
 function clock(iso) {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) {
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 
 /** @param {Participant} p */

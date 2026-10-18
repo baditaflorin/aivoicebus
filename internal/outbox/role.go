@@ -8,6 +8,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // ResolveRole finds the live session holding role (a send to @role goes to it). The nodes' roster
@@ -33,10 +34,10 @@ func WhoRole(w io.Writer, c *client.Client, role, me string) {
 	res, err := ResolveRole(c, role, me, msg.RoleOpts{}) // as a plain send would see it: an unpinned role is explained, not resolved
 	now := time.Now()
 	for _, h := range res.Live {
-		fmt.Fprintf(w, "%-32s last seen %s  holds @%s\n", msg.SafeName(h.Me), h.Seen.Local().Format("01-02 15:04"), role)
+		fmt.Fprintf(w, "%-32s last seen %s  holds @%s\n", msg.SafeName(h.Me), view.When(h.Seen, now), role)
 	}
 	for _, h := range res.Stale {
-		fmt.Fprintf(w, "%-32s last seen %s  holds @%s (stale: %s ago)\n", msg.SafeName(h.Me), h.Seen.Local().Format("01-02 15:04"), role, msg.SpanWords(now.Sub(h.Seen)))
+		fmt.Fprintf(w, "%-32s last seen %s  holds @%s (stale: %s ago)\n", msg.SafeName(h.Me), view.When(h.Seen, now), role, msg.SpanWords(now.Sub(h.Seen)))
 	}
 	for _, me := range res.Out {
 		fmt.Fprintf(w, "%-32s claims @%s but is outside your pin: ignored\n", msg.SafeName(me), role)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
@@ -38,7 +39,7 @@ func heldCmd(args []string, s Streams) error {
 		if config.Released(h.ID) {
 			state = "released"
 		}
-		fmt.Fprintf(s.Out, "\n%s  %s  %s: %s\n", h.ID, h.At.Local().Format("01-02 15:04"), state, h.Reason)
+		fmt.Fprintf(s.Out, "\n%s  %s  %s: %s\n", h.ID, view.When(h.At, time.Now()), state, h.Reason)
 		ms, err := c.Thread(h.ID)
 		if err != nil {
 			continue

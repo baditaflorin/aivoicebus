@@ -663,7 +663,8 @@ func who(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	cutoff := time.Now().Add(-span)
+	now := time.Now()
+	cutoff := now.Add(-span)
 	hidden, shown := 0, 0
 	rows := []msg.RosterEntry{} // what --json prints and --tools groups
 	show := func(me string, seen time.Time, labels msg.Labels, title string, listening bool) {
@@ -676,13 +677,7 @@ func who(args []string, s Streams) error {
 			rows = append(rows, msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening})
 			return
 		}
-		line := fmt.Sprintf("%-32s last seen %s", view.Name(me, 64), seen.Local().Format("01-02 15:04"))
-		if listening {
-			line += "  [listening now]"
-		}
-		if t := view.Title(title); t != "" {
-			line += "  " + t
-		}
+		line := view.Session(msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening}, now)
 		if l := labels.String(); l != "" {
 			line += "  " + view.Name(l, 300)
 		}

@@ -121,11 +121,7 @@ func roomCmd(args []string, s Streams) error {
 				continue
 			}
 			n++
-			state := "seen " + now.Sub(e.Seen).Round(time.Second).String() + " ago"
-			if e.Listening {
-				state = "listening now"
-			}
-			fmt.Fprintf(s.Out, "%-40s %s%s\n", view.Name(e.Me, msg.MaxIdentity), state, view.TitleSuffix(e.Title))
+			fmt.Fprintln(s.Out, view.Session(e, now))
 		}
 		if n == 0 {
 			fmt.Fprintf(s.Out, "nobody is in %s (yet)\n", name)

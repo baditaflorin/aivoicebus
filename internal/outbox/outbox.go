@@ -265,8 +265,12 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 	}
 
-	names, known := reachList(c, to, me)
+	roster, rosterErr := c.RosterAll() // a decision, not a display: probes are counted
+	names, known := reachAmong(roster, rosterErr, to, me)
 	n := len(names)
+	if w := ListenerWarning(roster, to, me, time.Now()); w != "" {
+		fmt.Fprintln(warn, w)
+	}
 	p.Reach, p.Known = n, known
 	if known && usesCaps(sel) {
 		p.Recipients = names
@@ -475,6 +479,10 @@ func Reach(c *client.Client, to, me string) (n int, known bool) {
 // reachList is Reach that says which sessions.
 func reachList(c *client.Client, to, me string) (names []string, known bool) {
 	roster, err := c.RosterAll() // a decision, not a display: probes are counted
+	return reachAmong(roster, err, to, me)
+}
+
+func reachAmong(roster []msg.RosterEntry, err error, to, me string) (names []string, known bool) {
 	if err != nil {
 		return nil, false
 	}
@@ -630,4 +638,50 @@ func SpanText(d time.Duration) string {
 		return fmt.Sprintf("%dd", d/(24*time.Hour))
 	}
 	return d.String()
+}
+
+// ListenerWarning is a warning when to names one session that is not listening while another
+// session of the same machine is (standing by in a wait): the sender may have picked the wrong one
+// of two look-alike ids, as a hand-off once did. "" when there is nothing to say. Both sessions are
+// named with their titles, so the sender can tell them apart.
+func ListenerWarning(roster []msg.RosterEntry, to, me string, now time.Time) string {
+	if msg.IsBulletin(to) || msg.IsSelector(to) {
+		return "" // a machine, a tool or a selector: the nodes deliver it to whoever reads first
+	}
+	to = strings.ToLower(to)
+	host := msg.HostOf(to)
+	var target *msg.RosterEntry
+	var listening []msg.RosterEntry
+	for i, e := range roster {
+		id := strings.ToLower(e.Me)
+		switch {
+		case id == to:
+			target = &roster[i]
+		case id == strings.ToLower(me), msg.HostOf(id) != host, msg.IsBulletin(id), !e.Listening:
+		case now.Sub(e.Seen) > ReachWindow:
+		default:
+			listening = append(listening, e) // another exact session there, in a wait right now
+		}
+	}
+	if len(listening) == 0 || (target != nil && target.Listening) {
+		return ""
+	}
+	var others []string
+	for _, e := range listening {
+		others = append(others, view.Session(e, now))
+	}
+	named := view.Name(to, msg.MaxIdentity) + " has not been seen by the nodes"
+	if target != nil {
+		named = view.Session(*target, now) + " is not listening"
+	}
+	return fmt.Sprintf("warning: %s, but %s on %s %s listening: %s. If you meant the one standing by, send to it instead.",
+		named, plural(len(others), "another session", "other sessions"), view.Name(host, msg.MaxIdentity),
+		plural(len(others), "is", "are"), strings.Join(others, ", "))
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

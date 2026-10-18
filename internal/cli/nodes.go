@@ -14,6 +14,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/discovery"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // nodesCmd is `aivoicebus nodes`: the nodes this machine uses, where each came from,
@@ -99,7 +100,7 @@ func nodesCmd(args []string, s Streams) error {
 				until = "EXPIRED " + d.ValidUntil.Local().Format("2006-01-02") + ", not used"
 			}
 		}
-		fmt.Fprintf(s.Out, "(node list serial %d, fetched %s, %s)\n", d.Serial, d.FetchedAt.Local().Format("01-02 15:04"), until)
+		fmt.Fprintf(s.Out, "(node list serial %d, fetched %s, %s)\n", d.Serial, view.When(d.FetchedAt, time.Now()), until)
 	}
 	return nil
 }

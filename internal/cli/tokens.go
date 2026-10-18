@@ -11,6 +11,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
 
@@ -103,7 +104,7 @@ func tokensCmd(args []string, s Streams) error {
 		}
 		return writeJSON(s.Out, v)
 	}
-	fmt.Fprintf(s.Out, "aivoicebus on this machine since %s\n\n", from.Local().Format("01-02 15:04"))
+	fmt.Fprintf(s.Out, "aivoicebus on this machine since %s\n\n", view.When(from, time.Now()))
 	fmt.Fprintf(s.Out, "context it put into sessions (estimate, ~%d characters a token):\n", charsPerToken)
 	if len(v.Sessions) == 0 {
 		fmt.Fprintln(s.Out, "  none recorded")

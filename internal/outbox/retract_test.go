@@ -169,7 +169,7 @@ func TestRetractAgainSaysAlreadyAndWritesNothing(t *testing.T) {
 	n := s.VV()["n1"]
 
 	out := mustRetract(t, c, m.ID, false, false, "") // the exit status is zero: it is already what was asked
-	has(t, out, "already retracted by "+meID, "UTC; nothing to do", "does NOT erase it")
+	has(t, out, "already retracted by "+meID, "; nothing to do", "does NOT erase it")
 	lacks(t, out, "had already read it") // nothing was asked of the node, so there is nothing new to count
 	if s.VV()["n1"] != n {
 		t.Error("nothing is written twice")

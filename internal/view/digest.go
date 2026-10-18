@@ -55,17 +55,17 @@ func Digest(w io.Writer, ms []msg.Message) {
 	}
 	fmt.Fprintln(w, UntrustedBanner)
 	fmt.Fprintf(w, "thread %s: %d message(s) from %d session(s), %s to %s (%s)\n", first.Thread, len(ms), len(order),
-		first.At.Local().Format("01-02 15:04"), lastAt.Local().Format("01-02 15:04"), lastAt.Sub(first.At).Round(time.Second))
+		When(first.At, time.Now()), When(lastAt, time.Now()), lastAt.Sub(first.At).Round(time.Second))
 	what := "started"
 	if first.Kind == msg.KindTask {
 		what = "task"
 	}
 	fmt.Fprintf(w, "  %s by %s -> %s: %s\n", what, Name(first.From, msg.MaxIdentity), Name(first.To, msg.MaxIdentity), text(first))
 	if first.Retracted != nil {
-		fmt.Fprintf(w, "  withdrawn by its sender at %s: nobody needs to act on it\n", first.Retracted.At.Local().Format("15:04:05"))
+		fmt.Fprintf(w, "  withdrawn by its sender at %s: nobody needs to act on it\n", WhenSec(first.Retracted.At, time.Now()))
 	} else if first.Kind == msg.KindTask {
 		if t, ok := msg.TaskOwner(first.From, takes); ok {
-			fmt.Fprintf(w, "  taken by %s at %s\n", Name(t.From, msg.MaxIdentity), t.At.Local().Format("15:04:05"))
+			fmt.Fprintf(w, "  taken by %s at %s\n", Name(t.From, msg.MaxIdentity), WhenSec(t.At, time.Now()))
 		} else {
 			fmt.Fprintln(w, "  nobody has taken it")
 		}
@@ -75,12 +75,12 @@ func Digest(w io.Writer, ms []msg.Message) {
 		if sd.last.ID == "" || sd.last.ID == first.ID {
 			continue
 		}
-		fmt.Fprintf(w, "  last from %s (%d, %s): %s\n", Name(who, msg.MaxIdentity), sd.n, sd.last.At.Local().Format("15:04:05"), text(sd.last))
+		fmt.Fprintf(w, "  last from %s (%d, %s): %s\n", Name(who, msg.MaxIdentity), sd.n, WhenSec(sd.last.At, time.Now()), text(sd.last))
 	}
 	switch last := ms[len(ms)-1]; {
 	case first.Retracted != nil && len(ms) == 1:
 	case end != nil:
-		fmt.Fprintf(w, "  ended by %s at %s\n", Name(end.From, msg.MaxIdentity), end.At.Local().Format("15:04:05"))
+		fmt.Fprintf(w, "  ended by %s at %s\n", Name(end.From, msg.MaxIdentity), WhenSec(end.At, time.Now()))
 	default:
 		fmt.Fprintf(w, "  open: the last word is %s's\n", Name(last.From, msg.MaxIdentity))
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
 
@@ -406,7 +407,7 @@ func workerStatus(s Streams) error {
 		if e.Exit != nil {
 			detail = fmt.Sprintf("exit %d after %s", *e.Exit, e.Took)
 		}
-		fmt.Fprintf(s.Out, "  %s  %-8s task %s from %s  %s\n", e.At.Local().Format("01-02 15:04:05"), e.Outcome, e.Task, e.From, detail)
+		fmt.Fprintf(s.Out, "  %s  %-8s task %s from %s  %s\n", view.WhenSec(e.At, time.Now()), e.Outcome, e.Task, e.From, detail)
 	}
 	return nil
 }

@@ -439,7 +439,7 @@ func proveSent(c *client.Client, host, name, id string, within time.Duration) (b
 				continue
 			}
 			if e.SendKind == "machine" && e.SendName == name {
-				return true, fmt.Sprintf("node %s saw its answer %s sent with the machine token %q at %s", e.Node, id, name, e.SendAt.Local().Format("15:04:05"))
+				return true, fmt.Sprintf("node %s saw its answer %s sent with the machine token %q at %s", e.Node, id, name, view.WhenSec(e.SendAt, time.Now()))
 			}
 			return false, fmt.Sprintf("node %s saw its answer %s sent with the %s token %q, not its own", e.Node, id, e.SendKind, e.SendName)
 		}
@@ -691,7 +691,7 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 		case m.Retracted != nil:
 			return fmt.Errorf("%s was withdrawn by %s (retracted): %s", id, view.Name(m.From, msg.MaxIdentity), fresh)
 		case m.Exp != nil && time.Now().After(*m.Exp):
-			return fmt.Errorf("%s expired at %s: %s", id, m.Exp.Local().Format("15:04"), fresh)
+			return fmt.Errorf("%s expired at %s: %s", id, view.When(*m.Exp, time.Now()), fresh)
 		}
 		if h, ok := tagged(m.Body, tokenHandTag); ok {
 			if m.Kind != msg.KindTask {

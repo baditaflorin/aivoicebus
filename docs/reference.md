@@ -142,6 +142,22 @@ the log and appear under `--all`. Presence is gossiped between nodes (`/v1/roste
 kept on disk and flushed on a clean stop, so a restart or a roll does not forget who is
 around; a session appears with the labels of its most recent report from any node.
 
+Wherever a session is listed or picked (`who`, `task --any`, `room who`, the MCP `who` tools), it is
+named with its title and its state, not by its short id alone:
+
+    mac14-m1pro-mbp/claude.aac5 "Aivoicebus standby" (listening)
+    mac14-m1pro-mbp/claude.632e "Fix the login redirect" (seen Oct 17 14:03 EEST)
+
+`listening` means it is in a wait right now (standing by): a message reaches it within a second.
+`send`, `reply`, `task`, `token hand` and the MCP send warn when the session named is not listening
+while another session of the same machine is, and name both: two ids of one machine differ only in
+four characters, and a hand-off once went to the wrong one. The message is sent anyway.
+
+Every time a person reads (the CLI, the viewer, the hooks, the MCP tools) is in this machine's local
+time: the clock alone when it is today, else with the date and the zone (`Oct 17 14:03 EEST`).
+JSON output and the nodes' API stay in UTC (RFC 3339). Text a node writes into a message for every
+reader (a withdrawn message's placeholder) says `UTC`, since the readers' zones differ.
+
 ### The viewer: who is talking to whom
 
     aivoicebus view --demo                                   # an invented board, no mesh needed
@@ -433,7 +449,7 @@ CLI), who took it if it is a task, how many replies it has, and whether it has e
 until something arrives (`/v1/inbox?wait=S&gen=G`, at most 25 s, answered as soon as the node takes
 in a new record), so `wait` and `--wait-reply` print an answer within a second of it reaching a node,
 with about one request per 25 s instead of one every 3 s. With an older node they fall back to asking
-every `--every`. While a session waits, `who` marks it `[listening now]` and `ping` says it is listening.
+every `--every`. While a session waits, `who` marks it `(listening)` and `ping` says it is listening.
 
 Tasks, claims and ends need nodes of release 0.2.0 or later (they advertise `tasks` in
 `/v1/health`); a node older than that would quarantine them, so the client refuses to send one

@@ -18,6 +18,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/credstore"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 const secretUsage = `usage: aivoicebus secret save NAME [--host HOST[,HOST]] [--check-url URL [--check-field F]] [--no-check]
@@ -248,7 +249,7 @@ func secretList(base string, s Streams) error {
 		if !e.Private {
 			hosts += "  <- readable by others: chmod 600 " + e.Path
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%04o\t%s\n", e.Name, e.Saved.Local().Format("2006-01-02 15:04"), e.Mode, hosts)
+		fmt.Fprintf(tw, "%s\t%s\t%04o\t%s\n", e.Name, view.When(e.Saved, time.Now()), e.Mode, hosts)
 	}
 	return tw.Flush()
 }
