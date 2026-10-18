@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -497,5 +498,39 @@ func TestMaxTurnsEndsAConversation(t *testing.T) {
 	}
 	if code, _, e := run(t, "", "reply", "--re", id, "--max-turns", "9", "x"); code != exitUsage {
 		t.Errorf("max-turns on a reply: %d %s", code, e)
+	}
+}
+
+// task --each sends one task per machine and --wait-all gathers the answers, each on its own.
+func TestFanOutGathersEachMachinesAnswer(t *testing.T) {
+	mesh(t)
+	c, _ := client.FromEnv()
+	go func() { // lap answers; box never does
+		for i := 0; i < 100; i++ {
+			ms, _ := c.Inbox("lap/claude.f1", false)
+			for _, m := range ms {
+				if m.Kind == msg.KindTask {
+					c.Send(msg.Message{ID: msg.NewID(), From: "lap/claude.f1", To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindAnswer, Body: "lap: 3 passed"})
+					return
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, e := run(t, "", "task", "--each", "lap,box", "run the tests", "--wait-all", "5s", "--json")
+	var r struct {
+		Answered int         `json:"answered"`
+		Of       int         `json:"of"`
+		Results  []fanResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &r); err != nil || code != exitTimeout || r.Answered != 1 || r.Of != 2 {
+		t.Fatalf("%d %v\n%s\n%s", code, err, out, e)
+	}
+	if r.Results[0].Machine != "lap" || !r.Results[0].Answered || r.Results[0].Answers[0].Body != "lap: 3 passed" || r.Results[1].Answered {
+		t.Errorf("%+v", r.Results)
+	}
+	if code, _, _ := run(t, "", "task", "--each", "lap", "x"); code != exitUsage {
+		t.Error("one machine is not a fan-out")
 	}
 }

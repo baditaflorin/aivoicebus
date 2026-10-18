@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +30,7 @@ func taskCmd(args []string, s Streams) error {
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true}
-	var machine, tool, can, model, fallback, claimWithin string
+	var machine, tool, can, model, fallback, claimWithin, each, waitAll string
 	anyListening := false
 	var rest []string
 	var words []int // indexes into rest of the plain words (not flags or their values)
@@ -42,7 +43,7 @@ func taskCmd(args []string, s Streams) error {
 		}
 		key, val, hasEq := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		switch key {
-		case "tool", "can", "model", "fallback", "claim-within":
+		case "tool", "can", "model", "fallback", "claim-within", "each", "wait-all":
 			if !hasEq {
 				if i+1 >= len(args) {
 					return usage
@@ -59,6 +60,10 @@ func taskCmd(args []string, s Streams) error {
 				fallback = val
 			case "claim-within":
 				claimWithin = val
+			case "each":
+				each = val
+			case "wait-all":
+				waitAll = val
 			default:
 				model = val
 			}
@@ -73,6 +78,18 @@ func taskCmd(args []string, s Streams) error {
 			i++
 			rest = append(rest, args[i])
 		}
+	}
+	if each != "" {
+		var text []string
+		var flags []string
+		for i, a := range rest {
+			if slices.Contains(words, i) {
+				text = append(text, a)
+			} else {
+				flags = append(flags, a)
+			}
+		}
+		return fanOut(strings.Split(each, ","), tool, strings.Join(text, " "), waitAll, flags, s)
 	}
 	if len(words) > 0 && (len(words) > 1 || (can == "" && model == "" && tool == "")) {
 		machine = rest[words[0]]
