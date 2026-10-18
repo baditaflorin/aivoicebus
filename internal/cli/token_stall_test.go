@@ -86,6 +86,38 @@ func TestTokenInstallWithNobodyToAskRefusesAtOnceAndAnswersWhy(t *testing.T) {
 	}
 }
 
+// A withdrawn task, or one the nodes no longer have, is refused with what to do, not as "neither a task nor a link".
+func TestTokenInstallOfAWithdrawnOrExpiredTaskAsksForAFreshOne(t *testing.T) {
+	n := tokenMachine(t, approved)
+	task := n.handTask(t, "hands air its token, then thinks better of it")
+	t.Setenv("AIVOICEBUS_ME", "deploy/claude.9")
+	if code, _, e := run(t, "", "retract", task.ID); code != 0 {
+		t.Fatalf("retract: %d %q", code, e)
+	}
+	t.Setenv("AIVOICEBUS_ME", "air/claude.1")
+	code, _, e := run(t, "", "token", "install", task.ID)
+	if code == 0 || !strings.Contains(e, "withdrawn") || !strings.Contains(e, "aivoicebus token hand air") || strings.Contains(e, "neither") {
+		t.Errorf("a retracted task: %d %q", code, e)
+	}
+	// taken by a session standing by: the person learns how to get it to their own terminal
+	taken := n.handTask(t, "hands air its token; a standing-by session grabs it")
+	if _, err := n.c.Send(msg.Message{ID: msg.NewID(), From: "air/claude.2", To: "deploy/claude.9", Re: taken.ID, Thread: taken.Thread, Kind: msg.KindClaim, Body: "taking this"}); err != nil {
+		t.Fatal(err)
+	}
+	code, _, e = run(t, "", "token", "install", taken.ID)
+	if code == 0 || !strings.Contains(e, "taken by air/claude.2") || !strings.Contains(e, "aivoicebus token hand air --to air/claude.1") {
+		t.Errorf("a task another session took: %d %q", code, e)
+	}
+	gone := msg.NewID() // expired and dropped by the nodes, or never sent
+	code, _, e = run(t, "", "token", "install", gone)
+	if code == 0 || !strings.Contains(e, "not found") || !strings.Contains(e, "aivoicebus token hand") {
+		t.Errorf("a task the nodes no longer have: %d %q", code, e)
+	}
+	if tokenNow(t) != thShared {
+		t.Error("changed")
+	}
+}
+
 // handFor runs hand for air in this process with a short wait, while respond plays the session on air.
 func handFor(t *testing.T, n *tokenNode, respond func(task msg.Message)) (handResult, string) {
 	t.Helper()

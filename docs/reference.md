@@ -979,7 +979,11 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
    ID` in a terminal there (it asks y/N), or `aivoicebus approver init` there once. Only after the
    approval does it answer `[token ready]`.
    An agent runs `install` as a background command: the approval can take longer than a tool call
-   lasts. An install stopped with Ctrl-C or SIGTERM (what a tool call that times out sends) answers
+   lasts. Agents do not claim a `[token hand]` task on their own (the snippet and standby say so): they
+   tell their person and run `install` only on a yes. For the person to install it at their own
+   terminal while sessions there are standing by, hand it to that terminal alone: `token hand
+   laptop-a --to laptop-a/NAME`, as `aivoicebus whoami` prints it in that terminal. A task that was
+   retracted or expired is refused with a request for a fresh `token hand`. An install stopped with Ctrl-C or SIGTERM (what a tool call that times out sends) answers
    `[token install failed]`; one killed outright answers nothing. Neither changes the token file,
    which is replaced only after the link was fetched and checked.
 3. `hand` then puts the token in a one-time, end-to-end-encrypted file and sends only the link, in

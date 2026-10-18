@@ -278,6 +278,9 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	}
 	res.Task = task.ID
 	fmt.Fprintf(s.Err, "sent task %s to %s: a session there runs `aivoicebus token install %s`; waiting up to %s\n", task.ID, target, task.ID, wait)
+	if to == "" {
+		fmt.Fprintf(s.Err, "  (any session on %s may take it; for the person's own terminal there, send it to that one with --to %s/NAME, as `aivoicebus whoami` prints it in that terminal)\n", host, host)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -681,8 +684,14 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 				m = x
 			}
 		}
-		if m.ID == "" {
-			return outbox.NotFoundf("message %s was not found on the nodes", id)
+		fresh := "ask the machine that hands it over for a fresh one (aivoicebus token hand " + host + "); nothing was changed"
+		switch {
+		case m.ID == "":
+			return outbox.NotFoundf("message %s was not found on the nodes (a [token hand] task expires after an hour): %s", id, fresh)
+		case m.Retracted != nil:
+			return fmt.Errorf("%s was withdrawn by %s (retracted): %s", id, view.Name(m.From, msg.MaxIdentity), fresh)
+		case m.Exp != nil && time.Now().After(*m.Exp):
+			return fmt.Errorf("%s expired at %s: %s", id, m.Exp.Local().Format("15:04"), fresh)
 		}
 		if h, ok := tagged(m.Body, tokenHandTag); ok {
 			if m.Kind != msg.KindTask {
@@ -711,7 +720,7 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 			return err
 		}
 		if !cl.Mine {
-			return fmt.Errorf("task %s is taken by %s: it installs the token, not this session", task.ID, cl.Owner.From)
+			return fmt.Errorf("task %s is taken by %s: it installs the token, not this session. For the person to install it at a terminal here instead, the deploy side sends it to this session alone: aivoicebus token hand %s --to %s", task.ID, cl.Owner.From, host, me)
 		}
 	}
 
