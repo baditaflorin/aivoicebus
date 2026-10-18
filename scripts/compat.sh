@@ -143,9 +143,12 @@ cli() { # INDEX-OF-NODE BINARY IDENTITY ARGS...: a CLI of any version against on
 vv() { get "$1" /v1/health | py 'import json,sys; print(json.dumps(json.load(sys.stdin)["log"],sort_keys=True))'; }
 hfield() { get "$1" /v1/health | py 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1],"absent"))' "$2"; }
 feed() { get "$1" '/v1/sync?vv=%7B%7D'; } # one page; the gate's data fits in it
+# A mark matches only as a whole word: node names are versions without their dots, so o010
+# (0.1.0) is a prefix of o0100 (0.10.0), and a plain substring test found both.
 id_of() { # PORT MARK -> the id of the message whose body holds MARK
-  feed "$1" | py 'import json,sys
-ids=[r["msg"]["id"] for r in json.load(sys.stdin) or [] if r.get("msg") and sys.argv[1] in r["msg"]["body"]]
+  feed "$1" | py 'import json,re,sys
+has=lambda b: re.search(re.escape(sys.argv[1])+r"(?![0-9A-Za-z_])", b)
+ids=[r["msg"]["id"] for r in json.load(sys.stdin) or [] if r.get("msg") and has(r["msg"]["body"])]
 print(ids[0] if len(ids)==1 else "")' "$2"
 }
 inbox_has() { # PORT ME ID -> yes|no
@@ -221,9 +224,10 @@ done
 check_converged "version vectors equal"
 for i in "${!NAME[@]}"; do
   for j in "${!NAME[@]}"; do
-    got=$(feed "${PORT[$j]}" | py 'import json,sys
+    got=$(feed "${PORT[$j]}" | py 'import json,re,sys
 from datetime import datetime as D
-m=[r["msg"] for r in json.load(sys.stdin) or [] if r.get("msg") and sys.argv[1] in r["msg"]["body"]]
+has=lambda b: re.search(re.escape(sys.argv[1])+r"(?![0-9A-Za-z_])", b)
+m=[r["msg"] for r in json.load(sys.stdin) or [] if r.get("msg") and has(r["msg"]["body"])]
 if len(m)!=1: print("held %d" % len(m)); sys.exit()
 m=m[0]; t=lambda s: D.fromisoformat(s.replace("Z","+00:00"))
 ttl=int((t(m["exp"])-t(m["at"])).total_seconds()) if m.get("exp") else 0
