@@ -19,7 +19,7 @@ func stepOf(steps []Step, name string) Step {
 
 func TestSetupHooksMCPAndInstructionsForEveryTool(t *testing.T) {
 	home := t.TempDir()
-	for _, d := range []string{".codex", ".gemini", ".grok"} {
+	for _, d := range []string{".codex", ".gemini", ".gemini/antigravity", ".grok"} {
 		os.MkdirAll(filepath.Join(home, d), 0o755)
 	}
 	// What the user already has stays.
@@ -29,7 +29,7 @@ func TestSetupHooksMCPAndInstructionsForEveryTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v %+v", err, steps)
 	}
-	for _, n := range []string{"codex hook", "gemini hook", "codex mcp", "gemini mcp", "grok instructions", "claude mcp"} {
+	for _, n := range []string{"codex hook", "gemini hook", "codex mcp", "gemini mcp", "antigravity mcp", "grok instructions", "claude mcp"} {
 		if s := stepOf(steps, n); s.Status != Changed {
 			t.Errorf("%s: %+v", n, s)
 		}
@@ -57,13 +57,17 @@ func TestSetupHooksMCPAndInstructionsForEveryTool(t *testing.T) {
 		!strings.Contains(string(gem), `"timeout": 2000`) || !strings.Contains(string(gem), `"name": "aivoicebus-start"`) || g["mcpServers"].(map[string]any)["aivoicebus"] == nil {
 		t.Errorf("gemini settings.json: %s", gem)
 	}
+	agyMCP, _ := os.ReadFile(filepath.Join(home, ".gemini", "config", "mcp_config.json"))
+	if !strings.Contains(string(agyMCP), `"aivoicebus"`) {
+		t.Errorf("antigravity mcp_config.json: %s", agyMCP)
+	}
 	if b, _ := os.ReadFile(filepath.Join(home, ".grok", "AGENTS.md")); !strings.Contains(string(b), "aivoicebus") {
 		t.Error("no grok instructions")
 	}
 
 	// A second run changes nothing.
 	steps, _ = Setup(Options{Home: home})
-	for _, n := range []string{"codex hook", "gemini hook", "codex mcp", "gemini mcp", "grok instructions"} {
+	for _, n := range []string{"codex hook", "gemini hook", "codex mcp", "gemini mcp", "antigravity mcp", "grok instructions"} {
 		if s := stepOf(steps, n); s.Status != OK {
 			t.Errorf("second run %s: %+v", n, s)
 		}
@@ -74,10 +78,12 @@ func TestSetupHooksMCPAndInstructionsForEveryTool(t *testing.T) {
 	}
 	toml, _ = os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
 	gem, _ = os.ReadFile(filepath.Join(home, ".gemini", "settings.json"))
+	agyMCP, _ = os.ReadFile(filepath.Join(home, ".gemini", "config", "mcp_config.json"))
 	codexHooks, _ := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
 	if strings.Contains(string(toml), "aivoicebus") || !strings.Contains(string(toml), "[mcp_servers.other]") ||
-		strings.Contains(string(gem), "aivoicebus") || !strings.Contains(string(gem), `"mine"`) || strings.Contains(string(codexHooks), "aivoicebus") {
-		t.Errorf("after uninstall:\n%s\n%s\n%s", toml, gem, codexHooks)
+		strings.Contains(string(gem), "aivoicebus") || !strings.Contains(string(gem), `"mine"`) ||
+		strings.Contains(string(agyMCP), "aivoicebus") || strings.Contains(string(codexHooks), "aivoicebus") {
+		t.Errorf("after uninstall:\n%s\n%s\n%s\n%s", toml, gem, agyMCP, codexHooks)
 	}
 }
 

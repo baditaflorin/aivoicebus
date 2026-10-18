@@ -24,6 +24,7 @@ import (
 //	         process "codex", MCP client "codex-mcp-client"                     verified (process table, binary)
 //	cursor   env CURSOR_AGENT=1 (set for the commands its agent runs)           found in the cursor-agent bundle
 //	gemini   env GEMINI_CLI, GEMINI_SESSION_ID; process gemini (a node script)  best-effort (not installed here)
+//	         env ANTIGRAVITY_CONVERSATION_ID, ANTIGRAVITY_AGENT; process agy    verified (Antigravity / Gemini.app)
 //	grok, opencode, aider, goose: process names only (and goose/opencode env    best-effort; grok has no env marker
 //	         below, also best-effort)                                            that could be supported
 
@@ -68,13 +69,14 @@ func (d Detection) Why() string {
 }
 
 type toolSpec struct {
-	name    string
-	exes    []string // executable basenames (lower case, no extension)
-	scripts []string // path fragments of the script an interpreter runs, for tools shipped as node packages
-	env     []string // variables only this tool sets in the shells it spawns
-	session string   // variable holding the tool's own session id ("" if none)
-	prefix  bool     // take the first four letters/digits of the id (as the Claude hook does) instead of hashing it
-	clients []string // substrings of the MCP clientInfo.name
+	name     string
+	exes     []string // executable basenames (lower case, no extension)
+	scripts  []string // path fragments of the script an interpreter runs, for tools shipped as node packages
+	env      []string // variables only this tool sets in the shells it spawns
+	session  string   // variable holding the tool's own session id ("" if none)
+	sessions []string // fallback session-id variables, checked in order after session
+	prefix   bool     // take the first four letters/digits of the id (as the Claude hook does) instead of hashing it
+	clients  []string // substrings of the MCP clientInfo.name
 }
 
 // The order matters twice: the first match wins among environment markers, so a tool that is
@@ -86,8 +88,12 @@ var tools = []toolSpec{
 		// A Codex thread id is a time-ordered UUID: its first characters are the same for hours,
 		// so the id is hashed, not cut.
 		session: "CODEX_THREAD_ID", clients: []string{"codex"}},
-	{name: "gemini", exes: []string{"gemini"}, scripts: []string{"/@google/gemini-cli/"},
-		env: []string{"GEMINI_CLI", "GEMINI_SESSION_ID"}, session: "GEMINI_SESSION_ID", clients: []string{"gemini"}},
+	{name: "gemini", exes: []string{"gemini", "agy", "antigravity"}, scripts: []string{"/@google/gemini-cli/"},
+		env:      []string{"GEMINI_CLI", "GEMINI_SESSION_ID", "ANTIGRAVITY_CONVERSATION_ID", "ANTIGRAVITY_AGENT"},
+		session:  "ANTIGRAVITY_CONVERSATION_ID",
+		sessions: []string{"GEMINI_SESSION_ID"},
+		prefix:   true,
+		clients:  []string{"gemini", "antigravity", "agy"}},
 	// Grok Build (xAI) is the `grok` binary, also shipped as xai-grok-shell; its hooks get GROK_SESSION_ID,
 	// which may reach the shells it spawns too (best-effort, from its docs).
 	{name: "grok", exes: []string{"grok", "grok-cli", "xai-grok-shell"}, scripts: []string{"/@xai-official/grok/"},
@@ -167,17 +173,18 @@ func procTool(p Proc) string {
 }
 
 func (t toolSpec) sessionFromEnv(getenv func(string) string) string {
-	if t.session == "" {
-		return ""
+	for i, k := range append([]string{t.session}, t.sessions...) {
+		if k == "" {
+			continue
+		}
+		if id := getenv(k); id != "" {
+			if t.prefix && i == 0 {
+				return shortAlnum(id)
+			}
+			return hash4(id)
+		}
 	}
-	id := getenv(t.session)
-	if id == "" {
-		return ""
-	}
-	if t.prefix {
-		return shortAlnum(id)
-	}
-	return hash4(id)
+	return ""
 }
 
 // shortAlnum is the first four letters or digits of id, lower-cased: how the Claude hook

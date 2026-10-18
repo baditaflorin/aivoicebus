@@ -37,6 +37,7 @@ func TestDetect(t *testing.T) {
 		{"codex from thread id (hashed, not cut)", []string{"CODEX_THREAD_ID", "0199-aaaa-bbbb"}, nil, "codex", "*", "CODEX_THREAD_ID"},
 		{"codex sandbox marker", []string{"CODEX_SANDBOX", "seatbelt"}, nil, "codex", "", "CODEX_SANDBOX"},
 		{"gemini from env", []string{"GEMINI_CLI", "1"}, nil, "gemini", "", "GEMINI_CLI"},
+		{"gemini from antigravity env", []string{"ANTIGRAVITY_AGENT", "1", "ANTIGRAVITY_CONVERSATION_ID", "f40f54b5-5b43-4d64-9db6-3457637698f3"}, nil, "gemini", "f40f", "ANTIGRAVITY_"},
 		{"cursor agent from env", []string{"CURSOR_AGENT", "1"}, nil, "cursor-agent", "", "CURSOR_AGENT"},
 		{"opencode from env", []string{"OPENCODE", "1"}, nil, "opencode", "", "OPENCODE"},
 		{"goose from env", []string{"GOOSE_TERMINAL", "1"}, nil, "goose", "", "GOOSE_TERMINAL"},
@@ -47,6 +48,8 @@ func TestDetect(t *testing.T) {
 		{"claude process: the session id env keeps the hook's suffix", []string{"CLAUDE_CODE_SESSION_ID", "abcd1234"}, []Proc{{PID: 88, Start: "s", Exe: claudeApp}}, "claude", "abcd", "pid 88"},
 		{"gemini is a node script", nil, []Proc{{PID: 3, Start: "a", Exe: "/usr/bin/node", Script: "/usr/local/bin/gemini"}}, "gemini", "*", "node"},
 		{"gemini by package path", nil, []Proc{{PID: 3, Start: "a", Exe: "/usr/bin/node", Script: "/n/lib/node_modules/@google/gemini-cli/dist/index.js"}}, "gemini", "*", "node"},
+		{"antigravity agy process with conversation id", []string{"ANTIGRAVITY_CONVERSATION_ID", "f40f54b5-5b43-4d64"}, []Proc{zsh, {PID: 99, Start: "s", Exe: "/Applications/Gemini.app/Contents/Helpers/agy"}}, "gemini", "f40f", "pid 99"},
+		{"antigravity agy process without env falls back to pid+start", nil, []Proc{zsh, {PID: 99, Start: "s", Exe: "/Applications/Gemini.app/Contents/Helpers/agy"}}, "gemini", "*", "pid 99"},
 		{"an unrelated node script is nothing", nil, []Proc{{PID: 3, Exe: "/usr/bin/node", Script: "/srv/app/server.js"}}, "", "", ""},
 		{"grok by process name", nil, []Proc{{PID: 4, Start: "b", Exe: "/usr/local/bin/grok"}}, "grok", "*", "grok"},
 		{"aider as a python script", nil, []Proc{{PID: 4, Start: "b", Exe: "/usr/bin/python3", Script: "/home/u/.local/bin/aider"}}, "aider", "*", "python3"},
@@ -137,6 +140,8 @@ func TestToolFromClient(t *testing.T) {
 		"claude-code":           "claude",
 		"Claude Desktop":        "claude",
 		"gemini-cli-mcp-client": "gemini",
+		"antigravity":           "gemini",
+		"agy-mcp":               "gemini",
 		"cursor-vscode":         "cursor-agent",
 		"opencode":              "opencode",
 		"Grok":                  "grok",
@@ -179,7 +184,7 @@ func resetDetection(t *testing.T, chain []Proc, env ...string) {
 	t.Helper()
 	for _, v := range []string{"AIVOICEBUS_DETECT", "AIVOICEBUS_AGENT_SRC", "AIVOICEBUS_ME", "AIVOICEBUS_AGENT", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_ENTRYPOINT",
 		"CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_CI",
-		"GEMINI_CLI", "GEMINI_SESSION_ID", "CURSOR_AGENT", "OPENCODE", "GOOSE_TERMINAL"} {
+		"GEMINI_CLI", "GEMINI_SESSION_ID", "ANTIGRAVITY_CONVERSATION_ID", "ANTIGRAVITY_AGENT", "CURSOR_AGENT", "OPENCODE", "GOOSE_TERMINAL"} {
 		t.Setenv(v, "")
 	}
 	for i := 0; i+1 < len(env); i += 2 {

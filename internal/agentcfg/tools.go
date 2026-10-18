@@ -206,21 +206,11 @@ func (in *installer) mcpServers() {
 		path := in.p.join(".gemini", "settings.json")
 		if _, err := os.Stat(in.p.join(".gemini")); err != nil {
 			in.add("gemini mcp", Skipped, "no ~/.gemini (tool not installed)")
-		} else if doc, ok := in.jsonDoc(path, "gemini mcp"); ok {
-			servers, _ := doc["mcpServers"].(map[string]any)
-			if servers == nil {
-				servers = map[string]any{}
-			}
-			cur, _ := servers["aivoicebus"].(map[string]any)
-			args, _ := cur["args"].([]any)
-			if cur != nil && cur["command"] == bin && len(args) == 1 && args[0] == "mcp" {
-				in.add("gemini mcp", OK, path)
-			} else {
-				servers["aivoicebus"] = map[string]any{"command": bin, "args": []any{"mcp"}}
-				doc["mcpServers"] = servers
-				if in.saveDoc(path, "gemini mcp", doc) {
-					in.add("gemini mcp", Changed, path)
-				}
+		} else {
+			in.ensureJSONMCPServer(path, "gemini mcp", bin)
+			// Google Antigravity (Gemini.app / agy) reads ~/.gemini/config/mcp_config.json.
+			if in.hasAntigravity() {
+				in.ensureJSONMCPServer(in.p.join(".gemini", "config", "mcp_config.json"), "antigravity mcp", bin)
 			}
 		}
 	}
@@ -229,6 +219,62 @@ func (in *installer) mcpServers() {
 	if (in.wants("claude") || in.wants("grok")) && in.o.ClaudeMCP != nil {
 		status, detail := in.o.ClaudeMCP(bin, in.o.DryRun)
 		in.add("claude mcp", status, detail)
+	}
+}
+
+func (in *installer) hasAntigravity() bool {
+	for _, sub := range []string{"antigravity", "config"} {
+		if fi, err := os.Stat(in.p.join(".gemini", sub)); err == nil && fi.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func (in *installer) ensureJSONMCPServer(path, step, bin string) {
+	doc, ok := in.jsonDoc(path, step)
+	if !ok {
+		return
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	cur, _ := servers["aivoicebus"].(map[string]any)
+	args, _ := cur["args"].([]any)
+	if cur != nil && cur["command"] == bin && len(args) == 1 && args[0] == "mcp" {
+		in.add(step, OK, path)
+		return
+	}
+	servers["aivoicebus"] = map[string]any{"command": bin, "args": []any{"mcp"}}
+	doc["mcpServers"] = servers
+	if in.saveDoc(path, step, doc) {
+		in.add(step, Changed, path)
+	}
+}
+
+func (in *installer) removeJSONMCPServer(path, step string) {
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+	doc, ok := in.jsonDoc(path, step)
+	if !ok {
+		return
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		return
+	}
+	cur, _ := servers["aivoicebus"].(map[string]any)
+	if cur == nil || !strings.Contains(commandOf(cur), "aivoicebus") {
+		return
+	}
+	delete(servers, "aivoicebus")
+	if len(servers) == 0 {
+		delete(doc, "mcpServers")
+	}
+	if in.saveDoc(path, step, doc) {
+		in.add(step, Changed, path)
 	}
 }
 
@@ -247,22 +293,8 @@ func (in *installer) removeMCPServers() {
 		}
 	}
 	if in.wants("gemini") {
-		path := in.p.join(".gemini", "settings.json")
-		if _, err := os.Stat(path); err == nil {
-			if doc, ok := in.jsonDoc(path, "gemini mcp"); ok {
-				if servers, _ := doc["mcpServers"].(map[string]any); servers != nil {
-					if cur, _ := servers["aivoicebus"].(map[string]any); cur != nil && strings.Contains(commandOf(cur), "aivoicebus") {
-						delete(servers, "aivoicebus")
-						if len(servers) == 0 {
-							delete(doc, "mcpServers")
-						}
-						if in.saveDoc(path, "gemini mcp", doc) {
-							in.add("gemini mcp", Changed, path)
-						}
-					}
-				}
-			}
-		}
+		in.removeJSONMCPServer(in.p.join(".gemini", "settings.json"), "gemini mcp")
+		in.removeJSONMCPServer(in.p.join(".gemini", "config", "mcp_config.json"), "antigravity mcp")
 	}
 	if in.wants("claude") && in.o.ClaudeMCPRemove != nil {
 		status, detail := in.o.ClaudeMCPRemove(in.o.DryRun)
