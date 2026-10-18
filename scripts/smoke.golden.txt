@@ -402,6 +402,7 @@ ok    claude instructions    snippet 7a26cdea
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 ok    node features          smoke: decide,files,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run
+WARN  token kind             the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add air --apply
 [exit 0]
 $ aivoicebus uninstall --dry-run
 would change claude hook            <TMP>/home/.claude/settings.json

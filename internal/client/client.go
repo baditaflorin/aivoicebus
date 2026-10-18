@@ -802,6 +802,27 @@ func (c *Client) TokenInfo() (TokenInfo, error) {
 }
 
 // Health is a node's own account of itself: see msg.Health.
+// TokenKind asks a node what kind of token this client holds: "shared" (anyone holding it can send
+// as any machine), "machine" (bound to host), or "observer"; "" from a node too old to say.
+func (c *Client) TokenKind() (kind, host string, err error) {
+	var r struct {
+		Name, Host string
+		Observer   bool
+	}
+	if err := c.do(c.URLs, "GET", "/v1/token", nil, &r); err != nil {
+		return "", "", err
+	}
+	switch {
+	case r.Observer:
+		return "observer", "", nil
+	case r.Host != "":
+		return "machine", r.Host, nil
+	case r.Name != "":
+		return "shared", "", nil
+	}
+	return "", "", nil
+}
+
 func (c *Client) Health() (msg.Health, error) {
 	var h msg.Health
 	err := c.do(c.URLs, "GET", "/v1/health", nil, &h)
