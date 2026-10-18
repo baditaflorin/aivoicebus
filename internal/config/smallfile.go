@@ -57,7 +57,9 @@ func UpdateSmall(name string, edit func(old string) (string, error)) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	unlock, ok := Lock(filepath.Join(dir, "."+name+".lock"), 2*time.Second)
+	// The wait is long: a loaded machine can hold each edit (read, fsync, rename) for a while, and
+	// a settings command that gives up early is worse than one that waits.
+	unlock, ok := Lock(filepath.Join(dir, "."+name+".lock"), 10*time.Second)
 	if !ok {
 		return fmt.Errorf("another aivoicebus command is changing %s; try again", name)
 	}

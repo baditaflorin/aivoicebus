@@ -12,6 +12,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/assets"
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/version"
 	"github.com/baditaflorin/aivoicebus/internal/view"
@@ -196,6 +197,9 @@ func doctor(args []string, s Streams) error {
 		if c, ok := featureCheck(); ok {
 			checks = append(checks, c)
 		}
+		if c, ok := tokenKindCheck(); ok {
+			checks = append(checks, c)
+		}
 	}
 	var views []checkView
 	for _, c := range checks {
@@ -288,4 +292,23 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// tokenKindCheck says whether this machine still uses the mesh's shared token, with which anyone
+// holding it can send as this machine; a machine token binds its messages to its name.
+func tokenKindCheck() (agentcfg.Check, bool) {
+	c, err := client.FromEnv()
+	if err != nil {
+		return agentcfg.Check{}, false
+	}
+	kind, host, err := c.TokenKind()
+	switch {
+	case err != nil || kind == "":
+		return agentcfg.Check{}, false // a node too old to say, or none answering: the mesh line says so
+	case kind == "machine":
+		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelOK, Detail: "a machine token, bound to " + host}, true
+	case kind == "observer":
+		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the observer token: read-only, this machine cannot send"}, true
+	}
+	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply"}, true
 }

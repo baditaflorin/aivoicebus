@@ -77,3 +77,30 @@ func TestMetricsCountRefusalsByReason(t *testing.T) {
 		}
 	}
 }
+
+// /v1/token says what kind of token the caller holds, never the token.
+func TestTokenKindNamesTheKindOnly(t *testing.T) {
+	s, _ := store.Open(t.TempDir(), "n1")
+	ts := NewTokenSet("shared-token-0123456789-0123456789")
+	ts.Add("machine-token-0123456789-0123456789", Principal{Name: "lap", Host: "lap"})
+	srv := httptest.NewServer(NewHandler(s, "", WithTokenSet(ts)))
+	defer srv.Close()
+	kind := func(tok string) map[string]any {
+		req, _ := http.NewRequest("GET", srv.URL+"/v1/token", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		r, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var out map[string]any
+		json.NewDecoder(r.Body).Decode(&out)
+		return out
+	}
+	if k := kind("shared-token-0123456789-0123456789"); k["host"] != "" || k["name"] == "" {
+		t.Errorf("shared: %v", k)
+	}
+	if k := kind("machine-token-0123456789-0123456789"); k["host"] != "lap" {
+		t.Errorf("machine: %v", k)
+	}
+}
