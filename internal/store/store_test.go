@@ -614,6 +614,47 @@ func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
 	}
 }
 
+// A client writes each message to two nodes, so each node also gets the other's copy by
+// replication: one message must count once, or the brake stops a conversation at half its limit
+// (found live on 0.10.1: refused after 13 messages at a limit of 24).
+func TestAMessageWrittenToTwoNodesCountsOnceForTheBrake(t *testing.T) {
+	na, _ := Open(t.TempDir(), "a")
+	nb, _ := Open(t.TempDir(), "b")
+	sync := func() {
+		na.Merge(nb.Since(na.VV(), 1000))
+		nb.Merge(na.Since(nb.VV(), 1000))
+	}
+	a, b := "lap/claude.a1", "box/codex.b2"
+	first := msg.Message{ID: msg.NewID(), From: a, To: b, Body: "start"}
+	na.Send(first)
+	nb.Send(first)
+	sync()
+	words := strings.Fields("apple river canyon violet harbor meadow lantern orbit cedar falcon glacier pepper " +
+		"walnut copper tundra saffron marble willow cobalt ember thistle quartz basil coral hazel maple")
+	n := 0
+	for i := 0; i < pairLimit+2; i++ {
+		from, to := a, b
+		if i%2 == 1 {
+			from, to = b, a
+		}
+		m := msg.Message{ID: msg.NewID(), From: from, To: to, Re: first.ID, Body: words[i]}
+		_, err1 := na.Send(m) // the client writes it to both nodes...
+		_, err2 := nb.Send(m)
+		sync() // ...and each node then gets the other's copy too
+		if err1 != nil || err2 != nil {
+			var rl *RateLimitError
+			if !errors.As(err1, &rl) && !errors.As(err2, &rl) {
+				t.Fatalf("reply %d: %v %v", i, err1, err2)
+			}
+			break
+		}
+		n++
+	}
+	if n != pairLimit {
+		t.Errorf("the brake held after %d messages, want %d: a message written to two nodes counted twice", n, pairLimit)
+	}
+}
+
 // A thread started with a deadline takes no message after it, except an end.
 func TestADeadlineClosesAThread(t *testing.T) {
 	s, err := Open(t.TempDir(), "n1")

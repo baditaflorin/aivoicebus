@@ -880,13 +880,17 @@ func (s *Store) Merge(recs []msg.Record) (int, error) {
 	n := 0
 	for _, r := range recs {
 		r, ok := s.vetLocked(r)
+		held := false // a client writes one message to several nodes: each copy is a record of its own
+		if ok && r.Msg != nil {
+			_, held = s.byIDLocked(r.Msg.ID)
+		}
 		if ok && s.applyLocked(r) {
 			if err := appendLine(filepath.Join(s.dir, "log.jsonl"), r); err != nil {
 				return n, err
 			}
 			n++
-			if r.Msg != nil {
-				s.notePairLocked(*r.Msg) // a loop's other side may write through another node
+			if r.Msg != nil && !held {
+				s.notePairLocked(*r.Msg) // a loop's other side may write through another node; counted once per message
 			}
 		}
 	}
