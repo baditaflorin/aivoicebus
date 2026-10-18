@@ -86,7 +86,9 @@ func tokenMachine(t *testing.T, approve func() (string, error)) *tokenNode {
 	}
 	if approve != nil {
 		old := approveInstall
-		approveInstall = func(*client.Client, string, string, time.Duration, Streams) (string, error) { return approve() }
+		approveInstall = func(*client.Client, string, string, time.Duration, func(string, string), Streams) (string, error) {
+			return approve()
+		}
 		t.Cleanup(func() { approveInstall = old })
 	}
 	oldRestart := restartWorker
