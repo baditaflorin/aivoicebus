@@ -138,7 +138,7 @@ func (n *tokenNode) answer(t *testing.T, task msg.Message, kind, body string) ms
 // When hand's wait runs out it says how far the exchange got, and while it waits it says what for.
 func TestTokenHandSaysWhereItStalled(t *testing.T) {
 	if testing.Short() {
-		t.Skip("six waits of five seconds")
+		t.Skip("seven waits of five seconds")
 	}
 	t.Run("nobody took it", func(t *testing.T) {
 		n := tokenMachine(t, approved)
@@ -169,11 +169,21 @@ func TestTokenHandSaysWhereItStalled(t *testing.T) {
 			n.answer(t, task, msg.KindClaim, "installing the token")
 			n.answer(t, task, msg.KindProgress, tokenWaitingTag+" air\nair/claude.1 took it and asked the person on air to approve (request "+req+"): in a terminal on this machine: aivoicebus approve "+req+". It waits up to 30m0s.")
 		})
-		if !strings.Contains(e, "taken by air/claude.1, waiting for the person's approval on air (approve "+req+" there") {
+		if !strings.Contains(e, "taken by air/claude.1, waiting for the person's approval on air (approve "+req+" there: aivoicebus approve "+req+" in a terminal on air)") {
 			t.Errorf("hand did not show the wait: %q", e)
 		}
 		if res.Stalled != "approval" || res.Approval != req || !strings.Contains(res.Error, "nobody approved it on air") || !strings.Contains(res.Error, "aivoicebus approve "+req) {
 			t.Errorf("%+v", res)
+		}
+	})
+	t.Run("waiting for the person's phone", func(t *testing.T) {
+		n := tokenMachine(t, approved)
+		req := msg.NewID()
+		_, e := handFor(t, n, func(task msg.Message) {
+			n.answer(t, task, msg.KindProgress, tokenWaitingTag+" air\nair/claude.1 took it and asked the person on air to approve (request "+req+"): on the phone (there is no approver key here). It waits up to 30m0s.")
+		})
+		if !strings.Contains(e, "(approve "+req+" there: on the phone)") || strings.Contains(e, "aivoicebus approve") {
+			t.Errorf("hand sent the person to a terminal that cannot approve it: %q", e)
 		}
 	})
 	t.Run("approved, but no install", func(t *testing.T) {

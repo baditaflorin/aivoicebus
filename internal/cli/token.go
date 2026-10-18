@@ -289,7 +289,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		return msg.HostOf(m.From) == host && m.Verified == msg.VerifiedSigned
 	}
 	// how far it got, for a wait that runs out: the claim, then install's word that it asked the person
-	var taker, approval string
+	var taker, approval, where string // where: how the person approves it there
 	progress := func(m msg.Message) {
 		if !from(m) {
 			return
@@ -304,7 +304,13 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 				}
 			}
 			res.Session, res.Approval = m.From, approval
-			fmt.Fprintf(s.Err, "taken by %s, waiting for the person's approval on %s (approve %s there: aivoicebus approve %s, in a terminal on %s)\n", name, host, approval, approval, host)
+			switch where = "aivoicebus approve " + approval + " in a terminal on " + host; {
+			case strings.Contains(m.Body, "no approver key"):
+				where = "on the phone"
+			case strings.Contains(m.Body, "or on the phone"):
+				where += ", or on the phone"
+			}
+			fmt.Fprintf(s.Err, "taken by %s, waiting for the person's approval on %s (approve %s there: %s)\n", name, host, approval, where)
 			return
 		}
 		if m.Kind == msg.KindClaim && taker == "" {
@@ -327,7 +333,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 				return fmt.Errorf("stalled: taken by %s, but it neither asked the person on %s nor said ready within %s (its install may have been stopped, or runs a release before 0.10.4); task %s", taker, host, wait, task.ID)
 			}
 			res.Stalled = "approval"
-			return fmt.Errorf("stalled: taken by %s, but nobody approved it on %s within %s (request %s: the person approves it there, with aivoicebus approve %s in a terminal or on the phone if it has one, or runs aivoicebus token install %s in a terminal there themselves); task %s", taker, host, wait, approval, approval, task.ID, task.ID)
+			return fmt.Errorf("stalled: taken by %s, but nobody approved it on %s within %s (request %s: the person approves it there, %s, or runs aivoicebus token install %s in a terminal there themselves); task %s", taker, host, wait, approval, where, task.ID, task.ID)
 		}
 		for _, m := range got {
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
