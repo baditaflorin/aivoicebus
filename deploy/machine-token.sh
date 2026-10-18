@@ -13,9 +13,12 @@
 # the roster, like any agent token; the observer token is the read-only one.
 #
 # The token is written to ~/.config/aivoicebus/machine-tokens/<host> (mode 600) and never printed.
-# Put it on the machine as ~/.config/aivoicebus/token (copy the file over a channel you trust;
-# NEVER on the machine you deploy from, whose ~/.config/aivoicebus/token must stay the shared
-# token). deploy/install.sh adds every file in that directory to each node's token file, so the
+# Hand it over with `aivoicebus token hand <host>`: it sends <host> a task, a session there runs
+# `aivoicebus token install ID`, the person there approves, and the token goes over as a one-time,
+# end-to-end-encrypted file; install checks it is <host>'s own before it replaces that machine's
+# ~/.config/aivoicebus/token, and hand reports success only when the nodes saw <host> answer with
+# it (docs/reference.md, "Machine tokens"). NEVER put it on the machine you deploy from, whose
+# ~/.config/aivoicebus/token must stay the shared token. deploy/install.sh adds every file in that directory to each node's token file, so the
 # tokens survive a re-install. Nodes use the shared token between themselves; a machine token
 # cannot replicate, so keep at least one shared token (deploy/rotate-token.sh rotates it).
 #
@@ -77,7 +80,7 @@ add)
   fi
   roll_out || exit 1
   echo; echo "$HOST has its own token, at $DIR/$HOST (mode 600, not printed)."
-  echo "Copy that file to $HOST as ~/.config/aivoicebus/token. It works only for identities $HOST/..."
+  echo "Hand it to $HOST with: aivoicebus token hand $HOST   (a session there installs it; a person approves). It works only for identities $HOST/..."
   ;;
 revoke)
   if [ "$APPLY" = 0 ]; then

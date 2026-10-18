@@ -954,6 +954,46 @@ allowlist if more than your own machine needs it. `aivoicebus update` brings the
 that can reach the mesh, so the same one-liner works on a second laptop. `aivoicebus secret path NAME`
 prints where the file is, for a tool that reads a file; never print the file's content.
 
+## Machine tokens: handing a machine its own
+
+A machine token (`deploy/machine-token.sh add HOST --apply`, see [operations.md](operations.md))
+lets that machine send, acknowledge and read mail only as `HOST/...`. It is written on the machine you
+deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HOST as its
+`~/.config/aivoicebus/token`. Two agents do that between themselves; the person only approves:
+
+    aivoicebus token hand laptop-a              # on the deploy machine (or --to laptop-a/codex.k3 for one session)
+    aivoicebus token install <task id>          # on laptop-a, by the session that takes the task
+
+1. `hand` asks the nodes whether they take the token as laptop-a's own (and refuses if not, or if
+   the file is readable by others, or if laptop-a is the deploy machine itself), then sends laptop-a
+   a `[token hand v1]` task.
+2. `install`, run there with the task's id, takes the task and asks the person to approve, since
+   it changes a credential. At a terminal it asks y/N. An agent's session has no terminal, so it sends
+   `[approval needed]` to the person and waits for one of two answers: a decision signed with the
+   approver key (`aivoicebus approve ID` in any terminal on that machine, with the approver passphrase;
+   `aivoicebus approver init` makes the key once), or the Approve button on the phone when a notify URL
+   is set. It refuses when it can ask nobody. Only after the approval does it answer `[token ready]`.
+3. `hand` then puts the token in a one-time, end-to-end-encrypted file held by one of the mesh's nodes
+   (`--via node`, the default, so nothing leaves the mesh's machines; `--via pipe` uses the pipe) and
+   sends only the link, in the thread, to the session that said ready. The link is good for one read
+   within five minutes, which is why it is made after the approval, not before.
+4. `install` fetches it from a node this machine is configured with, and asks the nodes with the new
+   token what it is. Only a machine token bound to this machine passes: another machine's, the
+   shared or observer token, or one no node takes is refused, and nothing changes. Then it replaces the
+   token file atomically (mode 600), reads it back and asks the nodes again; if that fails, the old
+   token goes back. It restarts the worker if one is installed, and answers `[token installed]` with
+   the new token.
+5. `hand` asks every node which token sent that answer (`/v1/token/seen`). It reports success only
+   if a node saw the answer arrive with laptop-a's machine token. The peer's own word is not enough.
+
+`install` also takes the id of a message that carries such a link, or the link itself, for a
+hand-over done by hand. `--json` gives the result as an object on both sides. Exit 0 from `hand` means
+installed and proven. The token is in no message, argument, output or log. A message that holds a
+raw token is refused by the send scan (the deploy machine's `machine-tokens/` and
+`AIVOICEBUS_MACHINE_TOKENS_DIR` count as secrets) and by the nodes. If `AIVOICEBUS_TOKEN` is set on
+the receiving machine, `install` refuses, because then the token file is not what that machine uses.
+Every message of the exchange must be signed by the sender's machine key.
+
 ## Updating
 
     aivoicebus update --check       # is a newer signed release available?

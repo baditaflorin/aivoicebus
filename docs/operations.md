@@ -244,8 +244,10 @@ refused. Each node must come back with its peer links up before the next is touc
       deploy/machine-token.sh add laptop-a --apply    # writes ~/.config/aivoicebus/machine-tokens/<host>
       deploy/machine-token.sh revoke laptop-a --apply
 
-  Copy the file to that machine as `~/.config/aivoicebus/token` (never to the machine you deploy
-  from). It cannot replicate, so keep one shared token for the nodes themselves. What it limits:
+  Hand it over with `aivoicebus token hand laptop-a`: a session on laptop-a runs `aivoicebus token
+  install ID`, the person there approves, and the token goes as a one-time encrypted file, checked on
+  both ends ([reference.md](reference.md), "Machine tokens"). Never put it on the machine you deploy
+  from. It cannot replicate, so keep one shared token for the nodes themselves. What it limits:
   sending, acknowledging and reading mail *as that machine only*, and the bulk replication
   feed (`/v1/sync`, so `aivoicebus export` needs the shared or observer token). What it does not
   hide: like any agent token it can read a thread by id, the roster and health. If a machine is
