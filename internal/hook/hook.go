@@ -428,13 +428,19 @@ func toolJSON(out io.Writer, tool, event, text string) {
 }
 
 // hookInput is what the tool passes the hook on stdin. Claude Code, Codex and Gemini CLI share
-// these snake_case fields; Codex also says which model the session runs.
+// these snake_case fields; Codex also says which model the session runs. Antigravity passes
+// camelCase protojson fields (conversationId, workspacePaths, transcriptPath, modelName).
 type hookInput struct {
 	SessionID string `json:"session_id"`
 	CWD       string `json:"cwd"`
 	Model     string `json:"model"`
 	// TranscriptPath is the session's transcript file, where Claude Code records the session's title.
 	TranscriptPath string `json:"transcript_path"`
+
+	ConversationID      string   `json:"conversationId"`
+	WorkspacePaths      []string `json:"workspacePaths"`
+	CamelTranscriptPath string   `json:"transcriptPath"`
+	ModelName           string   `json:"modelName"`
 }
 
 func readInput(stdin io.Reader) hookInput {
@@ -442,6 +448,18 @@ func readInput(stdin io.Reader) hookInput {
 	if stdin != nil {
 		b, _ := io.ReadAll(io.LimitReader(stdin, 1<<20))
 		_ = json.Unmarshal(b, &in)
+	}
+	if in.SessionID == "" {
+		in.SessionID = in.ConversationID
+	}
+	if in.CWD == "" && len(in.WorkspacePaths) > 0 {
+		in.CWD = in.WorkspacePaths[0]
+	}
+	if in.TranscriptPath == "" {
+		in.TranscriptPath = in.CamelTranscriptPath
+	}
+	if in.Model == "" && in.ModelName != "" && !strings.EqualFold(in.ModelName, "auto") {
+		in.Model = in.ModelName
 	}
 	return in
 }

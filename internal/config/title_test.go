@@ -13,6 +13,8 @@ func titleHome(t *testing.T) string {
 	h := t.TempDir()
 	t.Setenv("HOME", h)
 	t.Setenv(TitleEnv, "")
+	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
 	return h
 }
 
@@ -81,6 +83,42 @@ func TestOldTitleFilesAreSweptWhenTheCacheGrows(t *testing.T) {
 func TestAnUnsetHomeSavesNothingAndDoesNotPanic(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv(TitleEnv, "")
+	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
 	SaveTitle("h/a", "x")
 	_ = Title("h/a")
+}
+
+func TestAntigravityTitleFromAnnotations(t *testing.T) {
+	h := titleHome(t)
+	convID := "f40f54b5-5b43-4d64-9db6-3457637698f3"
+	annDir := filepath.Join(h, ".gemini", "antigravity", "annotations")
+	os.MkdirAll(annDir, 0o700)
+	pbtxt := `title:"AI Voice Bus \"Mesh\" Setup" last_user_view_time:{seconds:1792358966 nanos:443000000}` + "\n"
+	os.WriteFile(filepath.Join(annDir, convID+".pbtxt"), []byte(pbtxt), 0o600)
+
+	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", convID)
+	if got := Title("h/gemini.f40f"); got != `AI Voice Bus "Mesh" Setup` {
+		t.Errorf("gemini.f40f title = %q", got)
+	}
+	if got := Title("h/gemini"); got != `AI Voice Bus "Mesh" Setup` {
+		t.Errorf("bare gemini title = %q", got)
+	}
+	// Another session or tool on the same machine must not inherit this conversation's title.
+	if got := Title("h/gemini.aaaa"); got != "" {
+		t.Errorf("different gemini session got title %q", got)
+	}
+	if got := Title("h/claude.f40f"); got != "" {
+		t.Errorf("different tool got title %q", got)
+	}
+	// AIVOICEBUS_TITLE=off still suppresses it.
+	t.Setenv(TitleEnv, "off")
+	if got := Title("h/gemini.f40f"); got != "" {
+		t.Errorf("Title with off = %q", got)
+	}
+	t.Setenv(TitleEnv, "")
+	// Path traversal or symlinks in conversation ID are rejected.
+	if got := AntigravityTitle("../etc/passwd"); got != "" {
+		t.Errorf("traversal ID accepted: %q", got)
+	}
 }

@@ -125,3 +125,41 @@ func TestTitlesCanBeTurnedOff(t *testing.T) {
 		t.Error("a title was saved though titles are off")
 	}
 }
+
+func TestAntigravityHookDeclaresAndSavesAnnotationTitle(t *testing.T) {
+	s, _ := mesh(t)
+	t.Setenv("AIVOICEBUS_ME", "")
+	t.Setenv("AIVOICEBUS_AGENT", "")
+	t.Setenv("AIVOICEBUS_TITLE", "")
+	t.Setenv("ANTIGRAVITY_CONVERSATION_ID", "")
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", "")
+	h, _ := os.UserHomeDir()
+	convID := "f40f54b5-5b43-4d64-9db6-3457637698f3"
+	annDir := filepath.Join(h, ".gemini", "antigravity", "annotations")
+	os.MkdirAll(annDir, 0o700)
+	os.WriteFile(filepath.Join(annDir, convID+".pbtxt"), []byte(`title:"AI Voice Bus Setup" last_user_view_time:{seconds:1}`+"\n"), 0o600)
+
+	in, _ := json.Marshal(map[string]any{
+		"conversationId": convID,
+		"workspacePaths": []string{t.TempDir()},
+		"modelName":      "gemini-3-pro",
+	})
+	var out strings.Builder
+	Run([]string{"--tool", "gemini"}, strings.NewReader(string(in)), &out)
+
+	me := ""
+	for _, e := range s.Roster() {
+		if strings.HasSuffix(e.Me, "/gemini.f40f") {
+			me = e.Me
+			if e.Title != "AI Voice Bus Setup" {
+				t.Errorf("roster title %q", e.Title)
+			}
+		}
+	}
+	if me == "" {
+		t.Fatalf("the session is not in the roster: %+v", s.Roster())
+	}
+	if got := config.Title(me); got != "AI Voice Bus Setup" {
+		t.Errorf("saved for later commands: %q", got)
+	}
+}
