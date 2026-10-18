@@ -105,7 +105,7 @@ func approved() (string, error) { return "approver key", nil }
 // air/claude.1 from deploy/claude.9. It returns the message id.
 func (n *tokenNode) handLink(t *testing.T, tok string) string {
 	t.Helper()
-	l, _, err := (&attach.Node{URLs: []string{n.url}, Token: thShared}).Put(context.Background(), []byte(tok+"\n"), true)
+	l, _, err := (&attach.Node{URLs: []string{n.url}, Token: thShared}).Put(context.Background(), []byte(tok+"\n"), attach.Meta{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestTokenInstallNeedsAPersonAndAMachineSignedSender(t *testing.T) {
 
 	// an unsigned link message is not taken
 	n2 := tokenMachine(t, approved)
-	l, _, _ := (&attach.Node{URLs: []string{n2.url}, Token: thShared}).Put(context.Background(), []byte(thAir), true)
+	l, _, _ := (&attach.Node{URLs: []string{n2.url}, Token: thShared}).Put(context.Background(), []byte(thAir), attach.Meta{}, true)
 	nc := &client.Client{URLs: n2.c.URLs, Token: thShared, NoSign: true}
 	out, err := nc.Send(msg.Message{ID: msg.NewID(), From: "deploy/claude.9", To: "air/claude.1", Body: tokenLinkTag + " air\n" + l.Line()})
 	if err != nil {
@@ -364,7 +364,7 @@ func TestTokenInstallTakesTheHandTaskAndSaysReadyBeforeTheLinkIsMade(t *testing.
 	if ready.ID == "" || ready.From != "air/claude.1" || ready.Thread != task.Thread || !strings.Contains(ready.Body, "approved by the person (approver key)") {
 		t.Fatalf("ready: %+v", ready)
 	}
-	l, _, _ := (&attach.Node{URLs: []string{n.url}, Token: thShared}).Put(context.Background(), []byte(thAir+"\n"), true)
+	l, _, _ := (&attach.Node{URLs: []string{n.url}, Token: thShared}).Put(context.Background(), []byte(thAir+"\n"), attach.Meta{}, true)
 	link, _ := n.c.Send(msg.Message{ID: msg.NewID(), From: "deploy/claude.9", To: ready.From, Re: ready.ID, Thread: task.Thread, Body: tokenLinkTag + " air\n" + l.Line()})
 	var res installResult
 	select {
@@ -486,7 +486,7 @@ func TestTokenInstallTakesAPipeLinkEvenAsAShellPastedIt(t *testing.T) {
 	n := tokenMachine(t, approved)
 	held, _ := services(t)
 	put := func() string {
-		l, _, err := (&attach.Pipe{Base: os.Getenv("AIVOICEBUS_PIPE_URL")}).Put(context.Background(), []byte(thAir+"\n"), true)
+		l, _, err := (&attach.Pipe{Base: os.Getenv("AIVOICEBUS_PIPE_URL")}).Put(context.Background(), []byte(thAir+"\n"), attach.Meta{}, true)
 		if err != nil {
 			t.Fatal(err)
 		}

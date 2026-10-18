@@ -367,7 +367,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	fmt.Fprintf(s.Err, "%s is ready; sending the link to it only\n", view.Name(ready.From, msg.MaxIdentity))
 
 	// the token, as a one-time file; only the link goes in the thread, to that session
-	l, _, err := fs.Put(ctx, []byte(tok+"\n"), true)
+	l, _, err := fs.Put(ctx, []byte(tok+"\n"), attach.Meta{}, true)
 	if err != nil {
 		return fmt.Errorf("could not store the encrypted token: %v", err)
 	}
