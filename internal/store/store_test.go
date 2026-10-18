@@ -558,7 +558,7 @@ func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
 		if i%2 == 1 {
 			from, to = b, a
 		}
-		_, err2 = s.Send(msg.Message{From: from, To: to, Re: first.ID, Body: fmt.Sprintf("pong %d", i)})
+		_, err2 = s.Send(msg.Message{From: from, To: to, Re: first.ID, Body: fmt.Sprintf("pong %s", strings.Repeat("z", i))})
 		if err2 == nil {
 			n++
 		}
@@ -595,9 +595,9 @@ func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
 	n := 0
 	for i := 1; i <= 20; i++ {
 		if i%2 == 1 {
-			_, err = nb.Send(msg.Message{From: b, To: a, Re: first.ID, Body: fmt.Sprint(i)}) // b writes through node b
+			_, err = nb.Send(msg.Message{From: b, To: a, Re: first.ID, Body: strings.Repeat("y", i)}) // b writes through node b
 		} else {
-			_, err = na.Send(msg.Message{From: a, To: b, Re: first.ID, Body: fmt.Sprint(i)}) // a through node a
+			_, err = na.Send(msg.Message{From: a, To: b, Re: first.ID, Body: strings.Repeat("y", i)}) // a through node a
 		}
 		if err != nil {
 			break
@@ -629,5 +629,30 @@ func TestADeadlineClosesAThread(t *testing.T) {
 	}
 	if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Kind: msg.KindEnd, Body: "closing"}); err != nil {
 		t.Errorf("an end must go: %v", err)
+	}
+}
+
+// The same thing said a third time in a thread, numbers and wording aside, is refused as a loop.
+func TestASlowRepeatingLoopIsRefused(t *testing.T) {
+	s, err := Open(t.TempDir(), "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, _ := s.Send(msg.Message{From: "lap/claude.a1", To: "box/codex.b2", Body: "count with me: 1"})
+	var errs []error
+	for i := 2; i <= 6; i++ {
+		_, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Body: fmt.Sprintf("%d!", i*10)})
+		errs = append(errs, err)
+	}
+	if errs[0] != nil || errs[1] != nil || !errors.Is(errs[2], ErrTurnLimit) {
+		t.Fatalf("%v", errs)
+	}
+	if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Body: "something new to say"}); err != nil {
+		t.Errorf("a new thing is not a loop: %v", err)
+	}
+	for i := 0; i < 4; i++ {
+		if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Kind: msg.KindProgress, Body: fmt.Sprintf("still running, %ds in", i)}); err != nil {
+			t.Fatalf("progress heartbeats are not a loop: %v", err)
+		}
 	}
 }

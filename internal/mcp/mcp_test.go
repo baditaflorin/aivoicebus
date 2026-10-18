@@ -511,7 +511,7 @@ func TestThreadSubjectComesFromTheWholeThreadEvenWhenOnlyTheTailIsShown(t *testi
 	s, st := start(t)
 	root, _ := st.Send(msg.Message{From: "x/claude.1", To: "me/mcp.test", Body: "Release plan for friday\ndetails"})
 	for i := 0; i < maxListed+5; i++ {
-		st.Send(msg.Message{From: "me/mcp.test", To: "x/claude.1", Body: fmt.Sprintf("reply number %d", i), Re: root.ID})
+		st.Send(msg.Message{From: "me/mcp.test", To: "x/claude.1", Body: fmt.Sprintf("reply %s", strings.Repeat("x", i+1)), Re: root.ID})
 	}
 	text, isErr := s.call("aivoicebus_thread", map[string]any{"id": root.ID})
 	if isErr || !strings.Contains(text, `Thread subject (peer text): "Release plan for friday"`) || strings.Contains(text, "details") || !strings.Contains(text, "earlier message(s) not shown") {
