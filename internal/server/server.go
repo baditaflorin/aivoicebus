@@ -103,6 +103,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}
 	cfg.metrics = newMetrics(cfg.tokens.Names())
 	leaks := cfg.tokens.Canaries()
+	seen := newSeenBoard()
 	latest := &latestRelease{dir: cfg.releaseDir}
 	mux := http.NewServeMux()
 	// guardCap authenticates the request and, when observerOK, also lets a read-only
@@ -127,6 +128,9 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 				return
 			}
 			cfg.metrics.count(who.Name)
+			if who.Host != "" {
+				seen.note(who.Host, who, "")
+			}
 			if v := latest.version(); v != "" {
 				w.Header().Set(msg.HeaderLatest, v)
 			}
@@ -202,6 +206,8 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	mux.HandleFunc("/v1/token", readonly(func(w http.ResponseWriter, r *http.Request, who Principal) {
 		js(w, map[string]any{"name": who.Name, "host": who.Host, "observer": who.Observer})
 	}))
+	// Which kind of token last acted as a machine (seen.go): the proof that a machine uses its own.
+	mux.HandleFunc("/v1/token/seen", readonly(seen.handler(cfg.node)))
 	mux.HandleFunc("/v1/send", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
 		if cfg.ready != nil && !cfg.ready() {
 			http.Error(w, "this node is recovering from its peers; retry or use another node", http.StatusServiceUnavailable)
@@ -277,6 +283,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			http.Error(w, err.Error(), 500)
 		default:
 			s.NoteTitle(out.From, out.FromTitle)
+			seen.note(hostOf(out.From), who, out.ID)
 			js(w, out)
 		}
 	}))
@@ -290,6 +297,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			who.deny(w)
 			return
 		}
+		seen.note(hostOf(me), who, "")
 		// Labels are optional and tolerant: junk in the parameter must never
 		// break a plain inbox read, so bad pairs are simply dropped.
 		labels := msg.ParseLabels(r.URL.Query().Get(msg.ParamLabels))

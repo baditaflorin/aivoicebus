@@ -39,11 +39,12 @@ const (
 	FeatureRetract       = "retract"         // /v1/retract: a sender withdraws a message
 	FeatureRetractDryRun = "retract-dry-run" // /v1/retract answers a dry run without writing
 	FeatureTasks         = "tasks"           // accepts task, claim and end, and delivers a task to its owner only
+	FeatureTokenSeen     = "token-seen"      // /v1/token/seen: which kind of token last acted as a machine
 )
 
 // NodeFeatures is what this release of the node can do, sorted.
 func NodeFeatures() []string {
-	return []string{FeatureDecide, FeatureFiles, FeatureInboxWait, FeatureLeases, FeatureQuarantine, FeatureReceipts, FeatureRetract, FeatureRetractDryRun, FeatureTasks, FeatureTurns}
+	return []string{FeatureDecide, FeatureFiles, FeatureInboxWait, FeatureLeases, FeatureQuarantine, FeatureReceipts, FeatureRetract, FeatureRetractDryRun, FeatureTasks, FeatureTokenSeen, FeatureTurns}
 }
 
 // Has reports whether the node advertised feature f. False also for a node that advertises
