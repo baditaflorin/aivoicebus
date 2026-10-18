@@ -450,10 +450,7 @@ func TestQuietHoursHoldAsksBackButNeverUrgent(t *testing.T) {
 	if err := config.SaveQuiet(q); err != nil {
 		t.Fatal(err)
 	}
-	old := clock
-	defer func() { clock = old }()
-
-	clock = func() time.Time { return time.Date(2026, 10, 14, 23, 30, 0, 0, time.Local) }
+	defer setClock(func() time.Time { return time.Date(2026, 10, 14, 23, 30, 0, 0, time.Local) })()
 	got := runHook(t, "")
 	if !strings.Contains(got, "prod is down") || strings.Contains(got, "please review") {
 		t.Fatalf("at night the urgent one shows and the ask is held:\n%s", got)
@@ -465,7 +462,7 @@ func TestQuietHoursHoldAsksBackButNeverUrgent(t *testing.T) {
 		t.Errorf("a held ask stays unread: %+v", left)
 	}
 
-	clock = func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.Local) }
+	setClock(func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.Local) })
 	if got := runHook(t, ""); !strings.Contains(got, "please review when free") || strings.Contains(got, "quiet hours") {
 		t.Errorf("in the morning it is shown as usual:\n%s", got)
 	}

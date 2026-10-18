@@ -35,7 +35,7 @@ var (
 const maxPromptShown = 3
 
 func runPromptEvent(args []string, stdin io.Reader, out io.Writer) {
-	deadline := PromptDeadline // read once: the goroutine below may outlive this call
+	deadline, every := PromptDeadline, promptEvery // read once: the goroutine below may outlive this call
 	var buf bytes.Buffer
 	var pending *ackSet
 	note := meshNote{prompt: true}
@@ -43,7 +43,7 @@ func runPromptEvent(args []string, stdin io.Reader, out io.Writer) {
 	go func() {
 		defer close(done)
 		defer func() { _ = recover() }()
-		pending = promptCheck(args, stdin, &buf, deadline, &note)
+		pending = promptCheck(args, stdin, &buf, deadline, every, &note)
 	}()
 	select {
 	case <-done:
@@ -59,7 +59,7 @@ func runPromptEvent(args []string, stdin io.Reader, out io.Writer) {
 
 // promptCheck prints any urgent message and any reply to this session to out and returns
 // the acknowledgements owed for them.
-func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline time.Duration, note *meshNote) *ackSet {
+func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every time.Duration, note *meshNote) *ackSet {
 	tool := toolArg(args)
 	in := readInput(stdin)
 	// The session-start hook exported the identity for the shell commands of this
@@ -69,7 +69,7 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline time.Du
 		os.Setenv("AIVOICEBUS_AGENT_SRC", "hook")
 	}
 	me := identity.Me()
-	if !promptDue(me, time.Now()) {
+	if !promptDue(me, time.Now(), every) {
 		return nil
 	}
 	c, err := client.FromEnv()
@@ -155,9 +155,9 @@ func isReplyCandidate(m msg.Message, me string) bool {
 
 const promptStateFile = "prompt-check.json"
 
-// promptDue reports whether identity me is due a look, and records that one is
-// being made. State is one small file; losing or corrupting it only means an extra look.
-func promptDue(me string, now time.Time) bool {
+// promptDue reports whether identity me is due a look (none in the last `every`), and records
+// that one is being made. State is one small file; losing or corrupting it only means an extra look.
+func promptDue(me string, now time.Time, every time.Duration) bool {
 	dir := config.Dir()
 	if dir == "" {
 		return true
@@ -167,7 +167,7 @@ func promptDue(me string, now time.Time) bool {
 	if b, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(b, &state)
 	}
-	if last, ok := state[me]; ok && now.Sub(time.Unix(0, last)) < promptEvery {
+	if last, ok := state[me]; ok && now.Sub(time.Unix(0, last)) < every {
 		return false
 	}
 	for k, v := range state { // forget sessions not seen for an hour

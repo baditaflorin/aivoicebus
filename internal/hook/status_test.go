@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,10 +21,10 @@ var t0 = time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
 // at makes the hooks' clock read t until the test ends.
 func at(t *testing.T, now time.Time) func(time.Time) {
 	t.Helper()
-	old := clock
-	t.Cleanup(func() { clock = old })
-	set := func(v time.Time) { now = v; clock = func() time.Time { return now } }
+	var cur atomic.Pointer[time.Time] // read by hook goroutines that may outlive a call
+	set := func(v time.Time) { cur.Store(&v) }
 	set(now)
+	t.Cleanup(setClock(func() time.Time { return *cur.Load() }))
 	return set
 }
 
