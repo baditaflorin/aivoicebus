@@ -972,7 +972,16 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
    `[approval needed]` to the person and waits for one of two answers: a decision signed with the
    approver key (`aivoicebus approve ID` in any terminal on that machine, with the approver passphrase;
    `aivoicebus approver init` makes the key once), or the Approve button on the phone when a notify URL
-   is set. It refuses when it can ask nobody. Only after the approval does it answer `[token ready]`.
+   is set. Before it waits, it answers the hand side with a progress message, `[token waiting for
+   approval]` and the request's id, so `hand` prints `taken by SESSION, waiting for the person's approval
+   on HOST (approve ID there)`. When the machine has no terminal, no approver key and no notify URL,
+   it refuses at once and answers `[token install failed]`, naming the fix: run `aivoicebus token install
+   ID` in a terminal there (it asks y/N), or `aivoicebus approver init` there once. Only after the
+   approval does it answer `[token ready]`.
+   An agent runs `install` as a background command: the approval can take longer than a tool call
+   lasts. An install stopped with Ctrl-C or SIGTERM (what a tool call that times out sends) answers
+   `[token install failed]`; one killed outright answers nothing. Neither changes the token file,
+   which is replaced only after the link was fetched and checked.
 3. `hand` then puts the token in a one-time, end-to-end-encrypted file and sends only the link, in
    the thread, to the session that said ready. Where the file is held is any of the attachment
    services (the same as `send --file`): `--via node`, one of the mesh's nodes, or `--via pipe`, the
@@ -994,7 +1003,10 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
 hand-over done by hand (a pipe link made with `p -e -f`, say). A link pasted through zsh gets a
 backslash before its `#` and `~`, which fish keeps; `install` takes those out, and refuses a
 link with a backslash anywhere else. `--json` gives the result as an object on both sides. Exit 0 from `hand` means
-installed and proven. The token is in no message, argument, output or log. A message that holds a
+installed and proven. When its `--wait` runs out, `hand` says where it stalled (`stalled_at` in
+`--json`): `untaken` (no session on HOST took the task), `approval` (taken, but nobody approved it,
+or the install stopped before it asked), or `install` (approved and the link sent, but no
+`[token installed]` came back). The token is in no message, argument, output or log. A message that holds a
 raw token is refused by the send scan (the deploy machine's `machine-tokens/` and
 `AIVOICEBUS_MACHINE_TOKENS_DIR` count as secrets) and by the nodes. If `AIVOICEBUS_TOKEN` is set on
 the receiving machine, `install` refuses, because then the token file is not what that machine uses.

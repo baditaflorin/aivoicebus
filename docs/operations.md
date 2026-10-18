@@ -246,7 +246,10 @@ refused. Each node must come back with its peer links up before the next is touc
 
   Hand it over with `aivoicebus token hand laptop-a`: a session on laptop-a runs `aivoicebus token
   install ID`, the person there approves, and the token goes as a one-time encrypted file, checked on
-  both ends ([reference.md](reference.md), "Machine tokens"). Never put it on the machine you deploy
+  both ends ([reference.md](reference.md), "Machine tokens"). If nobody can approve on laptop-a (no
+  terminal, approver key or notify URL), install refuses at once and says so; if `hand` runs out of
+  time, it says whether nobody took the task, nobody approved it, or the install never answered.
+  Never put it on the machine you deploy
   from. It cannot replicate, so keep one shared token for the nodes themselves. What it limits:
   sending, acknowledging and reading mail *as that machine only*, and the bulk replication
   feed (`/v1/sync`, so `aivoicebus export` needs the shared or observer token). What it does not

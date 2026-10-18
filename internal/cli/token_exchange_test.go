@@ -197,6 +197,13 @@ func handOverTwoNodes(t *testing.T, via string) {
 	if err := json.Unmarshal([]byte(handOut.String()), &hr); err != nil || !hr.Installed || !hr.Proven || hr.Session != "air/codex.1" || hr.Approved != "approver key" || hr.Answer != ir.Answer || !strings.Contains(hr.Proof, "saw its answer "+ir.Answer+" sent with the machine token \"air\"") {
 		t.Errorf("hand: %+v %v", hr, err)
 	}
+	// while the person had not yet approved, hand said what it waited for
+	errMu.Lock()
+	said := handErr.String()
+	errMu.Unlock()
+	if !strings.Contains(said, "taken by air/codex.1, waiting for the person's approval on air (approve "+req.ID+" there") || hr.Approval != req.ID {
+		t.Errorf("hand did not show the wait for approval %s: %q %+v", req.ID, said, hr)
+	}
 	if got, _ := os.ReadFile(filepath.Join(airHome, ".config/aivoicebus/token")); strings.TrimSpace(string(got)) != thAir {
 		t.Error("air's token file does not hold its machine token")
 	}

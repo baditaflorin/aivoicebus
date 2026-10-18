@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/attach"
@@ -49,6 +50,7 @@ const (
 	tokenLinkTag      = "[token link]"
 	tokenInstalledTag = "[token installed]"
 	tokenFailedTag    = "[token install failed]"
+	tokenWaitingTag   = "[token waiting for approval]" // a progress message: install asked the person
 )
 
 const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node|pipe] [--wait 30m] [--json]
@@ -151,9 +153,11 @@ type handResult struct {
 	Approved  string `json:"approved_by,omitempty"`
 	Installed bool   `json:"installed"`
 	Answer    string `json:"answer_id,omitempty"`
-	Said      string `json:"said,omitempty"`  // the receiver's own account, untrusted
-	Proven    bool   `json:"proven"`          // a node saw the answer sent with HOST's machine token
-	Proof     string `json:"proof,omitempty"` // what the nodes said
+	Said      string `json:"said,omitempty"`        // the receiver's own account, untrusted
+	Proven    bool   `json:"proven"`                // a node saw the answer sent with HOST's machine token
+	Proof     string `json:"proof,omitempty"`       // what the nodes said
+	Approval  string `json:"approval_id,omitempty"` // the approval request install sent its person
+	Stalled   string `json:"stalled_at,omitempty"`  // where a wait ran out: untaken, approval or install
 	Error     string `json:"error,omitempty"`
 }
 
@@ -260,7 +264,9 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		"A session on %s takes this with: aivoicebus token install <this task's id>\n"+
 		"That takes the task, asks the person on %s to approve, receives the token as a one-time end-to-end-encrypted file, "+
 		"checks with the nodes that it is %s's own, and only then replaces the token file (the old one is put back if anything fails). "+
-		"The token itself is in no message.", tokenHandTag, host, me, host, host, host, host)
+		"The token itself is in no message.\n"+
+		"An agent runs it as a background command: it waits for the person's approval (up to 30 minutes), longer than a tool call lasts. "+
+		"Tell your user it asks for their approval; never run aivoicebus approve yourself.", tokenHandTag, host, me, host, host, host, host)
 	plan, err := outbox.Prepare(c, outbox.Request{To: target, Body: body, Kind: msg.KindTask, Prio: msg.PrioUrgent, TTL: "1h", Queue: true, TargetSaid: true}, s.Err)
 	if err != nil {
 		return err
@@ -281,9 +287,28 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		}
 		return msg.HostOf(m.From) == host && m.Verified == msg.VerifiedSigned
 	}
+	// how far it got, for a wait that runs out: the claim, then install's word that it asked the person
+	var taker, approval string
 	progress := func(m msg.Message) {
-		if from(m) {
-			fmt.Fprintf(s.Err, "%s took it\n", view.Name(m.From, msg.MaxIdentity))
+		if !from(m) {
+			return
+		}
+		name := view.Name(m.From, msg.MaxIdentity)
+		if _, ok := tagged(m.Body, tokenWaitingTag); ok {
+			taker = m.From
+			approval = "?"
+			if _, rest, ok := strings.Cut(m.Body, "(request "); ok {
+				if id, _, ok := strings.Cut(rest, ")"); ok && msg.ValidID(id) {
+					approval = id
+				}
+			}
+			res.Session, res.Approval = m.From, approval
+			fmt.Fprintf(s.Err, "taken by %s, waiting for the person's approval on %s (approve %s there: aivoicebus approve %s, in a terminal on %s)\n", name, host, approval, approval, host)
+			return
+		}
+		if m.Kind == msg.KindClaim && taker == "" {
+			taker, res.Session = m.From, m.From
+			fmt.Fprintf(s.Err, "%s took it\n", name)
 		}
 	}
 
@@ -292,7 +317,16 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	for ready.ID == "" {
 		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: task.Thread, Progress: progress}, time.Until(deadline), 3*time.Second)
 		if err != nil {
-			return fmt.Errorf("no session on %s said ready within %s (task %s)", host, wait, task.ID)
+			switch {
+			case taker == "":
+				res.Stalled = "untaken"
+				return fmt.Errorf("stalled: nobody took it; no session on %s took task %s within %s (is one standing by there? aivoicebus ping %s)", host, task.ID, wait, host)
+			case approval == "":
+				res.Stalled = "approval"
+				return fmt.Errorf("stalled: taken by %s, but it neither asked the person on %s nor said ready within %s (its install may have been stopped, or runs a release before 0.10.4); task %s", taker, host, wait, task.ID)
+			}
+			res.Stalled = "approval"
+			return fmt.Errorf("stalled: taken by %s, but nobody approved it on %s within %s (request %s: the person approves it there, with aivoicebus approve %s in a terminal or on the phone if it has one, or runs aivoicebus token install %s in a terminal there themselves); task %s", taker, host, wait, approval, approval, task.ID, task.ID)
 		}
 		for _, m := range got {
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
@@ -339,7 +373,8 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	for answer.ID == "" {
 		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: task.Thread, From: ready.From}, time.Until(deadline), 3*time.Second)
 		if err != nil {
-			return fmt.Errorf("%s did not answer within %s; the link (message %s) is good for five minutes, then nothing can read it", ready.From, wait, link.ID)
+			res.Stalled = "install"
+			return fmt.Errorf("stalled: approved by the person on %s, but %s did not answer that it installed it within %s; the link (message %s) is good for five minutes, then nothing can read it", host, ready.From, wait, link.ID)
 		}
 		for _, m := range got {
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
@@ -441,11 +476,23 @@ var restartWorker = func() string {
 	return "restarted"
 }
 
+// errNobodyToApprove is an install that can ask nobody: no terminal, no approver key, no notify URL.
+var errNobodyToApprove = errors.New("token install changes this machine's credential, so a person approves it, and nobody can be asked here: there is no terminal, no approver key and no notify URL on this machine")
+
+// errStopped is an install stopped (Ctrl-C, or the agent's tool call ending) while it waited.
+var errStopped = errors.New("token install was stopped while it waited; nothing was changed")
+
+// stopSignals are what end a waiting install early but still let it answer the hand side: Ctrl-C,
+// and the SIGTERM an agent's tool call sends when it times out. A SIGKILL leaves no time to answer,
+// and changes nothing either: the token file is replaced only after the link is fetched and checked.
+var stopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+
 // approveInstall asks the person whether to replace this machine's token, and says how they said
 // yes: at a terminal (y/N), else through the approver key (a signed `aivoicebus approve ID` from any
 // terminal on this machine) or the phone's buttons. An agent's session has no terminal, and cannot
-// sign with the approver key without its passphrase. A variable so tests can answer it.
-var approveInstall = func(c *client.Client, me, what string, within time.Duration, s Streams) (string, error) {
+// sign with the approver key without its passphrase. Before it waits for a decision it calls waiting
+// with the request's id and how the person approves it. A variable so tests can answer it.
+var approveInstall = func(c *client.Client, me, what string, within time.Duration, waiting func(id, how string), s Streams) (string, error) {
 	yes, err := askYesNo(s, what+"\nReplace this machine's token with it? [y/N] ")
 	switch {
 	case err == nil && yes:
@@ -458,7 +505,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 	key, kerr := config.ApproverPublic()
 	nu := notifyURL()
 	if kerr != nil && nu == "" {
-		return "", errors.New("token install changes this machine's credential, so a person approves it, and there is no terminal here: run it in a terminal, or set up the approver key once (aivoicebus approver init, in a terminal) so the person can approve it from any terminal; nothing was changed")
+		return "", errNobodyToApprove
 	}
 	text := "[approval needed] " + what + "\n\nA person approves in a terminal on this machine, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits " + within.String() + ". An agent must not run either."
 	code := ""
@@ -491,7 +538,11 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 		how += ", or on the phone"
 	}
 	fmt.Fprintf(s.Err, "approval needed (%s): ask the person to approve it %s. Waiting up to %s.\n", req.ID, how, within)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	fmt.Fprintf(s.Err, "An agent whose commands are cut off after a few minutes: run this as a background command, or with a shorter --wait (say --wait 4m), and run it again if the person is not there yet; a stopped install changes nothing.\n")
+	if waiting != nil {
+		waiting(req.ID, how)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
 	defer stop()
 	deadline := time.Now().Add(within)
 	for time.Until(deadline) > time.Second {
@@ -520,7 +571,10 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 			return "", errors.New("the person denied it; nothing was changed")
 		}
 	}
-	return "", fmt.Errorf("no approval within %s; nothing was changed", within)
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("%w (before the person approved %s)", errStopped, req.ID)
+	}
+	return "", fmt.Errorf("no approval within %s (request %s); nothing was changed", within, req.ID)
 }
 
 func tokenInstall(args []string, s Streams) error {
@@ -651,7 +705,32 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 		what += " that " + view.Name(from.From, msg.MaxIdentity) + " hands it"
 	}
 	what += "? It is checked with the nodes first: only a machine token bound to " + host + " is installed."
-	how, err := approveInstall(c, me, what, wait, s)
+	waiting := func(id, how string) {
+		if task.ID == "" {
+			return
+		}
+		// Tell the hand side now, so it can say what it waits for instead of nothing for half an hour.
+		body := fmt.Sprintf("%s %s\n%s took it and asked the person on %s to approve (request %s): %s. It waits up to %s.",
+			tokenWaitingTag, host, me, host, id, how, wait)
+		plan, err := outbox.Prepare(c, outbox.Request{To: task.From, Re: task.ID, Thread: task.Thread, Kind: msg.KindProgress, Body: body, TargetSaid: true}, io.Discard)
+		if err == nil {
+			_, err = plan.Send(c)
+		}
+		if err != nil {
+			fmt.Fprintf(s.Err, "could not tell %s that it waits for the approval: %v\n", task.From, err)
+		}
+	}
+	how, err := approveInstall(c, me, what, wait, waiting, s)
+	if errors.Is(err, errNobodyToApprove) {
+		id := ref
+		if strings.Contains(ref, "://") {
+			id = "'<the link>'" // the link holds the file's key: never printed
+		}
+		if task.ID != "" {
+			id = task.ID
+		}
+		err = fmt.Errorf("%w. Fix: the person runs `aivoicebus token install %s` in a terminal on %s (it asks y/N), or runs `aivoicebus approver init` there once, so a request can be approved from any terminal; nothing was changed", err, id, host)
+	}
 	if err != nil {
 		if task.ID != "" {
 			tokenAnswer(c, me, task, task.ID, tokenFailedTag+" "+host+"\n"+err.Error(), s)
@@ -703,7 +782,7 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 
 // waitLink waits for the link from whoever sent task, in its thread.
 func waitLink(c *client.Client, me string, task, ready msg.Message, wait time.Duration) (msg.Message, error) {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
 	defer stop()
 	deadline := time.Now().Add(wait)
 	for time.Until(deadline) > time.Second {
@@ -723,6 +802,9 @@ func waitLink(c *client.Client, me string, task, ready msg.Message, wait time.Du
 				return m, nil
 			}
 		}
+	}
+	if ctx.Err() != nil {
+		return msg.Message{}, fmt.Errorf("%w (after ready %s, before the link came)", errStopped, ready.ID)
 	}
 	return msg.Message{}, fmt.Errorf("no link from %s within %s (after ready %s)", task.From, wait, ready.ID)
 }
