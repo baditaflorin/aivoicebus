@@ -197,9 +197,7 @@ func TestQuietHoursHoldRepliesBackMidSessionButNeverUrgent(t *testing.T) {
 	if err := config.SaveQuiet(qh); err != nil {
 		t.Fatal(err)
 	}
-	old := clock
-	defer func() { clock = old }()
-	clock = func() time.Time { return time.Date(2026, 10, 14, 23, 30, 0, 0, time.Local) }
+	defer setClock(func() time.Time { return time.Date(2026, 10, 14, 23, 30, 0, 0, time.Local) })()
 	if got := promptHook(t, ""); got != "" {
 		t.Errorf("a reply waits out quiet hours like any ask: %q", got)
 	}

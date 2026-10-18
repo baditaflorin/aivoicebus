@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -42,8 +43,26 @@ const (
 	OptOutFile = ".aivoicebus-off"
 )
 
-// clock is the time quiet hours are judged by; tests replace it.
-var clock = time.Now
+// clockFn, when set, is the time quiet hours and the mesh note are judged by; tests set it with
+// setClock. It is atomic: a hook's goroutine can outlive the call that started it (and the test).
+var clockFn atomic.Pointer[func() time.Time]
+
+func clock() time.Time {
+	if f := clockFn.Load(); f != nil {
+		return (*f)()
+	}
+	return time.Now()
+}
+
+// setClock makes clock call f (nil: the real time) and returns what puts the previous one back.
+func setClock(f func() time.Time) (restore func()) {
+	var p *func() time.Time
+	if f != nil {
+		p = &f
+	}
+	old := clockFn.Swap(p)
+	return func() { clockFn.Store(old) }
+}
 
 // quietNow reports whether the do-not-disturb setting (`aivoicebus quiet`) is active. Every
 // hook output that is not urgent asks it, so there is one setting and one place that reads it.
