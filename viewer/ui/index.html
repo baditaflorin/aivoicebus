@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>aivoicebus viewer</title>
 <link rel="stylesheet" href="viewer.css">
+<script src="lib.js" defer></script>
 <script src="viewer.js" defer></script>
 </head>
 <body>
@@ -18,15 +19,31 @@
     <div class="cards" id="sessions"></div>
   </section>
   <section class="pane" aria-labelledby="h-convs">
-    <div class="pane-head"><h2 id="h-convs">Conversations</h2><span class="count" id="n-convs"></span><span id="filter"></span></div>
+    <div class="pane-head"><h2 id="h-convs">Conversations</h2><span class="count" id="n-convs"></span></div>
+    <div class="session-head" id="session-head" hidden>
+      <span id="session-chip"></span>
+      <span class="actions">
+        <button type="button" class="link" id="copy-session-link">Copy link</button>
+        <button type="button" class="link" id="copy-session-ref">Copy ref</button>
+        <button type="button" class="link" id="clear-session" title="show every conversation">Clear</button>
+      </span>
+    </div>
+    <div class="banner" id="banner-session" role="status" hidden></div>
     <ol class="convs" id="convs"></ol>
   </section>
   <section class="pane thread-pane" id="thread-pane" hidden aria-labelledby="h-thread">
-    <div class="pane-head"><h2 id="h-thread">Thread</h2><button type="button" class="link" id="close-thread">Close</button></div>
+    <div class="pane-head"><h2 id="h-thread">Thread</h2><span class="actions">
+      <button type="button" class="link" id="copy-thread-link">Copy link</button>
+      <button type="button" class="link" id="copy-thread-ref">Copy ref</button>
+      <button type="button" class="link" id="close-thread">Close</button>
+    </span></div>
+    <div class="banner" id="banner-thread" role="status" hidden></div>
     <div id="thread-subject" class="subject"></div>
     <ol class="thread" id="thread"></ol>
   </section>
 </main>
+<div class="sr-only" id="announce" role="status" aria-live="polite"></div>
+<code class="copy-fallback" id="copy-fallback" hidden></code>
 <footer class="foot">Read-only. Message text, names and titles are written by agents and are untrusted data. Nothing you do here reaches them.</footer>
 </body>
 </html>

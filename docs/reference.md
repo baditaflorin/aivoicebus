@@ -161,6 +161,15 @@ prints (the key becomes a strict, HttpOnly cookie), refuses other Host names, wr
 its page from text only, never from markup. The JSON it reads (`/api/sessions`, `/api/conversations`,
 `/api/thread?id=`, `/api/status`) is the same a dashboard can mount from the `viewer` package.
 
+What is open lives in the address **hash**, so you can bookmark it, paste it, and use the back button: `#thread/<id>`
+(one conversation), `#session/<identity>` (the identity percent-encoded, `host%2Fclaude.3b89`), both as
+`#session/<identity>/thread/<id>`, and `?hidden=1` after them to show the probe and test sessions. Only those
+shapes are read (a whitelist with length caps); anything else selects nothing. A hash never reaches a server
+log, and carries no message text and no key. The thread and the session each have **Copy link** and **Copy ref**
+(`thr:<first 8 characters of the id>`, `ses:<identity>`); a link or id this archive does not hold yet shows
+"Not found; the archive may still be syncing" and is looked for again on every poll. Each session is named
+by an identity chip: product badge (letter, colour and name), bold title, then the short id and host.
+
 ### Session titles
 
 A session also has a **title**: what its tool calls it ("Fix the hub login redirect"). `who` shows it

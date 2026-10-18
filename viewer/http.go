@@ -15,7 +15,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
-//go:embed ui/index.html ui/viewer.js ui/viewer.css
+//go:embed ui/index.html ui/lib.js ui/viewer.js ui/viewer.css
 var ui embed.FS
 
 // HTTPOptions guard the handler.
@@ -46,6 +46,9 @@ func (v *Viewer) Handler(o HTTPOptions) http.Handler {
 			return
 		}
 		serveFile(w, "ui/index.html", "text/html; charset=utf-8")
+	})
+	mux.HandleFunc("/lib.js", func(w http.ResponseWriter, r *http.Request) {
+		serveFile(w, "ui/lib.js", "text/javascript; charset=utf-8")
 	})
 	mux.HandleFunc("/viewer.js", func(w http.ResponseWriter, r *http.Request) {
 		serveFile(w, "ui/viewer.js", "text/javascript; charset=utf-8")
