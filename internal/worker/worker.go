@@ -95,6 +95,10 @@ func (w *Worker) Decide(m msg.Message) (why, entry string) {
 	if m.Kind != msg.KindTask {
 		return "not a task", ""
 	}
+	if strings.HasPrefix(strings.TrimSpace(m.Body), msg.TokenHandTag) {
+		// it replaces this machine's token, which a person approves: left for a session to take
+		return "it hands this machine its own token: a session takes it (aivoicebus token install ID), with the person there approving, not the worker", ""
+	}
 	entry, ok := w.Allow.Allows(m.From)
 	if !ok {
 		if w.Allow.Empty() {

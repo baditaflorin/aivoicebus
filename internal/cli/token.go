@@ -44,7 +44,7 @@ import (
 // message renders it as a summary).
 
 const (
-	tokenHandTag      = "[token hand v1]"
+	tokenHandTag      = msg.TokenHandTag
 	tokenReadyTag     = "[token ready]"
 	tokenLinkTag      = "[token link]"
 	tokenInstalledTag = "[token installed]"

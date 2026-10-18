@@ -993,6 +993,7 @@ raw token is refused by the send scan (the deploy machine's `machine-tokens/` an
 `AIVOICEBUS_MACHINE_TOKENS_DIR` count as secrets) and by the nodes. If `AIVOICEBUS_TOKEN` is set on
 the receiving machine, `install` refuses, because then the token file is not what that machine uses.
 Every message of the exchange must be signed by the sender's machine key.
+A worker never takes a `[token hand]` task: it is left for a session, where a person is there to approve.
 
 ## Updating
 

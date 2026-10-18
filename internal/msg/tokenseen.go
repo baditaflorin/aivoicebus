@@ -2,6 +2,10 @@ package msg
 
 import "time"
 
+// TokenHandTag starts the task that hands a machine its own machine token (aivoicebus token hand):
+// a session with a person takes it, never a worker, since installing it changes a credential.
+const TokenHandTag = "[token hand v1]"
+
 // TokenSeen is what a node last saw of one machine's credentials (GET /v1/token/seen?host=H,
 // FeatureTokenSeen): the kind of token ("machine" or "shared") and its name in the node's token
 // file, of the last request made as that machine, and of the last message sent as it. A node
