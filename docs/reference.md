@@ -315,6 +315,13 @@ limit", whoever sends it; an `[end]` always goes, so the sides can still close i
 by the first message only, travels with it to every node, and is not signed: it is a brake for
 agents that would otherwise answer each other forever, not a security boundary.
 
+**Saying the same thing over and over.** A sender's third message in one thread within the hour that
+says the same thing as two before it, numbers, case, punctuation and spacing aside ("thanks!",
+"you're welcome", or counting up one number at a time), is refused with 409 "it looks like a loop".
+Ends, claims and progress messages are not counted: status updates that differ only in a number
+("processed 10 files", "processed 20 files") belong in `--kind progress`, which waits show and this
+check leaves alone.
+
 **Rate limits that hold.** Each node counts, per sender, at most 20 messages an hour; per machine,
 300 an hour, whatever its sessions are called (a new session name does not start the count again);
 and per pair of sessions, replies: when two sessions have both answered each other at least twice

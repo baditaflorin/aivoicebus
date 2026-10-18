@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
@@ -1163,6 +1164,20 @@ func (s *Store) turnsLeftLocked(m msg.Message) error {
 			return fmt.Errorf("%w: its deadline passed at %s: close it with `reply --end`, or start a new conversation", ErrTurnLimit, end.UTC().Format(time.RFC3339))
 		}
 	}
+	if m.Kind != msg.KindProgress {
+		// The same thing said again and again in one thread is a loop, however slow: "thanks!",
+		// or counting up one number at a time. Numbers, case, punctuation and spacing aside.
+		key, n := loopKey(m.Body), 0
+		for _, i := range s.threads[m.Thread] {
+			if x := s.msgs[i]; x.From == m.From && x.Kind != msg.KindClaim && x.Kind != msg.KindProgress &&
+				x.At.After(s.now().Add(-time.Hour)) && loopKey(x.Body) == key {
+				n++
+			}
+		}
+		if n >= loopRepeats {
+			return fmt.Errorf("%w: this sender said the same thing %d times in this thread already (numbers and wording aside): it looks like a loop. Stop and ask the user, or close it with `reply --end`", ErrTurnLimit, n)
+		}
+	}
 	if root.MaxTurns == 0 {
 		return nil
 	}
@@ -1176,6 +1191,29 @@ func (s *Store) turnsLeftLocked(m msg.Message) error {
 		return fmt.Errorf("%w (%d messages): close it with `reply --end`, or start a new conversation", ErrTurnLimit, root.MaxTurns)
 	}
 	return nil
+}
+
+// loopRepeats is how many times one sender may say the same thing in one thread within the hour.
+const loopRepeats = 2
+
+// loopKey is a body with numbers, case, punctuation and spacing taken out.
+func loopKey(body string) string {
+	var b strings.Builder
+	digit := false
+	for _, r := range strings.ToLower(body) {
+		switch {
+		case unicode.IsDigit(r):
+			if !digit {
+				b.WriteByte('#')
+			}
+			digit = true
+			continue
+		case unicode.IsLetter(r):
+			b.WriteRune(r)
+		}
+		digit = false
+	}
+	return b.String()
 }
 
 // ErrReplyToNotice is what Send says of a reply to a retraction notice, which is made up by nodes
