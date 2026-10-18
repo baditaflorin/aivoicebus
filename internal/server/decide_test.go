@@ -43,7 +43,7 @@ func TestDecideTakesOnlyTheRightCodeOnce(t *testing.T) {
 	if c, _ := post("id=" + req.ID + "&say=maybe&code=" + code); c != http.StatusBadRequest {
 		t.Errorf("bad word: %d", c)
 	}
-	if c, body := post("id=" + req.ID + "&say=approve&code=" + code); c != http.StatusOK || !strings.Contains(body, "recorded: approve") {
+	if c, body := post("id=" + req.ID + "&say=approve&code=" + code); c != http.StatusOK || !strings.Contains(body, "recorded: approve. lap reads it within seconds") {
 		t.Fatalf("right code: %d %s", c, body)
 	}
 	if c, _ := post("id=" + req.ID + "&say=deny&code=" + code); c != http.StatusTooManyRequests {
