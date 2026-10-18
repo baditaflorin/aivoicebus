@@ -55,3 +55,26 @@ func TestDecideTakesOnlyTheRightCodeOnce(t *testing.T) {
 		t.Errorf("recorded: %+v", last)
 	}
 }
+
+// A question to a person takes only one of its choices from the phone.
+func TestDecideTakesOnlyAQuestionsChoices(t *testing.T) {
+	s, _ := store.Open(t.TempDir(), "n1")
+	srv := httptest.NewServer(NewHandler(s, "tok-0123456789-0123456789-xx"))
+	defer srv.Close()
+	const code = "0123456789abcdef0123456789abcdef"
+	q, _ := s.Send(msg.Message{ID: msg.NewID(), From: "lap/claude.a", To: "lap/human", Body: msg.AskBody("deploy?", []string{"yes", "no"}, code)})
+	post := func(say string) int {
+		r, err := http.Post(srv.URL+"/v1/decide?id="+q.ID+"&code="+code+"&say="+say, "text/plain", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		return r.StatusCode
+	}
+	if c := post("approve"); c != http.StatusBadRequest {
+		t.Errorf("not a choice: %d", c)
+	}
+	if c := post("no"); c != http.StatusOK {
+		t.Errorf("a choice: %d", c)
+	}
+}

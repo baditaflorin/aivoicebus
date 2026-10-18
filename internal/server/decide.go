@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,7 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 		}
 		q := r.URL.Query()
 		id, say, code := q.Get("id"), q.Get("say"), q.Get("code")
-		if !msg.ValidID(id) || (say != "approve" && say != "deny") || len(code) != 32 {
+		if !msg.ValidID(id) || !msg.ValidChoice(say) || len(code) != 32 {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -76,8 +77,13 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 				req = m
 			}
 		}
-		if req.ID == "" || req.Retracted != nil || !strings.HasPrefix(req.Body, "[approval needed]") || now.Sub(req.At) > decideMaxAge {
-			http.Error(w, "no such open approval request on this node", http.StatusNotFound)
+		approval, ask := strings.HasPrefix(req.Body, "[approval needed]"), strings.HasPrefix(req.Body, msg.AskPrefix)
+		if req.ID == "" || req.Retracted != nil || (!approval && !ask) || now.Sub(req.At) > decideMaxAge {
+			http.Error(w, "no such open approval request or question on this node", http.StatusNotFound)
+			return
+		}
+		if (approval && say != "approve" && say != "deny") || (ask && !slices.Contains(msg.AskChoices(req.Body), say)) {
+			http.Error(w, "that is not one of the request's choices", http.StatusBadRequest)
 			return
 		}
 		if !msg.PhoneCodeMatches(req.Body, code) {

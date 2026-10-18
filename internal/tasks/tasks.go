@@ -193,7 +193,7 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 			if !f.Match(m) {
 				continue
 			}
-			if m.Kind == msg.KindClaim && f.Progress != nil {
+			if (m.Kind == msg.KindClaim || m.Kind == msg.KindProgress) && f.Progress != nil {
 				f.Progress(m)
 				_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
 				continue

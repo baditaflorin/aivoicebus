@@ -97,6 +97,10 @@ const (
 	KindClaim    = "claim"
 	KindEnd      = "end"
 	KindLease    = "lease"
+	// KindProgress says how a task goes ("step 3/5", a worker's heartbeat): a wait shows it and
+	// goes on, like a claim. Nodes of ProgressSince or later hold it.
+	KindProgress  = "progress"
+	ProgressSince = "0.10.0"
 )
 
 // TaskSince is the first release whose nodes accept tasks, claims and ends. An older node
