@@ -553,7 +553,7 @@ func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
 	first, _ := s.Send(msg.Message{From: a, To: b, Body: "ping 0"})
 	var err2 error
 	n := 0
-	for i := 1; i <= 20 && err2 == nil; i++ {
+	for i := 1; i <= 3*pairLimit && err2 == nil; i++ {
 		from, to := a, b
 		if i%2 == 1 {
 			from, to = b, a
@@ -566,6 +566,9 @@ func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
 	var rl *RateLimitError
 	if !errors.As(err2, &rl) || rl.Scope != "pair" || n != pairLimit {
 		t.Fatalf("after %d replies: %v", n, err2)
+	}
+	if _, err := s.Send(msg.Message{From: a, To: b, Re: first.ID, Kind: msg.KindEnd, Body: "stopping here"}); err != nil {
+		t.Errorf("an end stops the loop, so the brake lets it through: %v", err)
 	}
 	for i := 0; i < 10; i++ { // fresh notes to the same session are not a loop
 		if _, err := s.Send(msg.Message{From: "ci/bot.c1", To: b, Body: fmt.Sprintf("build %d", i)}); err != nil {
@@ -593,7 +596,7 @@ func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
 	sync()
 	var err error
 	n := 0
-	for i := 1; i <= 20; i++ {
+	for i := 1; i <= 3*pairLimit; i++ {
 		if i%2 == 1 {
 			_, err = nb.Send(msg.Message{From: b, To: a, Re: first.ID, Body: strings.Repeat("y", i)}) // b writes through node b
 		} else {

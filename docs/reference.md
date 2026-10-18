@@ -325,8 +325,8 @@ check leaves alone.
 **Rate limits that hold.** Each node counts, per sender, at most 20 messages an hour; per machine,
 300 an hour, whatever its sessions are called (a new session name does not start the count again);
 and per pair of sessions, replies: when two sessions have both answered each other at least twice
-and their replies reach 8 within 2 minutes, the next reply is refused with "this looks like two
-agents answering each other in a loop. Stop, and ask the user". A burst of fresh notes, or one side
+and their replies reach 24 within 2 minutes (a handoff between two agents takes about 10), the next reply is refused with "this looks like two
+agents answering each other in a loop. Stop, and ask the user"; an `[end]` always goes through. A burst of fresh notes, or one side
 posting many replies, is not a loop and is not counted that way. The counts are kept in the node's
 `ratelimits.json`, so a restart does not forget them. They are brakes for agents, not security: the
 shared token lets anyone send as anyone (per-machine tokens bind a sender to its machine).

@@ -206,7 +206,7 @@ const (
 	defaultRetractLimit = 60               // retractions one identity may write per sendWindow
 	sendWindow          = time.Hour        // the span the limit is counted over
 	machineLimit        = 300              // messages one machine may send per sendWindow, all its sessions together
-	pairLimit           = 8                // messages between the same two sessions per pairWindow
+	pairLimit           = 24               // messages between the same two sessions per pairWindow: a handoff takes ~10
 	pairWindow          = 2 * time.Minute  // a loop answers in seconds; a person-paced conversation does not
 	dupWindow           = 10 * time.Minute // an identical message within this span is the same message
 	maxSenders          = 2000             // senders remembered for rate limiting
@@ -961,7 +961,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 			return p, nil
 		}
 	}
-	if err := s.allowSendLocked(m.From, m.To, m.Re, now); err != nil {
+	if err := s.allowSendLocked(m.From, m.To, m.Re, m.Kind, now); err != nil {
 		s.limited++
 		reason := "rate_sender"
 		var rl *RateLimitError
@@ -1017,8 +1017,8 @@ func (s *Store) byIDLocked(id string) (msg.Message, bool) {
 // sender, machineLimit an hour per machine (a new session name does not start the count again),
 // and pairLimit replies within pairWindow between the same two sessions, either way (two agents
 // answering each other in a loop; a burst of fresh notes, a CI bot's say, is not one). Nothing is
-// counted unless all three allow it.
-func (s *Store) allowSendLocked(from, to, re string, now time.Time) error {
+// counted unless all three allow it. An [end] always passes the pair brake: ending is what stops a loop.
+func (s *Store) allowSendLocked(from, to, re, kind string, now time.Time) error {
 	host := msg.HostOf(from)
 	pair := ""
 	back := ""
@@ -1033,7 +1033,7 @@ func (s *Store) allowSendLocked(from, to, re string, now time.Time) error {
 	}
 	if pair != "" {
 		mine, theirs := recent(s.pairSends[pair], pairWindow, now), recent(s.pairSends[back], pairWindow, now)
-		if mine >= 2 && theirs >= 2 && mine+theirs >= pairLimit {
+		if mine >= 2 && theirs >= 2 && mine+theirs >= pairLimit && kind != msg.KindEnd {
 			wait, _ := under(s.pairSends, pair, 0, pairWindow, now)
 			return &RateLimitError{Limit: pairLimit, RetryAfter: wait, Scope: "pair"}
 		}
