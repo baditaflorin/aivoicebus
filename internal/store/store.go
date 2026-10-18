@@ -202,7 +202,7 @@ const (
 // shared token lets anyone claim any sender); the send counts are kept in ratelimits.json,
 // so a restart does not forget them.
 const (
-	defaultSendLimit    = 20               // messages one sender may send per sendWindow
+	defaultSendLimit    = 60               // messages one sender may send per sendWindow: a conversing agent sends 20 easily
 	defaultRetractLimit = 60               // retractions one identity may write per sendWindow
 	sendWindow          = time.Hour        // the span the limit is counted over
 	machineLimit        = 300              // messages one machine may send per sendWindow, all its sessions together

@@ -322,7 +322,7 @@ Ends, claims and progress messages are not counted: status updates that differ o
 ("processed 10 files", "processed 20 files") belong in `--kind progress`, which waits show and this
 check leaves alone.
 
-**Rate limits that hold.** Each node counts, per sender, at most 20 messages an hour; per machine,
+**Rate limits that hold.** Each node counts, per sender, at most 60 messages an hour; per machine,
 300 an hour, whatever its sessions are called (a new session name does not start the count again);
 and per pair of sessions, replies: when two sessions have both answered each other at least twice
 and their replies reach 24 within 2 minutes (a handoff between two agents takes about 10), the next reply is refused with "this looks like two
