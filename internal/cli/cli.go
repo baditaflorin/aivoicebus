@@ -91,6 +91,7 @@ func init() {
 		"audit":       auditCmd,
 		"unhold":      unholdCmd,
 		"tokens":      tokensCmd,
+		"token":       tokenCmd,
 		"resume":      resumeCmd,
 		"approver":    approverCmd,
 		"deny":        denyCmd,

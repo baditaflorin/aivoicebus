@@ -37,6 +37,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"trust-key", "list, add or remove the public keys this machine trusts for updates"},
 	{"release", "for maintainers: keygen, pack, verify, nodes"},
 	{"secret", "hand a credential to the agents on this machine without pasting it"},
+	{"token", "hand a machine its own machine token (`token hand HOST`, where it was made) and install it there (`token install ID`, a person approves); the nodes confirm the switch"},
 	{"get", "download a file a message points at"},
 	{"tail", "follow or push a live log a message points at"},
 	{"view", "a read-only page of the mesh: session cards and the conversations between them (--demo to try it)"},
