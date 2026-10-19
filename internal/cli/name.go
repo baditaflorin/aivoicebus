@@ -38,7 +38,7 @@ func nameCmd(args []string, s Streams) error {
 		fmt.Fprintf(s.Out, "use it: AIVOICEBUS_NAME=%s <tool>   (one live session per name; a name for another tool than the one running is ignored)\n", strings.ToLower(a[1]))
 	case "rm":
 		if !slices.Contains(identity.RegisteredNames(), strings.ToLower(strings.TrimSpace(a[1]))) {
-			return outbox.NotFoundf("%q is not registered on this machine", strings.ToLower(strings.TrimSpace(a[1])))
+			return outbox.NotFoundf("%q is not registered on this machine: `aivoicebus name` lists the names", strings.ToLower(strings.TrimSpace(a[1])))
 		}
 		if err := identity.RemoveName(a[1]); err != nil {
 			return err
@@ -47,7 +47,7 @@ func nameCmd(args []string, s Streams) error {
 	case "rename":
 		old, to := strings.ToLower(a[1]), strings.ToLower(a[2])
 		if !slices.Contains(identity.RegisteredNames(), old) {
-			return outbox.NotFoundf("%q is not registered on this machine", old)
+			return outbox.NotFoundf("%q is not registered on this machine: `aivoicebus name` lists the names", old)
 		}
 		if err := identity.AddName(to); err != nil { // validates before anything is dropped
 			return outbox.Usagef("%v", err)

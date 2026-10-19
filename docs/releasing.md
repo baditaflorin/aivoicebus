@@ -1,5 +1,9 @@
 # Releasing and updating
 
+Commands that start with `deploy/` or `scripts/` are files in this repository: run them from the
+root of an aivoicebus checkout (`git clone https://github.com/baditaflorin/aivoicebus && cd aivoicebus`),
+not from any other directory, where the shell says `no such file or directory`.
+
 ## How a machine updates
 
 `aivoicebus update` (ask the user first; `--check` only reports):

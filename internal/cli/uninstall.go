@@ -53,11 +53,11 @@ func uninstallCmd(args []string, s Streams) error {
 		ok, err := askYesNo(s, "Remove these? [y/N] ")
 		switch {
 		case errors.Is(err, errNoTerminal):
-			return errors.New("uninstall changes files in your home directory and there is no terminal to confirm on: run it in a terminal, or pass --yes (--dry-run shows the plan)")
+			return errors.New("uninstall changes files in your home directory and there is no terminal to confirm on: ask the user to run `aivoicebus uninstall` in a terminal (--dry-run shows the plan)")
 		case err != nil:
 			return err
 		case !ok:
-			return errors.New("cancelled: nothing was changed")
+			return errors.New("cancelled: nothing was changed. Run it again to go ahead")
 		}
 	}
 	opts.DryRun = false

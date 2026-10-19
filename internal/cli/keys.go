@@ -60,7 +60,7 @@ func keysCmd(args []string, s Streams) error {
 			return err
 		}
 		if !ok {
-			return outbox.NotFoundf("no key is pinned for %s", args[1])
+			return outbox.NotFoundf("no key is pinned for %s: `aivoicebus keys` lists the pinned ones", args[1])
 		}
 		fmt.Fprintf(s.Out, "forgot %s's key: the next one seen is pinned. Check with that machine's owner that it really changed.\n", args[1])
 		return nil
@@ -76,7 +76,7 @@ func boxKeyFor(c *client.Client, host string) ([]byte, error) {
 	}
 	recs, err := c.SyncAll(map[string]uint64{})
 	if err != nil {
-		return nil, fmt.Errorf("no key is known for %s and the log cannot be read with this token (%v): it must send any message to this session first", host, err)
+		return nil, fmt.Errorf("no key is known for %s and the log cannot be read with this token (%v): ask it to send this session any message first, then run it again", host, err)
 	}
 	var found *msg.Message
 	for i := range recs {
@@ -92,7 +92,7 @@ func boxKeyFor(c *client.Client, host string) ([]byte, error) {
 		}
 	}
 	if found == nil {
-		return nil, fmt.Errorf("no key is known for %s: it has not sent a signed message yet (aivoicebus 0.7.0 or later signs every message)", host)
+		return nil, fmt.Errorf("no key is known for %s: it has not sent a signed message yet (aivoicebus 0.7.0 or later signs every message): ask it to send this session a message, then run it again", host)
 	}
 	if key, _, ok := config.KnownMachine(host); ok && key != found.Key {
 		return nil, errors.New("the key " + host + " signs with now is not the one pinned here (KEY CHANGED): not sealing to it; check with its owner, then `aivoicebus keys forget " + host + "`")

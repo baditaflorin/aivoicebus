@@ -61,7 +61,8 @@ const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node
        aivoicebus token install ID|LINK [--wait 30m] [--json]
        aivoicebus token report [--days 7] [--deploy HOST] [--nodes NAME,...] [--check] [--json]
 
-Hand a machine its own token (made by deploy/machine-token.sh add HOST) without anyone copying it:
+Hand a machine its own token (made by deploy/machine-token.sh add HOST, run from the root of an
+aivoicebus checkout) without anyone copying it:
 'hand' runs where the token was made and sends HOST a task; a session there runs 'install' with
 the task's id, a person approves, and the token goes over as a one-time end-to-end-encrypted file.
 'install' checks with the nodes that it is this machine's own before it replaces the token file,
@@ -115,13 +116,13 @@ func cleanToken(raw []byte) (string, error) {
 	t := strings.TrimSpace(strings.TrimPrefix(string(raw), "\xef\xbb\xbf"))
 	switch {
 	case t == "":
-		return "", errors.New("it is empty")
+		return "", errors.New("it is empty") // nextstep: its callers say what to do
 	case strings.ContainsAny(t, " \t\r\n:"):
-		return "", errors.New("it is not a single token (it has a space, a line break or a name: prefix)")
+		return "", errors.New("it is not a single token (it has a space, a line break or a name: prefix)") // nextstep: its callers say what to do
 	case len(t) < server.MinTokenLen:
-		return "", fmt.Errorf("it is shorter than %d characters, so no node accepts it", server.MinTokenLen)
+		return "", fmt.Errorf("it is shorter than %d characters, so no node accepts it", server.MinTokenLen) // nextstep: its callers say what to do
 	case len(t) > 4096:
-		return "", errors.New("it is far longer than any token")
+		return "", errors.New("it is far longer than any token") // nextstep: its callers say what to do
 	}
 	return t, nil
 }
@@ -148,7 +149,7 @@ func cleanLink(raw string) (string, error) {
 	l = strings.Trim(l, `'"`)
 	l = strings.NewReplacer(`\#`, "#", `\~`, "~").Replace(l)
 	if strings.Contains(l, `\`) {
-		return "", errors.New("the link has a backslash in it, so a shell or an editor changed it: pass it in single quotes, or give the id of the message that carries it")
+		return "", errors.New("the link has a backslash in it, so a shell or an editor changed it: run it again with the link in single quotes, or with the id of the message that carries it")
 	}
 	return l, nil
 }
@@ -238,11 +239,11 @@ func tokenHand(args []string, s Streams) error {
 func handOver(c *client.Client, me, host, to, via string, wait time.Duration, res *handResult, s Streams) error {
 	path := filepath.Join(machineTokensDir(), host)
 	if fi, err := os.Lstat(path); err != nil {
-		return fmt.Errorf("%s has no machine token here (%s): make it first with deploy/machine-token.sh add %s --apply", host, path, host)
+		return fmt.Errorf("%s has no machine token here (%s): make it first with `deploy/machine-token.sh add %s --apply`, run from the root of an aivoicebus checkout", host, path, host)
 	} else if !fi.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file; not reading it", path)
+		return fmt.Errorf("%s is not a regular file; not reading it: put the machine token there with `deploy/machine-token.sh add %s --apply`, run from the root of an aivoicebus checkout", path, host)
 	} else if fi.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("%s is readable by other users (mode %04o): chmod 600 it first", path, fi.Mode().Perm())
+		return fmt.Errorf("%s is readable by other users (mode %04o): run `chmod 600 %s`, then try again", path, fi.Mode().Perm(), path)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -256,11 +257,11 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	info, err := (&client.Client{URLs: c.URLs, Token: tok}).TokenInfo()
 	switch {
 	case client.IsRejected(err):
-		return fmt.Errorf("the nodes do not accept the token in %s: give it to them first with deploy/machine-token.sh add %s --apply", path, host)
+		return fmt.Errorf("the nodes do not accept the token in %s: give it to them first with `deploy/machine-token.sh add %s --apply`, run from the root of an aivoicebus checkout", path, host)
 	case err != nil:
 		return fmt.Errorf("could not ask the nodes about the token: %v", err)
 	case info.Observer || info.Host != host:
-		return fmt.Errorf("the nodes say the token in %s is not a machine token bound to %s (bound to %q); not handing it over", path, host, info.Host)
+		return fmt.Errorf("the nodes say the token in %s is not a machine token bound to %s (bound to %q); not handing it over: make one with `deploy/machine-token.sh add %s --apply`, run from the root of an aivoicebus checkout", path, host, info.Host, host)
 	}
 	fs, err := fileStore(c, via)
 	if err != nil {
@@ -343,7 +344,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 				return fmt.Errorf("stalled: nobody took it; no session on %s took task %s within %s (is one standing by there? aivoicebus ping %s)", host, task.ID, wait, host)
 			case approval == "":
 				res.Stalled = "approval"
-				return fmt.Errorf("stalled: taken by %s, but it neither asked the person on %s nor said ready within %s (its install may have been stopped, or runs a release before 0.10.4); task %s", taker, host, wait, task.ID)
+				return fmt.Errorf("stalled: taken by %s, but it neither asked the person on %s nor said ready within %s (its install may have been stopped, or runs a release before 0.10.4); task %s: ask the user on %s to run `aivoicebus update` there, then try again", taker, host, wait, task.ID, host)
 			}
 			res.Stalled = "approval"
 			return fmt.Errorf("stalled: taken by %s, but nobody approved it on %s within %s (request %s: the person approves it there, %s, or runs aivoicebus token install %s in a terminal there themselves); task %s", taker, host, wait, approval, where, task.ID, task.ID)
@@ -352,7 +353,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
 			if _, ok := tagged(m.Body, tokenFailedTag); ok && from(m) {
 				res.Session, res.Said = m.From, view.OneLine(m.Body, 400)
-				return fmt.Errorf("%s did not install it: %s", m.From, view.OneLine(m.Body, 400))
+				return fmt.Errorf("%s did not install it: %s", m.From, view.OneLine(m.Body, 400)) // nextstep: the installing side says why and what to do
 			}
 			if h, ok := tagged(m.Body, tokenReadyTag); ok && h == host {
 				if !from(m) {
@@ -405,7 +406,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: task.Thread, From: ready.From}, time.Until(deadline), 3*time.Second)
 		if err != nil {
 			res.Stalled = "install"
-			return fmt.Errorf("stalled: approved by the person on %s, but %s did not answer that it installed it within %s; the link (message %s) is good for five minutes, then nothing can read it", host, ready.From, wait, link.ID)
+			return fmt.Errorf("stalled: approved by the person on %s, but %s did not answer that it installed it within %s; the link (message %s) is good for five minutes, then nothing can read it: check there with `aivoicebus doctor`, and hand it again if it is not in use", host, ready.From, wait, link.ID)
 		}
 		for _, m := range got {
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
@@ -424,7 +425,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	}
 	res.Answer, res.Said = answer.ID, view.OneLine(attach.Sanitize(answer.Body), 400)
 	if !installed {
-		return fmt.Errorf("%s did not install it: %s", ready.From, view.OneLine(answer.Body, 400))
+		return fmt.Errorf("%s did not install it: %s", ready.From, view.OneLine(answer.Body, 400)) // nextstep: the installing side says why and what to do
 	}
 	res.Installed = true
 
@@ -517,10 +518,10 @@ var restartWorker = func() string {
 }
 
 // errNobodyToApprove is an install that can ask nobody: no terminal, no approver key, no notify URL.
-var errNobodyToApprove = errors.New("token install changes this machine's credential, so a person approves it, and nobody can be asked here: there is no terminal, no approver key and no notify URL on this machine")
+var errNobodyToApprove = errors.New("token install changes this machine's credential, so a person approves it, and nobody can be asked here: there is no terminal, no approver key and no notify URL on this machine. Ask the user to run `aivoicebus token install ID` in a terminal here")
 
 // errStopped is an install stopped (Ctrl-C, or the agent's tool call ending) while it waited.
-var errStopped = errors.New("token install was stopped while it waited; nothing was changed")
+var errStopped = errors.New("token install was stopped while it waited; nothing was changed: run it again (as a background command, it waits for the person)")
 
 // stopSignals are what end a waiting install early but still let it answer the hand side: Ctrl-C,
 // and the SIGTERM an agent's tool call sends when it times out. A SIGKILL leaves no time to answer,
@@ -538,7 +539,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 	case err == nil && yes:
 		return "terminal", nil
 	case err == nil:
-		return "", errors.New("the person said no; nothing was changed")
+		return "", errors.New("the person said no; nothing was changed. Ask the user before trying again")
 	case !errors.Is(err, errNoTerminal):
 		return "", err
 	}
@@ -596,7 +597,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 				if say == "approve" {
 					return "phone", nil
 				}
-				return "", errors.New("denied on the phone; nothing was changed")
+				return "", errors.New("denied on the phone; nothing was changed. Ask the user before trying again")
 			}
 			if kerr != nil || msg.HostOf(a.From) != msg.HostOf(me) || a.Verified != msg.VerifiedSigned {
 				continue // only a decision made on this machine, signed with its machine key...
@@ -608,13 +609,13 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 			if word == "approve" {
 				return "approver key", nil
 			}
-			return "", errors.New("the person denied it; nothing was changed")
+			return "", errors.New("the person denied it; nothing was changed. Ask the user before trying again")
 		}
 	}
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("%w (before the person approved %s)", errStopped, req.ID)
 	}
-	return "", fmt.Errorf("no approval within %s (request %s); nothing was changed", within, req.ID)
+	return "", fmt.Errorf("no approval within %s (request %s); nothing was changed: ask the user, then run it again", within, req.ID)
 }
 
 func tokenInstall(args []string, s Streams) error {
@@ -663,11 +664,11 @@ func tokenInstall(args []string, s Streams) error {
 func installExchange(ref, me string, wait time.Duration, res *installResult, s Streams) error {
 	host := msg.HostOf(me)
 	if os.Getenv("AIVOICEBUS_TOKEN") != "" {
-		return errors.New("AIVOICEBUS_TOKEN is set here (in the environment or ~/.config/aivoicebus/env), so the token file is not what this machine uses: remove it from there first; nothing was changed")
+		return errors.New("AIVOICEBUS_TOKEN is set here (in the environment or ~/.config/aivoicebus/env), so the token file is not what this machine uses; nothing was changed. Ask the user to remove it from there, then run it again")
 	}
 	path := config.TokenPath("")
 	if path == "" {
-		return errors.New("no home directory to keep the token in")
+		return errors.New("no home directory to keep the token in: ask the user to set HOME, then run it again")
 	}
 	res.Path = path
 	c, err := client.FromEnv()
@@ -708,30 +709,30 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 		fresh := "ask the machine that hands it over for a fresh one (aivoicebus token hand " + host + "); nothing was changed"
 		switch {
 		case m.ID == "":
-			return outbox.NotFoundf("message %s was not found on the nodes (a [token hand] task expires after an hour): %s", id, fresh)
+			return outbox.NotFoundf("message %s was not found on the nodes (a [token hand] task expires after an hour): %s", id, fresh) // nextstep: fresh
 		case m.Retracted != nil:
-			return fmt.Errorf("%s was withdrawn by %s (retracted): %s", id, view.Name(m.From, msg.MaxIdentity), fresh)
+			return fmt.Errorf("%s was withdrawn by %s (retracted): %s", id, view.Name(m.From, msg.MaxIdentity), fresh) // nextstep: fresh
 		case m.Exp != nil && time.Now().After(*m.Exp):
-			return fmt.Errorf("%s expired at %s: %s", id, view.When(*m.Exp, time.Now()), fresh)
+			return fmt.Errorf("%s expired at %s: %s", id, view.When(*m.Exp, time.Now()), fresh) // nextstep: fresh
 		}
 		if h, ok := tagged(m.Body, tokenHandTag); ok {
 			if m.Kind != msg.KindTask {
-				return outbox.Usagef("%s is not a task", id)
+				return outbox.Usagef("%s is not a task: %s", id, fresh) // nextstep: fresh
 			}
 			if h != host {
-				return fmt.Errorf("task %s hands %s its token, and this machine is %s; nothing was changed", id, h, host)
+				return fmt.Errorf("task %s hands %s its token, and this machine is %s; nothing was changed. Run it on %s, or ask the sender for one for this machine (`aivoicebus token hand %s`)", id, h, host, h, host)
 			}
 			task, from = m, m
 		} else if _, found, _ := attach.Find(m.Body); found {
 			body, from = m.Body, m
 		} else {
-			return outbox.Usagef("%s is neither a [token hand] task nor a message with a link", id)
+			return outbox.Usagef("%s is neither a [token hand] task nor a message with a link: give the id of the [token hand] task, or %s", id, fresh) // nextstep: fresh
 		}
 	}
 	if from.ID != "" {
 		res.From = from.From
 		if from.Verified != msg.VerifiedSigned {
-			return fmt.Errorf("message %s is not signed by %s's machine key (%s); not taking a credential from it", from.ID, msg.HostOf(from.From), from.Verified)
+			return fmt.Errorf("message %s is not signed by %s's machine key (%s); not taking a credential from it: ask the user whether %s really sent it", from.ID, msg.HostOf(from.From), from.Verified, msg.HostOf(from.From))
 		}
 	}
 	if task.ID != "" {
@@ -852,7 +853,7 @@ func waitLink(c *client.Client, me string, task, ready msg.Message, wait time.Du
 	if ctx.Err() != nil {
 		return msg.Message{}, fmt.Errorf("%w (after ready %s, before the link came)", errStopped, ready.ID)
 	}
-	return msg.Message{}, fmt.Errorf("no link from %s within %s (after ready %s)", task.From, wait, ready.ID)
+	return msg.Message{}, fmt.Errorf("no link from %s within %s (after ready %s): ask the sender to run `aivoicebus token hand %s` again", task.From, wait, ready.ID, msg.HostOf(me))
 }
 
 // fetchAndInstall fetches and decrypts the token, has the nodes confirm it is a machine token bound
@@ -864,13 +865,13 @@ func fetchAndInstall(c *client.Client, body, host, path string, res *installResu
 	data, _, _, err := attach.FetchFile(ctx, body, c.Token)
 	switch {
 	case errors.Is(err, attach.ErrGone):
-		return "", errors.New("the link has expired or was read already (it is good for one read, for five minutes): ask for it again; nothing was changed")
+		return "", errors.New("the link has expired or was read already (it is good for one read, for five minutes); nothing was changed: ask the sender for a fresh one (`aivoicebus token hand` there)")
 	case err != nil:
-		return "", fmt.Errorf("could not fetch the token: %v; nothing was changed", err)
+		return "", fmt.Errorf("could not fetch the token: %v; nothing was changed. Try again, or ask the sender for a fresh link (`aivoicebus token hand` there)", err)
 	}
 	tok, err := cleanToken(data)
 	if err != nil {
-		return "", fmt.Errorf("what was handed over is not a token: %v; nothing was changed", err)
+		return "", fmt.Errorf("what was handed over is not a token: %v; nothing was changed. Ask the sender to check its machine token (`deploy/machine-token.sh list`, from the root of an aivoicebus checkout)", err)
 	}
 	if err := checkMachineToken(c.URLs, tok, host); err != nil {
 		return "", err
@@ -889,12 +890,12 @@ func fetchAndInstall(c *client.Client, body, host, path string, res *installResu
 		return info.Name, nil // installed already: nothing to change
 	}
 	if err := writeAtomic(real, []byte(tok+"\n")); err != nil {
-		return "", fmt.Errorf("could not write %s: %v; nothing was changed", real, err)
+		return "", fmt.Errorf("could not write %s: %v; nothing was changed. Ask the user to check its directory, then run it again", real, err)
 	}
 	// read back through the same path every command uses, and asked of the nodes again
 	check := func() error {
 		if got := config.Token(""); got != tok {
-			return errors.New("the token file does not read back as the new token")
+			return errors.New("the token file does not read back as the new token") // nextstep: wrapped by "after the switch", which puts the old one back
 		}
 		nc, err := client.FromEnv()
 		if err != nil {
@@ -913,7 +914,7 @@ func fetchAndInstall(c *client.Client, body, host, path string, res *installResu
 			return "", fmt.Errorf("after the switch: %v, and the old token could not be put back: %v", err, rerr)
 		}
 		res.Restored = true
-		return "", fmt.Errorf("after the switch: %v; the old token is back in place", err)
+		return "", fmt.Errorf("after the switch: %v; the old token is back in place. Run `aivoicebus doctor`, and ask the user before trying again", err)
 	}
 	return info.Name, nil
 }
@@ -923,17 +924,17 @@ func checkMachineToken(urls []string, tok, host string) error {
 	info, err := (&client.Client{URLs: urls, Token: tok}).TokenInfo()
 	switch {
 	case client.IsRejected(err):
-		return errors.New("the nodes do not accept it; nothing was changed")
+		return errors.New("the nodes do not accept it; nothing was changed. Ask the sender to give it to the nodes (`deploy/machine-token.sh add HOST --apply`, from the root of an aivoicebus checkout)")
 	case client.IsNotFound(err):
-		return errors.New("the nodes run a release too old to say what kind of token it is; nothing was changed")
+		return errors.New("the nodes run a release too old to say what kind of token it is; nothing was changed. Ask the user to update the nodes first")
 	case err != nil:
 		return fmt.Errorf("could not ask the nodes about it: %v; nothing was changed", err)
 	case info.Observer:
-		return errors.New("it is the observer token, not a machine token; nothing was changed")
+		return errors.New("it is the observer token, not a machine token; nothing was changed. Ask the sender for this machine's own token")
 	case info.Host == "":
-		return errors.New("it is a shared token, not a machine token bound to this machine; nothing was changed")
+		return errors.New("it is a shared token, not a machine token bound to this machine; nothing was changed. Ask the sender for this machine's own token")
 	case info.Host != host:
-		return fmt.Errorf("it is the machine token of %s, and this machine is %s; nothing was changed", info.Host, host)
+		return fmt.Errorf("it is the machine token of %s, and this machine is %s; nothing was changed. Ask the sender for this machine's own token (`aivoicebus token hand %s`)", info.Host, host, host)
 	}
 	return nil
 }

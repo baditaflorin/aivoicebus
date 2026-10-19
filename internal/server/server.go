@@ -89,7 +89,7 @@ func hostOf(identity string) string { return msg.HostOf(identity) }
 func (p Principal) mayActAs(identity string) bool { return p.Host == "" || hostOf(identity) == p.Host }
 
 func (p Principal) deny(w http.ResponseWriter) {
-	http.Error(w, fmt.Sprintf("this token may only act as %s/...", p.Host), http.StatusForbidden)
+	refuse(w, msg.RefusedDenied, fmt.Sprintf("this token may only act as %s/...: send as this machine, or ask the user for the token of the machine named", p.Host), http.StatusForbidden)
 }
 
 type principalHandler func(http.ResponseWriter, *http.Request, Principal)
@@ -116,15 +116,15 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			switch {
 			case !known:
 				cfg.metrics.unauthorized.Add(1)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				refuse(w, msg.RefusedToken, "unauthorized: this node does not know the token; ask the user to check it (`aivoicebus doctor` says which token is in use)", http.StatusUnauthorized)
 				return
 			case who.Observer && !(observerOK && (r.Method == http.MethodGet || r.Method == http.MethodHead)):
 				cfg.metrics.count(who.Name)
-				http.Error(w, "the observer token is read-only and cannot do this", http.StatusForbidden)
+				refuse(w, msg.RefusedReadOnly, "the observer token is read-only and cannot do this: ask the user for the shared or a machine token", http.StatusForbidden)
 				return
 			case who.Host != "" && !machineOK:
 				cfg.metrics.count(who.Name)
-				http.Error(w, fmt.Sprintf("a machine token (%s/...) may not read this; use the shared or observer token", who.Host), http.StatusForbidden)
+				refuse(w, msg.RefusedReadOnly, fmt.Sprintf("a machine token (%s/...) may not read this: ask the user to run it where the shared or observer token is", who.Host), http.StatusForbidden)
 				return
 			}
 			cfg.metrics.count(who.Name)
@@ -181,14 +181,14 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		case err == nil:
 			return res, true
 		case errors.Is(err, store.ErrUnknown): // never a retraction for a message this node has not got: another node may have it
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			refuse(w, msg.RefusedUnknown, err.Error(), http.StatusUnprocessableEntity)
 		case errors.As(err, &notSender):
-			http.Error(w, err.Error(), http.StatusForbidden)
+			refuse(w, msg.RefusedNotSender, err.Error(), http.StatusForbidden)
 		case errors.As(err, &limited):
 			w.Header().Set("Retry-After", strconv.Itoa(int(limited.RetryAfter.Seconds())+1))
-			http.Error(w, limited.Error(), http.StatusTooManyRequests)
+			refuse(w, rateReason(limited), limited.Error(), http.StatusTooManyRequests)
 		case errors.Is(err, store.ErrBadRetract):
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			refuse(w, msg.RefusedBadRequest, err.Error(), http.StatusBadRequest)
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -212,7 +212,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	mux.HandleFunc("/v1/unsigned", readonly(unsignedHandler(s, cfg.node, cfg.requireSigned, time.Now)))
 	mux.HandleFunc("/v1/send", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
 		if cfg.ready != nil && !cfg.ready() {
-			http.Error(w, "this node is recovering from its peers; retry or use another node", http.StatusServiceUnavailable)
+			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
 			return
 		}
 		var m msg.Message
@@ -256,7 +256,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		if cfg.requireSigned && !msg.IsProbe(m.From) {
 			if signed, valid := m.VerifySig(); !signed || !valid {
 				cfg.metrics.unsigned.Add(1)
-				http.Error(w, "refused: this node takes only signed messages (serve --require-signed), and this one is unsigned or its signature does not verify: update the client (0.7.0 or later signs every message)", http.StatusForbidden)
+				refuse(w, msg.RefusedUnsigned, "refused: this node takes only signed messages (serve --require-signed), and this one is unsigned or its signature does not verify: update the client with `aivoicebus update` (0.7.0 or later signs every message)", http.StatusForbidden)
 				return
 			}
 		}
@@ -268,19 +268,21 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 		if found {
 			cfg.metrics.secrets.Add(1)
-			http.Error(w, secrets.Refusal(f), http.StatusUnprocessableEntity)
+			refuse(w, msg.RefusedSecret, secrets.Refusal(f), http.StatusUnprocessableEntity)
 			return
 		}
 		out, err := s.Send(m)
 		var limited *store.RateLimitError
 		switch {
-		case errors.Is(err, store.ErrReservedID), errors.Is(err, store.ErrReplyToNotice):
-			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		case errors.Is(err, store.ErrReservedID):
+			refuse(w, msg.RefusedReservedID, "bad request: "+err.Error(), http.StatusBadRequest)
+		case errors.Is(err, store.ErrReplyToNotice):
+			refuse(w, msg.RefusedNotice, "bad request: "+err.Error(), http.StatusBadRequest)
 		case errors.Is(err, store.ErrTurnLimit):
-			http.Error(w, err.Error(), http.StatusConflict)
+			refuse(w, turnReason(err), err.Error(), http.StatusConflict)
 		case errors.As(err, &limited):
 			w.Header().Set("Retry-After", strconv.Itoa(int(limited.RetryAfter.Seconds())+1))
-			http.Error(w, limited.Error(), http.StatusTooManyRequests)
+			refuse(w, rateReason(limited), limited.Error(), http.StatusTooManyRequests)
 		case err != nil:
 			http.Error(w, err.Error(), 500)
 		default:
@@ -338,7 +340,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}))
 	mux.HandleFunc("/v1/ack", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
 		if cfg.ready != nil && !cfg.ready() {
-			http.Error(w, "this node is recovering from its peers; retry or use another node", http.StatusServiceUnavailable)
+			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
 			return
 		}
 		var a msg.AckRequest
@@ -370,7 +372,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}))
 	mux.HandleFunc("/v1/retract", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
 		if cfg.ready != nil && !cfg.ready() {
-			http.Error(w, "this node is recovering from its peers; retry or use another node", http.StatusServiceUnavailable)
+			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
 			return
 		}
 		var req msg.RetractRequest

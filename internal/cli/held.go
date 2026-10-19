@@ -69,7 +69,7 @@ func unholdCmd(args []string, s Streams) error {
 		return fmt.Errorf("unhold needs a person at a terminal: %v", err)
 	}
 	if strings.TrimSpace(line) != "unhold" {
-		return errors.New("not unheld")
+		return errors.New("not unheld: run it again and type unhold")
 	}
 	if err := config.Release(args[0]); err != nil {
 		return err
@@ -82,7 +82,7 @@ func unholdCmd(args []string, s Streams) error {
 // personOnly refuses inside an agent's session: these show or release what was kept from agents.
 func personOnly(cmd string) error {
 	if os.Getenv("AIVOICEBUS_AGENT") != "" {
-		return fmt.Errorf("%s is for the user, in their own terminal, not for an agent's session", cmd)
+		return fmt.Errorf("%s is for the user, in their own terminal, not for an agent's session: ask the user to run it", cmd)
 	}
 	return nil
 }

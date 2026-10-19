@@ -70,7 +70,7 @@ func resumeCmd(args []string, s Streams) error {
 		return fmt.Errorf("resume needs a person at a terminal: %v", err)
 	}
 	if strings.TrimSpace(line) != "resume" {
-		return errors.New("not resumed")
+		return errors.New("not resumed: run it again and type resume")
 	}
 	if err := sendWith([]string{"--to", target, "--prio", msg.PrioUrgent, "--force", "--queue", msg.ResumeBody("")}, s, false); err != nil {
 		return err

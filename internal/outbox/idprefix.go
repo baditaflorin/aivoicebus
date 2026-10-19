@@ -17,9 +17,9 @@ import (
 // Failures a script can tell apart (the CLI maps them to exit codes). They wrap nothing: the
 // text is the whole message, the kind is only for errors.Is.
 var (
-	ErrNotFound  = errors.New("not found")
-	ErrAmbiguous = errors.New("ambiguous")
-	ErrUsage     = errors.New("usage")
+	ErrNotFound  = errors.New("not found") // nextstep: kinds for errors.Is; never shown
+	ErrAmbiguous = errors.New("ambiguous") // nextstep: kinds for errors.Is; never shown
+	ErrUsage     = errors.New("usage")     // nextstep: kinds for errors.Is; never shown
 )
 
 // kindError is a message with a kind that errors.Is can match.
@@ -123,7 +123,7 @@ func (r *IDResolver) ResolveSent(given string) (id, to string, at time.Time, err
 	hit, err := resolveAmong(id, sent)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return "", "", time.Time{}, NotFoundf("no message id starting with %q among what this machine sent in the last %s (retract looks nowhere else): give the full id", id, sentWindowText)
+			return "", "", time.Time{}, NotFoundf("no message id starting with %q among what this machine sent in the last %s (retract looks nowhere else): give the full id (`aivoicebus inbox --all` lists ids)", id, sentWindowText)
 		}
 		return "", "", time.Time{}, err
 	}
@@ -147,7 +147,7 @@ func (r *IDResolver) ExpandSent(given string, minLen int) (string, error) {
 		return given, nil
 	}
 	if id := strings.ToLower(strings.TrimSpace(given)); len(id) < minLen {
-		return "", Usagef("%q is too short to take a message back: give at least %d characters or the full id", id, minLen)
+		return "", Usagef("%q is too short to take a message back: give at least %d characters or the full id (`aivoicebus inbox --all` lists ids)", id, minLen)
 	}
 	id, _, _, err := r.ResolveSent(given)
 	return id, err
@@ -173,9 +173,9 @@ func shape(given string, min int) (string, error) {
 	case msg.ValidRetractID(id):
 		return id, nil
 	case !hexPrefix(id):
-		return "", Usagef("%q is not a message id (ten lowercase hex digits, or the first %d or more of them)", view.OneLine(given, 40), min)
+		return "", Usagef("%q is not a message id (ten lowercase hex digits, or the first %d or more of them): `aivoicebus inbox --all` lists ids", view.OneLine(given, 40), min)
 	case len(id) < min:
-		return "", Usagef("%q is too short to name a message: give at least %d characters", id, min)
+		return "", Usagef("%q is too short to name a message: give at least %d characters (`aivoicebus inbox --all` lists ids)", id, min)
 	}
 	return id, nil
 }

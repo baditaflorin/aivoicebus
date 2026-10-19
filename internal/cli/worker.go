@@ -201,7 +201,7 @@ func workerCmd(args []string, s Streams) error {
 	}
 	dir := config.Dir()
 	if dir == "" {
-		return errors.New("no home directory")
+		return errors.New("no home directory: ask the user to set HOME, then run it again")
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -286,7 +286,7 @@ func workerAllowCmd(args []string, s Streams) error {
 		}
 		config.Audit(identity.Me(), "worker allow add", strings.ToLower(args[1]))
 		fmt.Fprintf(s.Out, "allowed %s: a worker on this machine runs its command on the tasks it sends (%s)\n", strings.ToLower(args[1]), worker.AllowPath())
-		fmt.Fprintln(s.Err, "[aivoicebus] Sender names are self-declared: whoever holds the shared token can send as any name, so on such a mesh the allowlist stops mistakes, not token holders. Machine tokens (deploy/machine-token.sh) bind a sender to its machine.")
+		fmt.Fprintln(s.Err, "[aivoicebus] Sender names are self-declared: whoever holds the shared token can send as any name, so on such a mesh the allowlist stops mistakes, not token holders. Machine tokens (deploy/machine-token.sh, run from the root of an aivoicebus checkout) bind a sender to its machine.")
 		return nil
 	case args[0] == "rm" && len(args) == 2:
 		found, err := worker.RemoveAllow(args[1])
@@ -294,7 +294,7 @@ func workerAllowCmd(args []string, s Streams) error {
 			return err
 		}
 		if !found {
-			return outbox.NotFoundf("%s is not in the allowlist", args[1])
+			return outbox.NotFoundf("%s is not in the allowlist: `aivoicebus worker allow list` lists it", args[1])
 		}
 		config.Audit(identity.Me(), "worker allow rm", strings.ToLower(args[1]))
 		fmt.Fprintf(s.Out, "removed %s\n", strings.ToLower(args[1]))
@@ -313,7 +313,7 @@ func denyCmd(args []string, s Streams) error    { return answerApproval("deny", 
 var readPassphrase = func(prompt string) (string, error) {
 	line, err := readHidden(prompt, "-")
 	if err != nil {
-		return "", errors.New("no terminal here (this is typed by a person, at a terminal, never piped)")
+		return "", errors.New("no terminal here (this is typed by a person, at a terminal, never piped): ask the user to run it in a terminal")
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }
@@ -387,7 +387,7 @@ func approverCmd(args []string, s Streams) error {
 			return err
 		}
 		if p1 != p2 {
-			return errors.New("the two passphrases differ; nothing was made")
+			return errors.New("the two passphrases differ; nothing was made. Run it again")
 		}
 		pub, err := config.CreateApprover(p1)
 		if err != nil {

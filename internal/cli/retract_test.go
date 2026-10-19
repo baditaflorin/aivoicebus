@@ -243,7 +243,7 @@ func TestRetractWithNoIdTakesOnlyThisSessionsLastMessageUnlessLast(t *testing.T)
 		t.Errorf("a dry run is always allowed: %d %q %q", code, out, e)
 	}
 
-	if code, _, e = run(t, "", "retract", "--last", theirs); code != 1 || !strings.Contains(e, "--last takes the machine's latest message: give it no id") || s.Stats().Retracted != 0 {
+	if code, _, e = run(t, "", "retract", "--last", theirs); code != 1 || !strings.Contains(e, "--last takes the machine's latest message: run it again without the id") || s.Stats().Retracted != 0 {
 		t.Errorf("%d %q", code, e)
 	}
 	code, out, e = run(t, "", "retract", "--last")

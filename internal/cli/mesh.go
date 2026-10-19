@@ -224,9 +224,9 @@ func nodeListNote(c *client.Client, now time.Time) string {
 	}
 	switch {
 	case n.Expired(now):
-		return fmt.Sprintf("the published node list expired on %s: machines no longer learn nodes from it (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh)", n.Until().Local().Format("2006-01-02"))
+		return fmt.Sprintf("the published node list expired on %s: machines no longer learn nodes from it (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh from the root of an aivoicebus checkout)", n.Until().Local().Format("2006-01-02"))
 	case n.Until().Sub(now) < nodeListWarning:
-		return fmt.Sprintf("the published node list expires on %s (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh)", n.Until().Local().Format("2006-01-02"))
+		return fmt.Sprintf("the published node list expires on %s (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh from the root of an aivoicebus checkout)", n.Until().Local().Format("2006-01-02"))
 	}
 	return ""
 }

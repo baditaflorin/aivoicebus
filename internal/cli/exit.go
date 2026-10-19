@@ -97,9 +97,15 @@ func writeJSON(w io.Writer, v any) error {
 // jsonFailure is what a failing command prints on stderr under --json: stdout stays empty, so a
 // script that parses it never meets half an answer.
 func jsonFailure(w io.Writer, err error, code int) {
+	var se *client.StatusError
+	reason := ""
+	if errors.As(err, &se) {
+		reason = se.Refused() // a node's refusal, as one stable word a script can act on
+	}
 	b, _ := json.Marshal(struct {
-		Error string `json:"error"`
-		Exit  int    `json:"exit"`
-	}{view.Sanitise(err.Error()), code})
+		Error  string `json:"error"`
+		Exit   int    `json:"exit"`
+		Reason string `json:"reason,omitempty"`
+	}{view.Sanitise(err.Error()), code, reason})
 	fmt.Fprintf(w, "%s\n", b)
 }

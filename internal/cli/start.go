@@ -232,7 +232,7 @@ func isJoinLink(text string) bool {
 // address, the rule join applies to the token itself.
 func fetchJoinLink(link string) (urls []string, token string, err error) {
 	if !isJoinLink(link) {
-		return nil, "", errors.New("that is not a join link (http://NODE:7777/bootstrap/KEY.tgz)")
+		return nil, "", errors.New("that is not a join link (http://NODE:7777/bootstrap/KEY.tgz): ask whoever runs the mesh for one")
 	}
 	u, _ := url.Parse(link)
 	if err := checkNodeURLs([]string{u.Scheme + "://" + u.Host}); err != nil {
@@ -245,11 +245,11 @@ func fetchJoinLink(link string) (urls []string, token string, err error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("%s answered %s: the link expired or was turned off; ask for a new one", u.Host, resp.Status)
+		return nil, "", fmt.Errorf("%s answered %s: the link expired or was turned off: ask whoever runs the mesh for a new one", u.Host, resp.Status)
 	}
 	zr, err := gzip.NewReader(io.LimitReader(resp.Body, joinLinkMax))
 	if err != nil {
-		return nil, "", errors.New("the link did not give a client bundle")
+		return nil, "", errors.New("the link did not give a client bundle: ask whoever runs the mesh for a new link")
 	}
 	tr := tar.NewReader(zr)
 	var rawURLs, rawTok string
@@ -275,13 +275,13 @@ func fetchJoinLink(link string) (urls []string, token string, err error) {
 	}
 	urls = splitURLs(strings.ReplaceAll(rawURLs, "\n", ","))
 	if len(urls) == 0 || rawTok == "" {
-		return nil, "", errors.New("the client bundle has no node list or no token")
+		return nil, "", errors.New("the client bundle has no node list or no token: ask whoever runs the mesh for a new link")
 	}
 	if err := checkNodeURLs(urls); err != nil {
 		return nil, "", err
 	}
 	if token, err = credstore.Clean(rawTok); err == nil && len(token) < minTokenLen {
-		err = errors.New("the token in the bundle is too short")
+		err = errors.New("the token in the bundle is too short: ask whoever runs the mesh for a new link")
 	}
 	return urls, token, err
 }

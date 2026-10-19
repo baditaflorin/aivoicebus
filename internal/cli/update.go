@@ -89,7 +89,7 @@ func releaseSource(from string) (release.Source, error) {
 	case strings.HasPrefix(from, "dir:"):
 		return release.DirSource{Dir: strings.TrimPrefix(from, "dir:")}, nil
 	}
-	return nil, fmt.Errorf("unknown --from %q (use auto, mesh, github or dir:<path>)", from)
+	return nil, fmt.Errorf("unknown --from %q: run it again with --from auto, mesh, github or dir:<path>", from)
 }
 
 // releaseCmd is for whoever publishes releases: keygen, pack, verify, nodes.
@@ -107,7 +107,7 @@ func releaseCmd(args []string, s Streams) error {
 	case "verify":
 		return releaseVerify(args[1:], s)
 	}
-	return fmt.Errorf("unknown release command %q (keygen, pack, verify or nodes)", args[0])
+	return fmt.Errorf("unknown release command %q (keygen, pack, verify or nodes): `aivoicebus release -h` lists them", args[0])
 }
 
 func defaultKeyPath() string {
@@ -150,7 +150,7 @@ func releasePack(args []string, s Streams) error {
 		return err
 	}
 	if *dir == "" {
-		return errors.New("release pack needs --dir")
+		return errors.New("release pack needs --dir: run it again as `aivoicebus release pack --dir DIR`")
 	}
 	priv, err := release.LoadPrivateKey(*key)
 	if err != nil {
@@ -174,7 +174,7 @@ func releaseVerify(args []string, s Streams) error {
 		return err
 	}
 	if *dir == "" {
-		return errors.New("release verify needs --dir")
+		return errors.New("release verify needs --dir: run it again as `aivoicebus release verify --dir DIR`")
 	}
 	keys := trustedKeys()
 	if *pub != "" {

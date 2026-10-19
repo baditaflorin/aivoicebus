@@ -168,7 +168,7 @@ func scheduleCmd(args []string, s Streams) error {
 		n := len(ss)
 		ss = slicesDelete(ss, func(sc schedule) bool { return sc.Name == args[1] })
 		if len(ss) == n {
-			return outbox.NotFoundf("no schedule named %q", args[1])
+			return outbox.NotFoundf("no schedule named %q: `aivoicebus schedule list` lists them", args[1])
 		}
 		if err := saveSchedules(ss); err != nil {
 			return err
@@ -250,7 +250,7 @@ func scheduleAdd(args []string, s Streams, usage error) error {
 		return err
 	}
 	if len(ss) >= maxSchedules {
-		return fmt.Errorf("%d schedules already: remove one first", maxSchedules)
+		return fmt.Errorf("%d schedules already: remove one first (`aivoicebus schedule rm NAME`)", maxSchedules)
 	}
 	for _, sc := range ss {
 		if sc.Name == name {

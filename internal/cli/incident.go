@@ -105,10 +105,10 @@ func incidentCmd(args []string, s Streams) error {
 			return err
 		}
 		if d := identity.Implicit(); d.Tool != "" { // an agent that did not say so: its tool is above this process
-			return fmt.Errorf("incident --apply is for the user, in their own terminal: this runs inside %s (%s); nothing was done", d.Tool, d.Source)
+			return fmt.Errorf("incident --apply is for the user, in their own terminal: this runs inside %s (%s); nothing was done. Ask the user to run `aivoicebus incident --apply` in a terminal", d.Tool, d.Source)
 		}
 		if !incidentTerminal(s.In) {
-			return errors.New("incident --apply needs a person at a terminal to confirm; nothing was done (run it without --apply to see the plan)")
+			return errors.New("incident --apply needs a person at a terminal to confirm; nothing was done: ask the user to run it in a terminal (without --apply it shows the plan)")
 		}
 	}
 	if *retire && what != "shared" {
@@ -135,7 +135,7 @@ func incidentCmd(args []string, s Streams) error {
 	}
 	for _, st := range p.steps {
 		if _, err := os.Stat(st.script); p.deployDir == "" || err != nil {
-			return fmt.Errorf("%s is not there: nothing was done (pass --deploy DIR, the deploy/ directory of an aivoicebus checkout)", st.script)
+			return fmt.Errorf("%s is not there: nothing was done. Run it again with --deploy DIR, the deploy/ directory of an aivoicebus checkout", st.script)
 		}
 	}
 	prompt := "\nType incident to do steps 1-4 now: "
@@ -144,10 +144,10 @@ func incidentCmd(args []string, s Streams) error {
 	}
 	answer, err := askLine(s, prompt)
 	if err != nil {
-		return fmt.Errorf("incident --apply needs a person at a terminal to confirm: %v; nothing was done", err)
+		return fmt.Errorf("incident --apply needs a person at a terminal to confirm: %v; nothing was done. Ask the user to run it in a terminal", err)
 	}
 	if answer != "incident" {
-		return errors.New("not confirmed: nothing was done")
+		return errors.New("not confirmed: nothing was done. Run it again to go ahead")
 	}
 	return p.apply(c, out)
 }
@@ -478,7 +478,7 @@ func (p *incidentPlan) apply(c *client.Client, w io.Writer) error {
 		fmt.Fprintln(w, "   still to do: "+n)
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("%d message(s) were not retracted: %s", len(failed), strings.Join(failed, " "))
+		return fmt.Errorf("%d message(s) were not retracted: %s. Retract each with `aivoicebus retract --leak ID`, or run this again", len(failed), strings.Join(failed, " "))
 	}
 	return nil
 }

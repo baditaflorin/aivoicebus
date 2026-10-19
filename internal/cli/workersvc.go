@@ -162,7 +162,7 @@ func workerInstall(args []string, s Streams) error {
 		return outbox.Usagef("usage: worker install --agent %s | --exec 'COMMAND'  [--timeout 10m] [--max-age 1h] [--dry-run]", strings.Join(worker.PresetNames(), "|"))
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return errors.New("worker install knows launchd (macOS) and systemd (Linux) only")
+		return errors.New("worker install knows launchd (macOS) and systemd (Linux) only: run `aivoicebus worker` in a terminal instead")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -198,7 +198,7 @@ func workerInstall(args []string, s Streams) error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("%s is not on PATH: install it, or give its full path with --exec", cmd0)
+		return fmt.Errorf("%s is not on PATH: ask the user to install it, or run it again with its full path in --exec", cmd0)
 	}
 	if *timeout != 10*time.Minute {
 		argv = append(argv, "--timeout", timeout.String())
@@ -298,13 +298,13 @@ func svcStart(file string) error {
 		_ = exec.Command("launchctl", "bootout", dom+"/"+svcLabel).Run() // an older copy; none is fine
 		time.Sleep(time.Second)
 		if out, err := exec.Command("launchctl", "bootstrap", dom, file).CombinedOutput(); err != nil {
-			return fmt.Errorf("launchctl bootstrap: %v %s", err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("launchctl bootstrap: %v %s: run `aivoicebus doctor`, and ask the user", err, strings.TrimSpace(string(out)))
 		}
 		return nil
 	}
 	for _, a := range [][]string{{"daemon-reload"}, {"enable", svcUnit}, {"restart", svcUnit}} {
 		if out, err := exec.Command("systemctl", append([]string{"--user"}, a...)...).CombinedOutput(); err != nil {
-			return fmt.Errorf("systemctl --user %s: %v %s", strings.Join(a, " "), err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("systemctl --user %s: %v %s: run `aivoicebus doctor`, and ask the user", strings.Join(a, " "), err, strings.TrimSpace(string(out)))
 		}
 	}
 	return nil

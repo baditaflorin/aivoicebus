@@ -74,7 +74,7 @@ func joinRun(o joinOpts, s Streams) error {
 		nodeURLs = old
 	}
 	if len(nodeURLs) == 0 {
-		return errors.New("no node URL: pass --url http://node1:7777,http://node2:7777")
+		return errors.New("no node URL: run it again as `aivoicebus join --url http://node1:7777,http://node2:7777`, or ask the user for the node URLs")
 	}
 	if err := checkNodeURLs(nodeURLs); err != nil {
 		return err
@@ -102,7 +102,7 @@ func joinRun(o joinOpts, s Streams) error {
 				return fail("nodes", err)
 			}
 			if !ok {
-				return fail("nodes", fmt.Errorf("%s was not confirmed; nothing was sent or written", h))
+				return fail("nodes", fmt.Errorf("%s was not confirmed; nothing was sent or written: run `aivoicebus join` again if it is your node", h))
 			}
 		}
 		line("ok", "nodes", strings.Join(nodeURLs, ",")+" (confirmed)")
@@ -127,7 +127,7 @@ func joinRun(o joinOpts, s Streams) error {
 			return fail("token", err)
 		}
 		if tok, err = credstore.Clean(raw); err == nil && len(tok) < minTokenLen {
-			err = fmt.Errorf("that is shorter than %d characters: was the wrong thing pasted?", minTokenLen)
+			err = fmt.Errorf("that is shorter than %d characters: was the wrong thing pasted? Run `aivoicebus join` again and paste the whole token", minTokenLen)
 		}
 		if err != nil {
 			return fail("token", err)
@@ -145,11 +145,11 @@ func joinRun(o joinOpts, s Streams) error {
 		}
 		line("ok", "mesh", "reachable, token accepted")
 		if err := probeAllowed(joinRunsPath(), time.Now()); err != nil {
-			return fail("probe", fmt.Errorf("%v (nothing on this machine was changed)", err))
+			return fail("probe", fmt.Errorf("%v (nothing on this machine was changed)", err)) // nextstep: probeAllowed says when to try again
 		}
 		res, err := probeRoundTrip(c)
 		if err != nil {
-			return fail("probe", fmt.Errorf("%v (nothing on this machine was changed)", err))
+			return fail("probe", fmt.Errorf("%v (nothing on this machine was changed): check the network, then run `aivoicebus join` again", err))
 		}
 		line("ok", "probe", fmt.Sprintf("sent in %s, read back in %s", res.sent.Round(time.Millisecond), res.read.Round(time.Millisecond)))
 		for _, w := range res.warnings {
@@ -211,15 +211,15 @@ var lookupIP = net.LookupIP
 // loopback, a private network or the tailnet (100.64.0.0/10): the token would cross the open internet.
 func checkNodeURLs(list []string) error {
 	if err := config.SafeNodeURLs(strings.Join(list, ",")); err != nil {
-		return fmt.Errorf("%v: it is written to a file the shell reads", err)
+		return fmt.Errorf("%v: it is written to a file the shell reads, so run `aivoicebus join` again with plain node URLs", err)
 	}
 	for _, raw := range list {
 		u, err := url.Parse(raw)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			return fmt.Errorf("%q is not a node URL (expected http://host:port)", identity.Printable(raw))
+			return fmt.Errorf("%q is not a node URL (expected http://host:port): run `aivoicebus join` again with --url http://host:port", identity.Printable(raw))
 		}
 		if u.Scheme == "http" && !privateHost(u.Hostname()) {
-			return fmt.Errorf("%q is plain http to a host outside private and tailnet ranges: the token would cross the open internet; use https", identity.Printable(raw))
+			return fmt.Errorf("%q is plain http to a host outside private and tailnet ranges: the token would cross the open internet: run `aivoicebus join` again with an https URL", identity.Printable(raw))
 		}
 	}
 	return nil
@@ -268,7 +268,7 @@ func needConfirmation(urls, old []string, trust bool, w io.Writer) ([]string, er
 		}
 	}
 	if len(untrusted) > 0 && !trust {
-		return nil, fmt.Errorf("%s is not in this machine's signed node list, and the token must not go to an address nobody vouched for; if it really is your node, repeat with --trust-url (you will be asked to type its host:port)", strings.Join(untrusted, ", "))
+		return nil, fmt.Errorf("%s is not in this machine's signed node list, and the token must not go to an address nobody vouched for; if it really is your node, run `aivoicebus join` again with --trust-url (you will be asked to type its host:port)", strings.Join(untrusted, ", "))
 	}
 	if len(fresh) > 0 {
 		fmt.Fprintf(w, "warning: this machine is configured for %s; join would send the token to %s instead\n", strings.Join(old, ","), strings.Join(urls, ","))
@@ -289,7 +289,7 @@ func needConfirmation(urls, old []string, trust bool, w io.Writer) ([]string, er
 var confirmHost = func(prompt, want string) (bool, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return false, errors.New("confirming a new node address needs a terminal to type on, and there is none here; run join from an interactive shell")
+		return false, errors.New("confirming a new node address needs a terminal to type on, and there is none here: ask the user to run `aivoicebus join` in a terminal")
 	}
 	defer tty.Close()
 	fmt.Fprint(tty, prompt)

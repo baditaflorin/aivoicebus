@@ -148,7 +148,7 @@ func (p *Pipe) Put(ctx context.Context, data []byte, meta Meta, burn bool) (Link
 }
 
 // ErrGone is a pipe entry that is not there: expired, or already read.
-var ErrGone = errors.New("gone: it expired (files live five minutes) or someone already read it (it can be read once)")
+var ErrGone = errors.New("gone: it expired (files live five minutes) or someone already read it (it can be read once): ask the sender to send it again")
 
 // Get implements FileStore: the file's bytes, without its metadata.
 func (p *Pipe) Get(ctx context.Context, l Link) ([]byte, error) {

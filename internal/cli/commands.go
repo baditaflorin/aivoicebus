@@ -178,7 +178,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	}
 	if *file != "" || *tail != "" {
 		if *file != "" && *tail != "" {
-			return errors.New("use --file or --tail, not both")
+			return errors.New("use --file or --tail, not both: run it again with one")
 		}
 		c, err := client.FromEnv()
 		if err != nil {
@@ -640,7 +640,7 @@ func thread(args []string, s Streams) error {
 		return err
 	}
 	if len(ms) == 0 {
-		return outbox.NotFoundf("no thread with message %s on the nodes (a typo, or it has not reached them yet)", id)
+		return outbox.NotFoundf("no thread with message %s on the nodes (a typo, or it has not reached them yet): try again in a minute, or check the id with `aivoicebus inbox --all`", id)
 	}
 	if *asJSON {
 		return writeMessages(s.Out, ms, false)
@@ -796,7 +796,7 @@ func who(args []string, s Streams) error {
 	case client.IsNotFound(err):
 		// A node without a roster: list identities without labels.
 		if sel != nil {
-			return errors.New("this node does not report labels, so a selector cannot be previewed")
+			return errors.New("this node does not report labels, so a selector cannot be previewed: ask the user to update the nodes")
 		}
 		w, err := c.Who()
 		if err != nil {

@@ -124,7 +124,7 @@ func loopbackOnly(addr string) error {
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		return nil
 	}
-	return fmt.Errorf("--listen %s is not a loopback address: the viewer shows every message on the mesh, so it serves this machine only (reach it from elsewhere through an ssh tunnel)", addr)
+	return fmt.Errorf("--listen %s is not a loopback address: the viewer shows every message on the mesh, so it serves this machine only (reach it from elsewhere through an ssh tunnel): run it again with `--listen 127.0.0.1:PORT`", addr)
 }
 
 // observerClient is a client for the nodes with the observer token, after checking with a node that
@@ -135,7 +135,7 @@ func observerClient(nodes, tokenFile string, allowFull bool, s Streams) (*client
 		urls = config.URLs()
 	}
 	if len(urls) == 0 {
-		return nil, errors.New("no node to follow: pass --node http://host:7777 or set AIVOICEBUS_URL (or try --demo)")
+		return nil, errors.New("no node to follow: run it again with `--node http://host:7777` (or AIVOICEBUS_URL set), or try `aivoicebus view --demo`")
 	}
 	if err := checkNodeURLs(urls); err != nil {
 		return nil, err
@@ -145,14 +145,14 @@ func observerClient(nodes, tokenFile string, allowFull bool, s Streams) (*client
 	}
 	b, err := os.ReadFile(tokenFile)
 	if err != nil {
-		return nil, fmt.Errorf("no observer token: %v (a mesh operator makes one with deploy/install.sh --gen-observer-token; pass --observer-token-file)", err)
+		return nil, fmt.Errorf("no observer token: %v (a mesh operator makes one with `deploy/install.sh --gen-observer-token`, run from the root of an aivoicebus checkout): ask the user for it, and pass --observer-token-file", err)
 	}
 	if fi, err := os.Stat(tokenFile); err == nil && fi.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("%s is readable by other users (mode %04o); chmod 600 it", tokenFile, fi.Mode().Perm())
+		return nil, fmt.Errorf("%s is readable by other users (mode %04o): run `chmod 600` on it, then try again", tokenFile, fi.Mode().Perm())
 	}
 	tok := strings.TrimSpace(string(b))
 	if len(tok) < minTokenLen {
-		return nil, fmt.Errorf("%s does not hold a token (at least %d characters)", tokenFile, minTokenLen)
+		return nil, fmt.Errorf("%s does not hold a token (at least %d characters): ask the user for the observer token", tokenFile, minTokenLen)
 	}
 	c := &client.Client{URLs: urls, Token: tok, Timeout: 20 * time.Second, Warn: s.Err}
 	info, err := c.TokenInfo()
@@ -160,7 +160,7 @@ func observerClient(nodes, tokenFile string, allowFull bool, s Streams) (*client
 	case err != nil:
 		return nil, fmt.Errorf("checking the token with the nodes: %v", err)
 	case !info.Observer && !allowFull:
-		return nil, errors.New("this token can send and read inboxes, not only observe: give the viewer the mesh's observer token, or pass --allow-full-token")
+		return nil, errors.New("this token can send and read inboxes, not only observe: ask the user for the mesh's observer token, or run it again with --allow-full-token")
 	case !info.Observer:
 		fmt.Fprintln(s.Err, "warning: following the mesh with a full token (--allow-full-token); the viewer only reads with it")
 	}

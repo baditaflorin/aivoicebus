@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var errNoTerminal = errors.New("there is no terminal to answer on")
+var errNoTerminal = errors.New("there is no terminal to answer on") // nextstep: callers that can say what to do instead check errors.Is
 
 // terminalFile returns r when it is an interactive terminal.
 func terminalFile(r io.Reader) (*os.File, bool) {

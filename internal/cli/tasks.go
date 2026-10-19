@@ -175,7 +175,7 @@ func pickListening(target string, s Streams) (string, error) {
 func taskTarget(machine, tool, can, model string) (string, error) {
 	for _, v := range []string{machine, tool, can, model} {
 		if strings.ContainsAny(v, ",= /") && v != machine {
-			return "", fmt.Errorf("%q: one value, without , = / or spaces", v)
+			return "", fmt.Errorf("%q: one value, without , = / or spaces (`aivoicebus task -h` lists the flags)", v)
 		}
 	}
 	if can == "" && model == "" {
@@ -226,7 +226,7 @@ func claimCmd(args []string, s Streams) error {
 		fmt.Fprintf(s.Out, "task %s is already yours\n", id)
 		return nil
 	case !r.Mine && r.ClaimID == "":
-		return fmt.Errorf("task %s was already taken by %s at %s; leave it to them", id, view.Name(r.Owner.From, msg.MaxIdentity), view.WhenSec(r.Owner.At, time.Now()))
+		return fmt.Errorf("task %s was already taken by %s at %s; leave it to them (`aivoicebus queue` lists the open ones)", id, view.Name(r.Owner.From, msg.MaxIdentity), view.WhenSec(r.Owner.At, time.Now()))
 	case !r.Mine:
 		fmt.Fprintf(s.Out, "claimed %s, but %s claimed it first: it is theirs. Leave it (your claim %s stays in the thread).\n", id, view.Name(r.Owner.From, msg.MaxIdentity), r.ClaimID)
 		return exitError{exitFailure}

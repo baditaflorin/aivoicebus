@@ -114,7 +114,7 @@ func TestGuardrailsStopAnUrgentStampedeAndABulkBroadcastUnlessForced(t *testing.
 		t.Errorf("only urgent is stopped: %v", err)
 	}
 	long := strings.Repeat("word ", BulkChars/5+10)
-	if _, err := Prepare(c, Request{To: "@repo=alpha", Body: long}, os.Stderr); err == nil || !strings.Contains(err.Error(), "shorten it") {
+	if _, err := Prepare(c, Request{To: "@repo=alpha", Body: long}, os.Stderr); err == nil || !strings.Contains(err.Error(), "send it again shorter") {
 		t.Errorf("a long body to many: %v", err)
 	}
 	if _, err := Prepare(c, Request{To: "me2/claude.9", Body: long}, os.Stderr); err != nil {

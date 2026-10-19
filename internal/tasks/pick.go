@@ -26,10 +26,10 @@ const (
 )
 
 // ErrNobody is an ask with no live session to go to.
-var ErrNobody = errors.New("nobody there")
+var ErrNobody = errors.New("nobody there") // nextstep: the callers say what happens instead
 
 // ErrAlike is an ask that would have to guess between sessions (Pick.Alike lists them).
-var ErrAlike = errors.New("sessions look alike")
+var ErrAlike = errors.New("sessions look alike") // nextstep: the callers list the sessions and how to pick one
 
 // PickOpts says how to pick: Any takes any of several that look alike, Pick (1-based) names one
 // of them, Within is how recently a session must have been seen to count as live.
@@ -69,7 +69,7 @@ func PickSession(roster []msg.RosterEntry, target string, o PickOpts) (Pick, err
 	ago := func(e msg.RosterEntry) string { return o.Now.Sub(e.Seen).Round(time.Second).String() + " ago" }
 	if IsSession(target) {
 		if o.Pick > 0 {
-			return Pick{}, fmt.Errorf("--pick chooses among sessions that look alike; %s already names one", target)
+			return Pick{}, fmt.Errorf("--pick chooses among sessions that look alike; %s already names one: run it again without --pick", target)
 		}
 		for _, e := range roster {
 			if e.Me != target {
@@ -117,7 +117,7 @@ func PickSession(roster []msg.RosterEntry, target string, o PickOpts) (Pick, err
 	var why string
 	switch {
 	case o.Pick > len(tier):
-		return Pick{Alike: tier}, fmt.Errorf("--pick %d: there are %d to pick from (%s)", o.Pick, len(tier), how)
+		return Pick{Alike: tier}, fmt.Errorf("--pick %d: there are %d to pick from (%s): run it again with one of them", o.Pick, len(tier), how)
 	case o.Pick > 0:
 		e, why = tier[o.Pick-1], fmt.Sprintf("--pick %d of %d %s", o.Pick, len(tier), how)
 	case len(tier) == 1 && listening:
