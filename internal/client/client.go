@@ -25,6 +25,10 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
+// Release is the release of this program, sent with every request (msg.HeaderClient) so the nodes
+// can say which release each machine runs. The command line sets it at start; "" sends nothing.
+var Release string
+
 // ErrNoURL is returned by FromEnv when no node URL is configured.
 var ErrNoURL = errors.New("AIVOICEBUS_URL not set (comma-separate several nodes): run `aivoicebus join` to connect this machine, or ask the user for the node URLs")
 
@@ -211,6 +215,9 @@ func (c *Client) onceCtx(ctx context.Context, base, method, path string, in, out
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
+	if Release != "" {
+		req.Header.Set(msg.HeaderClient, Release)
+	}
 	resp, err := (&http.Client{Timeout: c.timeout()}).Do(req)
 	if err != nil {
 		return false, err
@@ -632,6 +639,9 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 			return nil, 0, err
 		}
 		req.Header.Set("Authorization", "Bearer "+c.Token)
+		if Release != "" {
+			req.Header.Set(msg.HeaderClient, Release)
+		}
 		resp, err := (&http.Client{Timeout: wait + 15*time.Second}).Do(req)
 		if err != nil {
 			last = err

@@ -27,9 +27,10 @@ import (
 const tokenReportUsage = "usage: aivoicebus token report [--days 7] [--deploy HOST] [--nodes NAME,...] [--check] [--json]"
 
 type reportNode struct {
-	URL   string `json:"url"`
-	Node  string `json:"node,omitempty"`
-	Error string `json:"error,omitempty"`
+	URL     string `json:"url"`
+	Node    string `json:"node,omitempty"`
+	Release string `json:"release,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type reportMachine struct {
@@ -41,6 +42,8 @@ type reportMachine struct {
 	SeenAt       time.Time `json:"seen_at,omitzero"`
 	SeenBy       string    `json:"seen_by,omitempty"`
 	MachineToken bool      `json:"machine_token_file"` // a token for it in machine-tokens/ here
+	Release      string    `json:"release,omitempty"`  // the client release it last said it runs; "" = no node knows
+	ReleaseAt    time.Time `json:"release_at,omitzero"`
 	Blocks       string    `json:"blocks_rotation,omitempty"`
 }
 
@@ -107,7 +110,7 @@ func buildTokenReport(c *client.Client, now time.Time, days int, deploy string, 
 			defer wg.Done()
 			h, err := ones[i].Health()
 			if err == nil {
-				v.Nodes[i].Node = h.Node
+				v.Nodes[i].Node, v.Nodes[i].Release = h.Node, h.Version
 				whos[i], err = ones[i].Who()
 			}
 			if err != nil {
@@ -204,6 +207,13 @@ func buildTokenReport(c *client.Client, now time.Time, days int, deploy string, 
 				continue
 			}
 			m.Kind, m.TokenName, m.SeenAt, m.SeenBy = e.Kind, e.Name, e.At, e.Node
+		}
+	}
+	for _, list := range seen {
+		for _, e := range list {
+			if m := by[strings.ToLower(e.Host)]; m != nil && e.Release != "" && e.ReleaseAt.After(m.ReleaseAt) {
+				m.Release, m.ReleaseAt = e.Release, e.ReleaseAt
+			}
 		}
 	}
 

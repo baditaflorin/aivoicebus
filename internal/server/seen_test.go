@@ -94,7 +94,7 @@ func TestTheSeenRecordIsBounded(t *testing.T) {
 	b.now = func() time.Time { clock = clock.Add(time.Second); return clock }
 	who := Principal{Name: "shared"}
 	for i := range maxSeenHosts + 10 {
-		b.note(fmt.Sprintf("h%d", i), who, "")
+		b.note(fmt.Sprintf("h%d", i), who, "", "")
 	}
 	if len(b.hosts) != maxSeenHosts {
 		t.Fatalf("%d hosts kept", len(b.hosts))
@@ -113,8 +113,8 @@ func TestTheSeenRecordIsBounded(t *testing.T) {
 func TestTheSeenRecordSurvivesARestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "token-seen.json")
 	b := newSeenBoard(path)
-	b.note("laptop-b", Principal{Name: "laptop-b", Host: "laptop-b"}, "aaaaaaaaaa")
-	b.note("laptop-c", Principal{Name: "shared-00"}, "")
+	b.note("laptop-b", Principal{Name: "laptop-b", Host: "laptop-b"}, "aaaaaaaaaa", "0.11.3")
+	b.note("laptop-c", Principal{Name: "shared-00"}, "", "")
 	fi, err := os.Stat(path)
 	if err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("the first change is written at once, mode 600: %v %v", fi, err)
@@ -128,7 +128,7 @@ func TestTheSeenRecordSurvivesARestart(t *testing.T) {
 	for {
 		r := newSeenBoard(path)
 		if r.get("laptop-c").Kind == "shared" {
-			if e := r.get("laptop-b"); e.Kind != "machine" || e.SendID != "aaaaaaaaaa" || e.SendKind != "machine" {
+			if e := r.get("laptop-b"); e.Kind != "machine" || e.SendID != "aaaaaaaaaa" || e.SendKind != "machine" || e.Release != "0.11.3" {
 				t.Fatalf("after a restart: %+v", e)
 			}
 			break

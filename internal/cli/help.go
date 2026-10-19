@@ -38,6 +38,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"trust-key", "list, add or remove the public keys this machine trusts for updates"},
 	{"release", "for maintainers: keygen, pack, verify, nodes"},
 	{"secret", "hand a credential to the agents on this machine without pasting it"},
+	{"fleet", "every machine heard from lately: its release, last heard and token, as the nodes saw them; `fleet update` asks the person on each machine that is behind to run aivoicebus update"},
 	{"token", "hand a machine its own machine token (`token hand HOST`, where it was made) and install it there (`token install ID`, a person approves); the nodes confirm the switch; `token report`: which machines still use the shared token"},
 	{"get", "download a file a message points at"},
 	{"tail", "follow or push a live log a message points at"},

@@ -21,6 +21,10 @@ const MaxBody = 32 << 10
 // manifest before acting on it.
 const HeaderLatest = "X-Aivoicebus-Latest"
 
+// HeaderClient carries the release of the client making a request, so the nodes can say which
+// release each machine runs (aivoicebus fleet). Only a release-shaped value is kept (ValidRelease).
+const HeaderClient = "X-Aivoicebus-Client"
+
 // HeaderVersion is the response header a node adds to every authenticated answer:
 // the release it runs, so peers and `aivoicebus mesh` can spot version skew.
 const HeaderVersion = "X-Aivoicebus-Version"

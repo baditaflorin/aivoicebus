@@ -107,8 +107,9 @@ func kindOf(p Principal) string {
 	return "shared"
 }
 
-// note records that who authenticated as host; sendID is the message it sent, "" for any other request.
-func (b *seenBoard) note(host string, who Principal, sendID string) {
+// note records that who authenticated as host; sendID is the message it sent, "" for any other
+// request; release is the client release the request said it runs (msg.HeaderClient), "" if none.
+func (b *seenBoard) note(host string, who Principal, sendID, release string) {
 	host = strings.ToLower(host)
 	if who.Observer || !reSeenHost.MatchString(host) {
 		return
@@ -127,6 +128,9 @@ func (b *seenBoard) note(host string, who Principal, sendID string) {
 	e.Kind, e.Name, e.At = kindOf(who), who.Name, now
 	if sendID != "" {
 		e.SendID, e.SendKind, e.SendName, e.SendAt = sendID, kindOf(who), who.Name, now
+	}
+	if msg.ValidRelease(release) {
+		e.Release, e.ReleaseAt = release, now
 	}
 	b.saveLocked()
 }

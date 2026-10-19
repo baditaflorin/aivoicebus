@@ -129,7 +129,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			}
 			cfg.metrics.count(who.Name)
 			if who.Host != "" {
-				seen.note(who.Host, who, "")
+				seen.note(who.Host, who, "", r.Header.Get(msg.HeaderClient))
 			}
 			if v := latest.version(); v != "" {
 				w.Header().Set(msg.HeaderLatest, v)
@@ -287,7 +287,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			http.Error(w, err.Error(), 500)
 		default:
 			s.NoteTitle(out.From, out.FromTitle)
-			seen.note(hostOf(out.From), who, out.ID)
+			seen.note(hostOf(out.From), who, out.ID, r.Header.Get(msg.HeaderClient))
 			js(w, out)
 		}
 	}))
@@ -301,7 +301,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			who.deny(w)
 			return
 		}
-		seen.note(hostOf(me), who, "")
+		seen.note(hostOf(me), who, "", r.Header.Get(msg.HeaderClient))
 		if r.URL.Query().Get("peek") == "1" { // msg.FeatureInboxPeek: a look on someone's behalf, never a session's own read
 			js(w, s.Peek(me))
 			return

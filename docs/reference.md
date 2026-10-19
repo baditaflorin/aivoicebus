@@ -1174,6 +1174,19 @@ allowlist if more than your own machine needs it. `aivoicebus update` brings the
 that can reach the mesh, so the same one-liner works on a second laptop. `aivoicebus secret path NAME`
 prints where the file is, for a tool that reads a file; never print the file's content.
 
+## The fleet: which machine runs which release
+
+    aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token
+    aivoicebus fleet update                # the plan: the machines that are behind the nodes, or unknown
+    aivoicebus fleet update --apply        # a task for the person on each: "aivoicebus update" there
+
+Every client says its release with each request (the `X-Aivoicebus-Client` header, from 0.11.4), and
+each node keeps the last one it heard per machine, next to the token kind it saw (`/v1/token/seen`,
+kept across restarts). A machine whose client has not said since is "unknown". `fleet update --apply`
+sends each such machine a task for the person there (`task HOST --person`), which no agent takes:
+replacing the binary is the person's to approve, and `aivoicebus update` checks the signature first.
+`--only-behind` leaves the unknown ones out. A release-shaped value is all a node keeps from the header.
+
 ## Machine tokens: handing a machine its own
 
 A machine token (`deploy/machine-token.sh add HOST --apply`, see [operations.md](operations.md))
