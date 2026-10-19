@@ -19,7 +19,7 @@ import (
 var (
 	ErrNotFound  = errors.New("not found") // nextstep: kinds for errors.Is; never shown
 	ErrAmbiguous = errors.New("ambiguous") // nextstep: kinds for errors.Is; never shown
-	ErrUsage     = errors.New("usage") // nextstep: kinds for errors.Is; never shown
+	ErrUsage     = errors.New("usage")     // nextstep: kinds for errors.Is; never shown
 )
 
 // kindError is a message with a kind that errors.Is can match.
