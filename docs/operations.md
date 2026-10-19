@@ -57,7 +57,7 @@ through a mask of every credential this machine holds.
 
 What it leaves to you, and says so: the shared token keeps working until every machine has moved
 to the new one and you run `deploy/rotate-token.sh retire --apply` (or pass `--retire` to retire it
-at once, cutting off machines not moved yet); a revoked machine cannot reach the mesh until it gets
+at once, cutting off machines not moved yet; `deploy/rotate-token.sh --check` names them); a revoked machine cannot reach the mesh until it gets
 a new token (`deploy/machine-token.sh add HOST --apply`, installed by hand or with a client bundle,
 since `token hand` needs that machine to read its mail). The text stays in node logs, exports and
 the dashboard archive (see "Retracting a message" below): treat it as exposed. The scripts are

@@ -185,7 +185,7 @@ func planIncident(what, name string, ids []string, deploy string, retire bool) (
 		if retire {
 			p.steps = append(p.steps, incidentStep{rt, []string{"retire"}, "the old token stops working everywhere; machines not moved yet stop working too"})
 		} else {
-			p.notes = append(p.notes, "the leaked token keeps working until the last step: move every machine to the new token (~/.config/aivoicebus/token.next, or a client bundle), then "+rt+" retire --apply (or pass --retire to do it now)")
+			p.notes = append(p.notes, "the leaked token keeps working until the last step: move every machine to the new token (~/.config/aivoicebus/token.next, or a client bundle), then "+rt+" retire --apply (or pass --retire to do it now). Which machines would be cut off: "+rt+" --check")
 		}
 	case "machine":
 		host := strings.ToLower(name)

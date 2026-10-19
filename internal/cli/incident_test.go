@@ -139,7 +139,7 @@ func TestIncidentPlansEachKindAndChangesNothing(t *testing.T) {
 		scripts []string // the dry runs the plan runs
 		found   string   // the message it finds by the secret's value
 	}{
-		{[]string{"shared"}, []string{"the shared token leaked", "rotate-token.sh add --apply", "rotate-token.sh promote --apply", "retire --apply", "read by box/codex.b2"},
+		{[]string{"shared"}, []string{"the shared token leaked", "rotate-token.sh add --apply", "rotate-token.sh promote --apply", "retire --apply", "rotate-token.sh --check", "read by box/codex.b2"},
 			[]string{"rotate-token.sh add"}, ids["shared"]},
 		{[]string{"machine", "lap"}, []string{"the machine token of lap leaked", "machine-token.sh revoke lap --apply", "machine-token.sh add lap --apply"},
 			[]string{"machine-token.sh revoke lap"}, ids["machine"]},
