@@ -965,7 +965,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 			return p, nil
 		}
 	}
-	if err := s.allowSendLocked(m.From, m.To, m.Re, m.Kind, now); err != nil {
+	if err := s.allowSendLocked(m.From, m.To, m.Re, pairKind(m), now); err != nil {
 		s.limited++
 		reason := "rate_sender"
 		var rl *RateLimitError
@@ -1017,16 +1017,30 @@ func (s *Store) byIDLocked(id string) (msg.Message, bool) {
 	return msg.Message{}, false
 }
 
+// pairKind is m's kind as the pair brake sees it: kindState for a conversation state (msg.StateOf),
+// which the brake neither counts nor refuses: a handshake moving on is not two agents looping, and
+// the states are bounded by their own rules.
+func pairKind(m msg.Message) string {
+	if _, _, ok := msg.StateOf(m); ok {
+		return kindState
+	}
+	return m.Kind
+}
+
+// kindState stands for a state message where only the pair brake looks (never stored).
+const kindState = "\x00state"
+
 // allowSendLocked counts one send by from to to at now, or refuses it: sendLimit an hour per
 // sender, machineLimit an hour per machine (a new session name does not start the count again),
 // and pairLimit replies within pairWindow between the same two sessions, either way (two agents
 // answering each other in a loop; a burst of fresh notes, a CI bot's say, is not one). Nothing is
-// counted unless all three allow it. An [end] always passes the pair brake: ending is what stops a loop.
+// counted unless all three allow it. An [end] always passes the pair brake: ending is what stops a
+// loop; a state message (kindState, see pairKind) passes it and is not counted toward it.
 func (s *Store) allowSendLocked(from, to, re, kind string, now time.Time) error {
 	host := msg.HostOf(from)
 	pair := ""
 	back := ""
-	if re != "" && msg.ValidIdentity(to) && strings.Contains(to, ".") && !strings.HasPrefix(to, "@") { // a reply to one session
+	if re != "" && kind != kindState && msg.ValidIdentity(to) && strings.Contains(to, ".") && !strings.HasPrefix(to, "@") { // a reply to one session
 		pair, back = from+"\x00"+to, to+"\x00"+from // counted per direction: a loop needs both sides
 	}
 	if wait, ok := under(s.sends, from, s.sendLimit, sendWindow, now); !ok {
@@ -1073,7 +1087,7 @@ func under(used map[string][]time.Time, who string, limit int, window time.Durat
 // in already. Only replies of the last pairWindow count, at the time their own node gave them.
 func (s *Store) notePairLocked(m msg.Message) {
 	now := s.now()
-	if m.Re == "" || !msg.ValidIdentity(m.To) || !strings.Contains(m.To, ".") || strings.HasPrefix(m.To, "@") ||
+	if m.Re == "" || pairKind(m) == kindState || !msg.ValidIdentity(m.To) || !strings.Contains(m.To, ".") || strings.HasPrefix(m.To, "@") ||
 		m.At.Before(now.Add(-pairWindow)) || m.At.After(now.Add(maxClockAhead)) {
 		return
 	}
@@ -1173,11 +1187,17 @@ var ErrReservedID = errors.New("that message id is reserved for a retraction not
 // ErrTurnLimit is what Send says of one message too many in a thread that set max_turns.
 var ErrTurnLimit = errors.New("the conversation reached its turn limit or deadline")
 
-// turnsLeftLocked refuses m when its thread started with a turn limit that is used up. Claims do
-// not count, and an [end] always goes: closing a conversation is what the limit is for.
+// turnsLeftLocked refuses m when its thread started with a turn limit that is used up. Claims and
+// conversation states (msg.StateOf) do not count, and an [end] always goes: closing a conversation
+// is what the limit is for. So do the states that close one (msg.ClosingState: done, stuck,
+// declined); taken, ready or doing after the limit or the deadline is refused, as work that starts
+// in a conversation that is over.
 func (s *Store) turnsLeftLocked(m msg.Message) error {
 	root, ok := s.byIDLocked(m.Thread)
 	if !ok || m.Kind == msg.KindEnd || m.Kind == msg.KindClaim {
+		return nil
+	}
+	if st, _, isState := msg.StateOf(m); isState && msg.ClosingState(st) {
 		return nil
 	}
 	if root.Deadline > 0 {
@@ -1204,15 +1224,25 @@ func (s *Store) turnsLeftLocked(m msg.Message) error {
 	}
 	n := 0
 	for _, i := range s.threads[m.Thread] {
-		if s.msgs[i].Kind != msg.KindClaim {
+		if x := s.msgs[i]; x.Kind != msg.KindClaim && !isState(x) {
 			n++
 		}
+	}
+	if isState(m) { // not counted, but no new work after the limit either
+		if n >= root.MaxTurns {
+			return fmt.Errorf("%w (%d messages): a state that closes it (done, stuck, declined) still goes; %s does not", ErrTurnLimit, root.MaxTurns, stateName(m))
+		}
+		return nil
 	}
 	if n >= root.MaxTurns {
 		return fmt.Errorf("%w (%d messages): close it with `reply --end`, or start a new conversation", ErrTurnLimit, root.MaxTurns)
 	}
 	return nil
 }
+
+func isState(m msg.Message) bool { _, _, ok := msg.StateOf(m); return ok }
+
+func stateName(m msg.Message) string { st, _, _ := msg.StateOf(m); return st }
 
 // loopRepeats is how many times one sender may say the same thing in one thread within the hour.
 const loopRepeats = 2

@@ -54,6 +54,8 @@ Usage of send:
     	with --file: wait up to 5 minutes and say whether it was read
   -wait-reply duration
     	after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)
+  -wait-state value
+    	after sending, wait until the conversation gets to this state or past it (offered|taken|ready|doing|done|stuck|declined), e.g. --wait-state ready 10m; it also ends when the other side writes, or it becomes stuck or final (exit 1)
 [exit 2]
 $ aivoicebus send -h
 Usage of send:
@@ -103,6 +105,8 @@ Usage of send:
     	with --file: wait up to 5 minutes and say whether it was read
   -wait-reply duration
     	after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)
+  -wait-state value
+    	after sending, wait until the conversation gets to this state or past it (offered|taken|ready|doing|done|stuck|declined), e.g. --wait-state ready 10m; it also ends when the other side writes, or it becomes stuck or final (exit 1)
 [exit 0]
 # identity
 $ aivoicebus whoami
@@ -416,7 +420,7 @@ ok    claude instructions    snippet b105598f
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)
-ok    node features          smoke: decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,tasks,token-seen,turns,unsigned-report
+ok    node features          smoke: decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,states,tasks,token-seen,turns,unsigned-report
 WARN  token kind             the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add air --apply (from the root of an aivoicebus checkout), then aivoicebus token hand air
 [exit 0]
 $ aivoicebus uninstall --dry-run

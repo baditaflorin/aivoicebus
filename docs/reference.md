@@ -561,6 +561,41 @@ aivoicebus status (air/claude.a1b2, 212ms)
   quiet    22:00-07:00 daily, not active now
 ```
 
+**Conversation states: the handshake, said out loud.** A thread can carry an explicit state that both
+sides, `thread`, `thread --digest`, `--wait-reply --json` and the viewer show:
+
+    offered -> taken -> ready -> doing -> done        (and stuck, declined)
+
+`aivoicebus state ID` shows it and how it got there; `aivoicebus state ID ready "approved by the
+person"` moves it (MCP: `aivoicebus_state`). The thread's sender offers it, and a task is offered by
+being sent. Whoever takes it (its first claim, or the first state a session other than the sender
+says) moves it on: forward along the line, skipping steps if it likes (offered -> ready -> done is
+fine), or to `stuck` (something is in the way; it can go on to ready, doing or done) or `declined`.
+`done` and `declined` are final. Anything else is refused before it is sent, with what to do instead:
+the sender saying done ("you offered it: whoever takes it moves it on"), a third session ("X took it:
+only they move it on"), going back from doing to ready ("a state only moves forward"), a final
+conversation, a word that is no state.
+
+`--wait-state STATE [D]` (on `send`, `reply`, `task` and `state`; D defaults to 10m) blocks until the
+conversation gets to STATE or past it on the line (a wait for ready is over at ready, doing or done):
+exit 0. It also ends, with exit 1, when the other side writes in the thread first (the message is
+shown, as `--wait-reply` would), when it turns stuck while waiting (a wait that starts on stuck waits
+for it to move), or when it is final without getting there; exit 6 when D runs out. `--json` gives
+`{id, state: {state, by, at, note, offerer, taker, history, ignored}, waited_for, reached, arrived}`;
+`--wait-reply --json` carries the same `state` object. A wait spends no tokens: one held read at a time.
+
+A state is a `--kind progress` message whose first line starts with `[state NAME]`, so every node of
+0.10.0 or later stores and replicates it unchanged, and an older client shows it as the progress
+message it is. The state of a thread is folded by each reader from the thread's messages, by the
+rules above: a state message the rules refuse is listed as ignored and changes nothing, so writing the
+tag by hand skips nothing. Nodes of 0.11.0 or later (feature `states`) keep state messages out of the
+brakes: the pair brake neither counts nor refuses them, they do not count toward `--max-turns` (nor,
+being progress, toward the loop check), and `done`, `stuck` and `declined` pass a used-up turn limit
+or a passed deadline the way an `[end]` does, so a conversation can always be closed with its outcome;
+taken, ready or doing are refused there, as new work in a conversation that is over. The hourly
+limits per sender and per machine count them like any message. Older nodes count them as the
+progress messages they are.
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
@@ -1166,7 +1201,7 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
    on HOST (approve ID there)`. When the machine has no terminal, no approver key and no notify URL,
    it refuses at once and answers `[token install failed]`, naming the fix: run `aivoicebus token install
    ID` in a terminal there (it asks y/N), or `aivoicebus approver init` there once. Only after the
-   approval does it answer `[token ready]`.
+   approval does it answer ready (see the conversation states below).
    An agent named with `--to` runs `install` as a background command: the approval can take longer
    than a tool call lasts. A task that was
    retracted or expired is refused with a request for a fresh `token hand`. An install stopped with Ctrl-C or SIGTERM (what a tool call that times out sends) answers
@@ -1214,6 +1249,15 @@ raw token is refused by the send scan (the deploy machine's `machine-tokens/` an
 the receiving machine, `install` refuses, because then the token file is not what that machine uses.
 Every message of the exchange must be signed by the sender's machine key.
 A worker never takes a `[token hand]` task: it is the person's.
+
+The exchange runs on conversation states (offered by the task, taken by the claim, then ready, and
+done, stuck or declined, which `thread` and the viewer show) when both sides know them: `hand` (0.11.0
+or later) ends its task with `(hand-over XXXXXXXX; states)`, and an `install` that sees that mark
+answers `[state ready]`, `[state done]` (sent with the new token), `[state stuck]` on a failure or
+`[state declined]` when the person said no. Each side still speaks to a 0.10.x peer: an `install`
+that finds no mark answers with the tags `[token ready] HOST`, `[token installed] HOST` and `[token
+install failed] HOST`, and `hand` takes either. In what follows, ready and the answer mean whichever
+the two sides used.
 
 ## Updating
 

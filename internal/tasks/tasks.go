@@ -177,6 +177,9 @@ type Filter struct {
 	Only         string
 	Progress     func(msg.Message)
 	Person       func(msg.Message) bool
+	// Stop, when set, picks claims and progress messages that end the wait like an answer instead
+	// of going to Progress (a wait for a conversation state stops on a state message).
+	Stop func(msg.Message) bool
 }
 
 // Match reports whether m is what the wait is for.
@@ -256,7 +259,7 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 				tell = f.Person(m) || tell
 				continue
 			}
-			if (m.Kind == msg.KindClaim || m.Kind == msg.KindProgress) && f.Progress != nil {
+			if (m.Kind == msg.KindClaim || m.Kind == msg.KindProgress) && f.Progress != nil && (f.Stop == nil || !f.Stop(m)) {
 				f.Progress(m)
 				_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
 				continue

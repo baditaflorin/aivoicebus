@@ -46,7 +46,7 @@ const (
 
 // NodeFeatures is what this release of the node can do, sorted.
 func NodeFeatures() []string {
-	return []string{FeatureDecide, FeatureFiles, FeatureInboxPeek, FeatureInboxWait, FeatureLeases, FeatureQuarantine, FeatureReceipts, FeatureRetract, FeatureRetractDryRun, FeatureTasks, FeatureTokenSeen, FeatureTurns, FeatureUnsigned}
+	return []string{FeatureDecide, FeatureFiles, FeatureInboxPeek, FeatureInboxWait, FeatureLeases, FeatureQuarantine, FeatureReceipts, FeatureRetract, FeatureRetractDryRun, FeatureStates, FeatureTasks, FeatureTokenSeen, FeatureTurns, FeatureUnsigned}
 }
 
 // Has reports whether the node advertised feature f. False also for a node that advertises

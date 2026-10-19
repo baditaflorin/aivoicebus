@@ -34,7 +34,7 @@ type tool struct {
 var tools = map[string]tool{}
 
 func init() {
-	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, claimTool, waitTool, stuckTool, taskTool, askTool, queueTool, statusTool, pingTool, getTool} {
+	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, claimTool, waitTool, stuckTool, taskTool, askTool, queueTool, statusTool, pingTool, getTool, stateTool} {
 		tools[t.name] = t
 	}
 }

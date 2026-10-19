@@ -3,6 +3,8 @@ package cli
 import (
 	"os"
 	"testing"
+
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
 
 // These tests are about aivoicebus, not about whichever agent tool runs `go test`: without this a
@@ -11,6 +13,14 @@ func TestMain(m *testing.M) {
 	// The test binary is also the CLI, for tests that need two machines at once (each its own
 	// process, with its own home and identity): see asCLI.
 	if os.Getenv("AIVOICEBUS_TEST_AS_CLI") == "1" {
+		// A token hand-over peer from 0.10.x, which knows no conversation states: a hand that does
+		// not mark its task, or an install that answers with the [token ...] tags whatever the mark.
+		switch os.Getenv("AIVOICEBUS_TEST_TOKEN_PEER") {
+		case "old-hand":
+			handMark = ")"
+		case "old-install":
+			speaksStates = func(msg.Message) bool { return false }
+		}
 		os.Exit(Run(os.Args[1:], Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}))
 	}
 	os.Setenv("AIVOICEBUS_DETECT", "off")
