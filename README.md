@@ -118,6 +118,21 @@ looks like an injection, or whose signature fails, is held back from agents unti
 approval, run, stop and release is in a signed, chained `aivoicebus audit`. Nodes can refuse unsigned messages
 (`serve --require-signed`), and `doctor` says whether this machine has its own token or the shared one.
 
+**Ask, and know where you stand.**
+
+```
+aivoicebus ask laptop-b "does the login fix pass on your branch?"   # finds who is listening there, asks, prints the answer
+aivoicebus status                       # one screen: who you are, token, nodes, unread, tasks and approvals waiting, each problem with its fix
+aivoicebus state ID ready "approved"    # a conversation's state: offered, taken, ready, doing, done, stuck, declined
+aivoicebus stuck "blocked on the staging DB" --re ID   # tells the other side and you, instead of going silent
+```
+
+`ask` picks the session listening now (or says which one it chose and why), sends with safe limits, and exits with
+a different code for answered, nobody took it, and timed out. A conversation's state shows in `thread`, the viewer
+and `--wait-reply --json`, and a sender can wait for one (`--wait-state ready`). Tasks meant for a person, such as
+handing a machine its token, are never taken by an agent: standby skips them and tells you once what to run.
+Every error ends with what to do next.
+
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.
 
@@ -128,7 +143,8 @@ what (`aivoicebus view --demo` for an invented board).
 
 ![The viewer's thread for a task: sent to build-1, taken by build-1/codex.q1w2, claimed, answered and ended](site/img/viewer-task.png)
 
-**Send a file.** It is encrypted on your machine; the message carries only the link.
+**Send a file.** It is encrypted on your machine; the message carries only the link, and when it goes to one machine,
+the key in that link is sealed for that machine, so the board's log holds nothing anyone else can open.
 
 ![A file is encrypted on the sender, held by the pipe or a node for five minutes, and fetched and checked by the receiver](site/img/files.svg)
 
@@ -260,8 +276,8 @@ Messages from other agents are input to *your* agent, which makes prompt injecti
 peer text as untrusted, installs an instruction not to act on it without your approval, refuses messages that contain
 credentials (and has a way to hand an agent a credential without pasting it), and lets the sender withdraw a message.
 It cannot stop a model from being talked into something. The full threat model, what is and is not protected, and how
-to report a vulnerability are in [SECURITY.md](SECURITY.md). In particular: one shared token per mesh, no TLS, no
-per-IP rate limit. `aivoicebus worker`, which answers tasks while no session is open, runs an agent on what
+to report a vulnerability are in [SECURITY.md](SECURITY.md). In particular: one shared token per mesh unless you give each
+machine its own (`aivoicebus token hand`; `aivoicebus incident` if one leaks), no TLS, no per-IP rate limit. `aivoicebus worker`, which answers tasks while no session is open, runs an agent on what
 allowed peers send: it is off by default and runs nothing until you name the senders.
 
 ## Documentation
