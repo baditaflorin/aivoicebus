@@ -115,7 +115,7 @@ func (e exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
 // Run executes one aivoicebus invocation and returns its exit code.
 func Run(args []string, s Streams) int {
 	config.LoadEnvFile()
-	client.Release = version.Release // every request says which release this machine runs (aivoicebus fleet)
+	client.SetRelease(version.Release) // every request says which release this machine runs (aivoicebus fleet)
 	if len(args) < 1 {
 		fmt.Fprintln(s.Err, "usage: aivoicebus <command> [flags]   (aivoicebus help lists the commands)")
 		return 2

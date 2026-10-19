@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/config"
@@ -25,9 +26,21 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
-// Release is the release of this program, sent with every request (msg.HeaderClient) so the nodes
-// can say which release each machine runs. The command line sets it at start; "" sends nothing.
-var Release string
+// release is the release of this program, sent with every request (msg.HeaderClient) so the nodes
+// can say which release each machine runs. The command line sets it at start (SetRelease); "" sends
+// nothing. Atomic: requests in flight read it while a test, or a second Run, sets it.
+var release atomic.Pointer[string]
+
+// SetRelease sets the release every request says it runs ("" for none).
+func SetRelease(v string) { release.Store(&v) }
+
+// Release is the release requests say they run.
+func Release() string {
+	if p := release.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
 
 // ErrNoURL is returned by FromEnv when no node URL is configured.
 var ErrNoURL = errors.New("AIVOICEBUS_URL not set (comma-separate several nodes): run `aivoicebus join` to connect this machine, or ask the user for the node URLs")
@@ -215,8 +228,8 @@ func (c *Client) onceCtx(ctx context.Context, base, method, path string, in, out
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
-	if Release != "" {
-		req.Header.Set(msg.HeaderClient, Release)
+	if r := Release(); r != "" {
+		req.Header.Set(msg.HeaderClient, r)
 	}
 	resp, err := (&http.Client{Timeout: c.timeout()}).Do(req)
 	if err != nil {
@@ -639,8 +652,8 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 			return nil, 0, err
 		}
 		req.Header.Set("Authorization", "Bearer "+c.Token)
-		if Release != "" {
-			req.Header.Set(msg.HeaderClient, Release)
+		if r := Release(); r != "" {
+			req.Header.Set(msg.HeaderClient, r)
 		}
 		resp, err := (&http.Client{Timeout: wait + 15*time.Second}).Do(req)
 		if err != nil {

@@ -23,13 +23,13 @@ func TestFleetShowsReleasesAndAsksThePersonToUpdate(t *testing.T) {
 	t.Setenv("AIVOICEBUS_TOKEN", thShared)
 	t.Setenv("AIVOICEBUS_ME", "deploy/claude")
 	t.Setenv("AIVOICEBUS_MACHINE_TOKENS_DIR", "")
-	t.Cleanup(func() { client.Release = "" })
+	t.Cleanup(func() { client.SetRelease("") })
 
-	client.Release = "0.9.1"
+	client.SetRelease("0.9.1")
 	hear(t, srv.URL, thShared, "imac/codex") // behind
-	client.Release = "0.11.3"
+	client.SetRelease("0.11.3")
 	hear(t, srv.URL, thAir, "air/claude") // current
-	client.Release = ""
+	client.SetRelease("")
 	hear(t, srv.URL, thShared, "old/claude") // a client that does not say
 
 	code, out, e := run(t, "", "fleet")
