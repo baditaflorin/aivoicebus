@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -81,8 +81,18 @@ func unholdCmd(args []string, s Streams) error {
 
 // personOnly refuses inside an agent's session: these show or release what was kept from agents.
 func personOnly(cmd string) error {
-	if os.Getenv("AIVOICEBUS_AGENT") != "" {
-		return fmt.Errorf("%s is for the user, in their own terminal, not for an agent's session: ask the user to run it", cmd)
+	if agent, why := identity.AgentCaller(); agent {
+		return fmt.Errorf("%s is for the user, in their own terminal, not for an agent's session (%s): ask the user to run it", cmd, why)
 	}
 	return nil
+}
+
+// claimer is who takes a task from this process: an agent in an agent's session (AIVOICEBUS_AGENT,
+// or an agent tool above this process), else the person at their terminal. Only the person takes
+// a task meant for them (msg.PersonOnly).
+func claimer() tasks.Caller {
+	if agent, _ := identity.AgentCaller(); agent {
+		return tasks.Agent
+	}
+	return tasks.Person
 }

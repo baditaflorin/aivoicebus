@@ -95,6 +95,9 @@ func TestTokenHandOverBetweenTwoMachinesOnTwoNodes(t *testing.T) {
 	})
 }
 
+// airTerm is the person's terminal on air: no agent tool above it, so it is the person's.
+const airTerm = "air/agent"
+
 func handOverTwoNodes(t *testing.T, via string) {
 	a, b := twoNodes(t)
 	deployHome, airHome := t.TempDir(), t.TempDir()
@@ -142,9 +145,20 @@ func handOverTwoNodes(t *testing.T, via string) {
 		t.Fatal("hand sent no task")
 	}
 
-	// a session on air runs install with the task's id
+	// it went to the person on air, and an agent's session there may not take it
+	ms, _ := (&client.Client{URLs: []string{a}, Token: thShared}).Thread(id)
+	if len(ms) == 0 || ms[0].To != "air/human" || !msg.PersonOnly(ms[0]) {
+		t.Fatalf("the hand task: %+v", ms)
+	}
+	agent := asCLI(t, airHome, "air/codex.1", b+","+a, "token", "install", id, "--wait", "1m")
+	agent.Env = append(agent.Env, "AIVOICEBUS_AGENT=codex.1")
+	if out, err := agent.CombinedOutput(); err == nil || !strings.Contains(string(out), "for the person on the machine, not for an agent") || !strings.Contains(string(out), "aivoicebus token install "+id) {
+		t.Fatalf("an agent's install of the person's task: %v\n%s", err, out)
+	}
+
+	// the person on air runs install with the task's id, in their own terminal
 	var instOut, instErr strings.Builder
-	inst := asCLI(t, airHome, "air/codex.1", b+","+a, "token", "install", id, "--json", "--wait", "2m")
+	inst := asCLI(t, airHome, airTerm, b+","+a, "token", "install", id, "--json", "--wait", "2m")
 	inst.Stdout, inst.Stderr = &instOut, &instErr
 	if err := inst.Start(); err != nil {
 		t.Fatal(err)
@@ -158,7 +172,7 @@ func handOverTwoNodes(t *testing.T, via string) {
 	for deadline := time.Now().Add(60 * time.Second); req.ID == "" && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		ms, _ := person.Inbox("air/human", false)
 		for _, m := range ms {
-			if strings.HasPrefix(m.Body, "[approval needed]") && m.From == "air/codex.1" {
+			if strings.HasPrefix(m.Body, "[approval needed]") && m.From == airTerm {
 				req = m
 			}
 		}
@@ -167,7 +181,7 @@ func handOverTwoNodes(t *testing.T, via string) {
 		t.Fatalf("no approval request\ninstall: %s", instErr.String())
 	}
 	sig := ed25519.Sign(priv, msg.ApprovalStatement(req.ID, "approve", req.From))
-	if _, err := person.Send(msg.Message{ID: msg.NewID(), From: "air/agent", To: req.From, Re: req.ID, Thread: req.Thread, Body: msg.ApprovalBody("approve", sig)}); err != nil {
+	if _, err := person.Send(msg.Message{ID: msg.NewID(), From: "air/human", To: req.From, Re: req.ID, Thread: req.Thread, Body: msg.ApprovalBody("approve", sig)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -194,14 +208,14 @@ func handOverTwoNodes(t *testing.T, via string) {
 		t.Errorf("install: %+v %v", ir, err)
 	}
 	var hr handResult
-	if err := json.Unmarshal([]byte(handOut.String()), &hr); err != nil || !hr.Installed || !hr.Sealed || !hr.Proven || hr.Session != "air/codex.1" || hr.Approved != "approver key" || hr.Answer != ir.Answer || !strings.Contains(hr.Proof, "saw its answer "+ir.Answer+" sent with the machine token \"air\"") {
+	if err := json.Unmarshal([]byte(handOut.String()), &hr); err != nil || !hr.Installed || !hr.Sealed || !hr.Proven || hr.Session != airTerm || hr.Approved != "approver key" || hr.Answer != ir.Answer || !strings.Contains(hr.Proof, "saw its answer "+ir.Answer+" sent with the machine token \"air\"") {
 		t.Errorf("hand: %+v %v", hr, err)
 	}
 	// while the person had not yet approved, hand said what it waited for
 	errMu.Lock()
 	said := handErr.String()
 	errMu.Unlock()
-	if !strings.Contains(said, "taken by air/codex.1, waiting for the person's approval on air (approve "+req.ID+" there") || hr.Approval != req.ID {
+	if !strings.Contains(said, "taken by "+airTerm+", waiting for the person's approval on air (approve "+req.ID+" there") || hr.Approval != req.ID {
 		t.Errorf("hand did not show the wait for approval %s: %q %+v", req.ID, said, hr)
 	}
 	if got, _ := os.ReadFile(filepath.Join(airHome, ".config/aivoicebus/token")); strings.TrimSpace(string(got)) != thAir {

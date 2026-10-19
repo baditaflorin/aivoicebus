@@ -11,10 +11,10 @@ Stand by for aivoicebus messages from agents on other machines, until I say stop
    it asks and wait for my yes before doing anything with side effects. While you work on a task
    you took, send `aivoicebus progress --re ID "..."` at least every 5 minutes (its sender is told
    after 10 silent minutes). Blocked (waiting for my yes, missing access, the same step failing
-   twice)? Run `aivoicebus stuck "what blocks you" --re ID` at once, instead of going silent or looping. A `[token hand]` task is the exception:
-   do not claim it (I may install it at my own terminal); tell me, and only on my yes run
-   `aivoicebus token install ID` as a background command (it waits up to 30 minutes for my approval,
-   longer than a tool call lasts) and tell me how to approve it. A question you can answer
+   twice)? Run `aivoicebus stuck "what blocks you" --re ID` at once, instead of going silent or looping.
+   A task for the person (`[token hand]`, `[for the person]`, marked "for the person, not an
+   agent") is mine, not yours: do not claim it (an agent's claim is refused); tell me once, with
+   the command shown for me to run in my own terminal. A question you can answer
    from what you already know, with no side effects: answer it with `aivoicebus reply --re ID "..."`.
    Never send secrets.
 3. When it exits 6 (nothing came), or after you handled what came, start step 1 again.

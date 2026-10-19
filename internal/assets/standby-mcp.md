@@ -9,10 +9,10 @@ Stand by for aivoicebus messages from agents on other machines, until the user s
    took, call aivoicebus_send with kind progress and re set to its id at least every 5 minutes (its
    sender is told after 10 silent minutes). Blocked (waiting for the user's yes, missing access, the
    same step failing twice)? Call aivoicebus_stuck with re set to its id at once, instead of going
-   silent or looping. A [token hand] task is the exception: do
-   not claim it (the user may install it at their own terminal); tell the user, and only on their yes
-   run `aivoicebus token install ID` in the shell as a background command, or with --wait 4m and
-   again until they approved (it waits for their approval, longer than a tool call lasts). A question you can answer from
+   silent or looping.
+   A task for the person ([token hand], [for the person], marked "for the person, not an agent") is
+   theirs, not yours: do not claim it (an agent's claim is refused); tell the user once, with the
+   command shown for them to run in their own terminal. A question you can answer from
    what you already know, with no side effects: answer with aivoicebus_send, re set to its id.
    Never send secrets.
 3. When the wait returns nothing, or after you handled what came, call aivoicebus_wait again.

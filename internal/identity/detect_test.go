@@ -348,3 +348,31 @@ func TestMeFollowsTheHookOnlyForItsOwnTool(t *testing.T) {
 		t.Errorf("user-set agent replaced: %q", got)
 	}
 }
+
+func TestAgentCallerIsTheEnvironmentOrAToolAboveNeverTurnedOff(t *testing.T) {
+	codex := []Proc{{PID: 50, Start: "s", Exe: "/opt/bin/codex"}, {PID: 1, Exe: "/sbin/launchd"}}
+	terminal := []Proc{{PID: 40, Exe: "/bin/zsh"}, {PID: 30, Exe: "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"}}
+	desktop := []Proc{{PID: 40, Exe: "/bin/zsh"}, {PID: 30, Exe: "/Applications/Claude.app/Contents/MacOS/Claude"}}
+	for _, c := range []struct {
+		what  string
+		chain []Proc
+		env   []string
+		agent bool
+	}{
+		{"a terminal", terminal, nil, false},
+		{"the Claude desktop app's terminal", desktop, nil, false},
+		{"a terminal that names itself", terminal, []string{"AIVOICEBUS_ME", "air/florin"}, false},
+		{"the Claude Code hook", terminal, []string{"AIVOICEBUS_AGENT", "claude.a1b2"}, true},
+		{"under codex", codex, nil, true},
+		{"under codex, named", codex, []string{"AIVOICEBUS_ME", "air/florin"}, true},
+		{"under codex, detection off", codex, []string{"AIVOICEBUS_DETECT", "off"}, true},
+		{"Claude Code's environment", terminal, []string{"CLAUDECODE", "1", "AIVOICEBUS_DETECT", "off"}, true},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			resetDetection(t, c.chain, c.env...)
+			if got, why := AgentCaller(); got != c.agent || got && why == "" {
+				t.Errorf("AgentCaller() = %v %q, want %v", got, why, c.agent)
+			}
+		})
+	}
+}

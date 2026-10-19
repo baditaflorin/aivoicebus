@@ -86,7 +86,7 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 				req = m
 			}
 		}
-		approval, ask := strings.HasPrefix(req.Body, "[approval needed]"), strings.HasPrefix(req.Body, msg.AskPrefix)
+		approval, ask := strings.HasPrefix(req.Body, msg.ApprovalTag), strings.HasPrefix(req.Body, msg.AskPrefix)
 		if req.ID == "" || req.Retracted != nil || (!approval && !ask) || now.Sub(req.At) > decideMaxAge {
 			http.Error(w, "no such open approval request or question on this node", http.StatusNotFound)
 			return
