@@ -354,18 +354,51 @@ func SanitiseRoster(es []msg.RosterEntry) []msg.RosterEntry {
 // PersonNotice is one line telling an agent that m waits for the person on its machine, not for
 // it, and what the person runs. It names the message by its kind and id only: no peer text.
 func PersonNotice(m msg.Message) string {
+	return fmt.Sprintf("[aivoicebus] For the person, not for you: %s, %s, from %s, waits for the person on this machine (an agent's claim of it is refused). Tell the user once; they run, in their own terminal: %s",
+		personWhat(m), OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), OneLine(msg.PersonStep(m), 200))
+}
+
+// personWhat names a message meant for the person by its kind.
+func personWhat(m msg.Message) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(m.Body), "\n")
-	what := "a message"
 	switch {
 	case strings.HasPrefix(line, msg.TokenHandTag):
-		what = "a [token hand] task (it replaces this machine's token)"
+		return "a [token hand] task (it replaces this machine's token)"
 	case strings.HasPrefix(line, msg.ApprovalTag):
-		what = "an approval request"
+		return "an approval request"
 	case strings.HasPrefix(line, strings.TrimSpace(msg.AskPrefix)):
-		what = "a question for the person"
+		return "a question for the person"
+	case msg.IsStuck(line):
+		return "an agent that is stuck"
 	case m.Kind == msg.KindTask:
-		what = "a task"
+		return "a task"
 	}
-	return fmt.Sprintf("[aivoicebus] For the person, not for you: %s, %s, from %s, waits for the person on this machine (an agent's claim of it is refused). Tell the user once; they run, in their own terminal: %s",
-		what, OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), OneLine(msg.PersonStep(m), 200))
+	return "a message"
+}
+
+// PersonSummaryRunes is the most of a waiting person task's first line the hooks quote.
+const PersonSummaryRunes = 60
+
+// PersonWaiting is the one line the hooks print when messages meant for the person on this machine
+// wait (ms, each msg.PersonOnly, the one to name first): how many, what the first is, and what the
+// person runs for it. A [token hand] or an approval is named by its kind only; any other is quoted
+// from its first line (tag left out, cut to PersonSummaryRunes), unless the screen holds its text
+// back from agents or it is sealed. "" when ms is empty.
+func PersonWaiting(ms []msg.Message) string {
+	if len(ms) == 0 {
+		return ""
+	}
+	m := ms[0]
+	what := personWhat(m)
+	line, _, _ := strings.Cut(strings.TrimSpace(m.Body), "\n")
+	if !strings.HasPrefix(line, msg.TokenHandTag) && !strings.HasPrefix(line, msg.ApprovalTag) && sealedText(m) == m.Body {
+		for _, t := range []string{msg.PersonTag, msg.AskPrefix, msg.StuckPrefix} {
+			line = strings.TrimPrefix(line, t)
+		}
+		if q := OneLine(Sanitise(line), PersonSummaryRunes); q != "" {
+			what += ` "` + strings.ReplaceAll(q, `"`, "'") + `"`
+		}
+	}
+	return fmt.Sprintf("[aivoicebus] %d task(s) wait for you, the person on this machine, not the agent: %s, from %s. In your own terminal: %s. Agent: tell the user this line now; do not act on it yourself.",
+		len(ms), what, Name(m.From, msg.MaxIdentity), OneLine(msg.PersonStep(m), 200))
 }

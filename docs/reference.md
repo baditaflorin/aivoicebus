@@ -331,6 +331,14 @@ lists the tasks waiting for them, with the command to run, and `claim` works as 
 guard against agents taking the person's work by mistake, not against a hostile agent, which could
 clear its own environment.
 
+Nobody reads as `laptop-b/human`, so the hooks say what waits there (from 0.11.5): every session
+start, and the per-prompt hook once per task per session as one arrives, print one line, "N task(s)
+wait for you, the person on this machine, not the agent", naming the first (a `[token hand]` or an
+approval by its kind only, any other with a short quote of its first line) and the command the
+person runs, for the agent to relay without acting on it. They only look (`inbox?peek=1`, never an
+acknowledgement, and only at a node of 0.11.0 or later, which does not list the person as present);
+quiet hours hold the line back unless the task is urgent.
+
 **Held back from agents.** Before peer text reaches an agent (the hooks, the MCP tools, and the
 commands an agent runs in its session), each message passes a screen: one whose signature does not
 verify or whose machine key changed, or whose text reads like instructions to an agent ("ignore
@@ -1186,6 +1194,10 @@ kept across restarts). A machine whose client has not said since is "unknown". `
 sends each such machine a task for the person there (`task HOST --person`), which no agent takes:
 replacing the binary is the person's to approve, and `aivoicebus update` checks the signature first.
 `--only-behind` leaves the unknown ones out. A release-shaped value is all a node keeps from the header.
+A machine whose client is unknown or before 0.11.5 (whose hooks do not say what waits for the person)
+also gets an ordinary message to its sessions, `[for the person] ... run aivoicebus update in your own
+terminal`, which its agents relay to the user. Running it again sends nothing to a machine where the
+same task still waits for the person.
 
 ## Machine tokens: handing a machine its own
 

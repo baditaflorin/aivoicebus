@@ -72,12 +72,77 @@ func TestFleetShowsReleasesAndAsksThePersonToUpdate(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "sent 1 of 1") {
 		t.Fatalf("apply: %d\n%s\n%s", code, out, e)
 	}
-	got := s.Inbox("imac/human", false)
+	got := sentTo(s.Inbox("imac/human", false), "imac/human")
 	if len(got) != 1 || got[0].Kind != msg.KindTask || !strings.HasPrefix(got[0].Body, msg.PersonTag) || !strings.Contains(got[0].Body, "aivoicebus update") || !msg.PersonOnly(got[0]) {
 		t.Fatalf("the person's task on imac: %+v", got)
 	}
+	// imac's client (0.9.1) is too old to tell its person, so its sessions get a note to relay
+	note := sentTo(s.Inbox("imac/codex", false), "imac")
+	if len(note) != 1 || note[0].Kind != "" || note[0].Priority() != msg.PrioAsk || !strings.HasPrefix(note[0].Body, msg.PersonTag) || !strings.Contains(note[0].Body, "run aivoicebus update in your own terminal") {
+		t.Fatalf("the note for imac's sessions: %+v", note)
+	}
 	if got := s.Inbox("old/human", false); len(got) != 0 {
 		t.Fatalf("--only-behind leaves unknown machines out: %+v", got)
+	}
+
+	// again: the same task still waits for the person on imac, so nothing is sent twice
+	code, out, e = run(t, "", "fleet", "update", "--apply", "--only-behind")
+	if code != 0 || !strings.Contains(out, "imac: the same task ("+got[0].ID+") still waits for the person there: not sent again") {
+		t.Fatalf("apply again: %d\n%s\n%s", code, out, e)
+	}
+	if n, m := len(sentTo(s.Inbox("imac/human", false), "imac/human")), len(sentTo(s.Inbox("imac/codex", false), "imac")); n != 1 || m != 1 {
+		t.Fatalf("sent twice: %d tasks, %d notes", n, m)
+	}
+
+	// without --only-behind the machines whose release no node knows get both (deploy, which runs
+	// this, said none either), and imac nothing new
+	if code, out, e = run(t, "", "fleet", "update", "--apply"); code != 0 || !strings.Contains(out, "sent 3 of 3") || !strings.Contains(out, "imac: the same task") {
+		t.Fatalf("apply all: %d\n%s\n%s", code, out, e)
+	}
+	if n, m := len(sentTo(s.Inbox("old/human", false), "old/human")), len(sentTo(s.Inbox("old/claude", false), "old")); n != 1 || m != 1 {
+		t.Fatalf("old: %d tasks, %d notes", n, m)
+	}
+}
+
+// sentTo is the messages of ms sent to exactly addr (a peek at a person also lists what went to the machine).
+func sentTo(ms []msg.Message, addr string) []msg.Message {
+	var out []msg.Message
+	for _, m := range ms {
+		if m.To == addr {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// A machine whose client already tells its person (hookTellsPerson or later) gets the person's task
+// alone; an older one gets the note for its sessions too.
+func TestFleetUpdateNotesOnlyMachinesTooOldToTellTheirPerson(t *testing.T) {
+	s, _ := store.Open(t.TempDir(), "n1")
+	srv := httptest.NewServer(server.NewHandler(s, thShared, server.WithNode("n1"), server.WithVersion("0.11.9"), server.WithTokenSet(tokenTokens(t))))
+	t.Cleanup(srv.Close)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AIVOICEBUS_URL", srv.URL)
+	t.Setenv("AIVOICEBUS_TOKEN", thShared)
+	t.Setenv("AIVOICEBUS_ME", "deploy/claude")
+	t.Setenv("AIVOICEBUS_MACHINE_TOKENS_DIR", "")
+	t.Cleanup(func() { client.SetRelease("") })
+	client.SetRelease(hookTellsPerson)
+	hear(t, srv.URL, thShared, "fresh/claude")
+	client.SetRelease("0.11.4")
+	hear(t, srv.URL, thShared, "stale/claude")
+	client.SetRelease("")
+
+	if code, out, e := run(t, "", "fleet", "update", "--apply", "--only-behind"); code != 0 || !strings.Contains(out, "sent 2 of 2") {
+		t.Fatalf("apply: %d\n%s\n%s", code, out, e)
+	}
+	for host, notes := range map[string]int{"fresh": 0, "stale": 1} {
+		if n := len(sentTo(s.Inbox(host+"/human", false), host+"/human")); n != 1 {
+			t.Errorf("%s: %d tasks for the person", host, n)
+		}
+		if n := len(sentTo(s.Inbox(host+"/claude", false), host)); n != notes {
+			t.Errorf("%s: %d notes for its sessions, want %d", host, n, notes)
+		}
 	}
 }
 
