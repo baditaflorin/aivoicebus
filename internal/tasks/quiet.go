@@ -7,6 +7,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // A task that was taken and then went quiet is the one nobody hears about: watch's "untaken"
@@ -87,6 +88,6 @@ func SilentText(s Silent, now time.Time) string {
 		quiet = quiet.Round(time.Minute)
 	}
 	return fmt.Sprintf("aivoicebus: task %s to %s was taken by %s at %s and has been silent since %s (%s): no progress, answer or end. aivoicebus status %s",
-		s.ID, msg.SafeName(s.To), msg.SafeName(s.By), s.TakenAt.Local().Format("15:04"), s.LastWord.Local().Format("15:04"),
+		s.ID, msg.SafeName(s.To), msg.SafeName(s.By), view.When(s.TakenAt, now), view.When(s.LastWord, now),
 		quiet, s.ID)
 }
