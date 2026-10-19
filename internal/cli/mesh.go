@@ -234,7 +234,7 @@ func nodeListNote(c *client.Client, now time.Time) string {
 // featureList is a node's advertised features for a table cell: each cut to what a peer could
 // make of it, "-" for a node that advertises none.
 func featureList(h *msg.Health) string {
-	const shown = 12 // a hostile node cannot widen the table; a cut list says so
+	const shown = 16 // a hostile node cannot widen the table; a cut list says so
 	var out []string
 	more := 0
 	for _, f := range h.Features {

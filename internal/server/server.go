@@ -302,6 +302,10 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			return
 		}
 		seen.note(hostOf(me), who, "")
+		if r.URL.Query().Get("peek") == "1" { // msg.FeatureInboxPeek: a look on someone's behalf, never a session's own read
+			js(w, s.Peek(me))
+			return
+		}
 		// Labels are optional and tolerant: junk in the parameter must never
 		// break a plain inbox read, so bad pairs are simply dropped.
 		labels := msg.ParseLabels(r.URL.Query().Get(msg.ParamLabels))

@@ -797,6 +797,53 @@ func TestStandbyIsAPromptAnyClientCanOffer(t *testing.T) {
 	if r := s.rpc("prompts/get", map[string]any{"name": "nope"}); r["error"] == nil {
 		t.Errorf("an unknown prompt is an error: %v", r)
 	}
+	if args, _ := list[0].(map[string]any)["arguments"].([]any); len(args) != 1 || args[0].(map[string]any)["name"] != "only" {
+		t.Errorf("the standby prompt's arguments: %v", list[0])
+	}
+	if strings.Contains(text, "{{") || strings.Contains(text, "only \"") {
+		t.Errorf("the prompt with no arguments: %q", text)
+	}
+	got = s.rpc("prompts/get", map[string]any{"name": "standby", "arguments": map[string]any{"only": "tasks"}})["result"].(map[string]any)
+	if text := got["messages"].([]any)[0].(map[string]any)["content"].(map[string]any)["text"].(string); !strings.Contains(text, `seconds 600 and only "tasks"`) {
+		t.Errorf("the prompt scoped to tasks: %q", text)
+	}
+	if r := s.rpc("prompts/get", map[string]any{"name": "standby", "arguments": map[string]any{"only": "everything"}}); r["error"] == nil {
+		t.Errorf("a bad only is an error: %v", r)
+	}
+}
+
+// Standing by through MCP: a task meant for the person is said once, with what the person runs,
+// never returned as a task to take; only scopes what ends the wait.
+func TestWaitToolSaysOnceThatATaskWaitsForThePersonAndOnlyScopesIt(t *testing.T) {
+	s, st := start(t)
+	hand, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: msg.TokenHandTag + " me\nhands me its token"})
+	mine, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me/human", Kind: msg.KindTask, Body: msg.PersonTag + " swap the disk"})
+	text, isErr := s.call("aivoicebus_wait", map[string]any{"seconds": 5})
+	if isErr || strings.Count(text, "For the person, not for you") != 2 || !strings.Contains(text, "aivoicebus token install "+hand.ID) || !strings.Contains(text, "aivoicebus claim "+mine.ID) || strings.Contains(text, "swap the disk") {
+		t.Fatalf("wait: %v %q", isErr, text)
+	}
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 1}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("said twice: %q", text)
+	}
+	for _, e := range st.RosterSince(time.Time{}) {
+		if e.Me == "me/human" {
+			t.Errorf("the wait made the person a session: %+v", e)
+		}
+	}
+	st.Send(msg.Message{From: "desk/claude.z9", To: "me/mcp.test", Body: "the build is green"})
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 1, "only": "tasks"}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("only tasks woke on a note: %q", text)
+	}
+	task, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "run the linters"})
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 2, "only": "replies"}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("only replies woke on a task or a note: %q", text)
+	}
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 5, "only": "tasks"}); !strings.Contains(text, task.ID) || strings.Contains(text, "build is green") {
+		t.Errorf("only tasks: %q", text)
+	}
+	if text, isErr := s.call("aivoicebus_wait", map[string]any{"only": "everything"}); !isErr || !strings.Contains(text, "`all`, `tasks` or `replies`") {
+		t.Errorf("a bad only: %v %q", isErr, text)
+	}
 }
 
 // who stays small: the most recent sessions, and only the labels that pick a target, unless asked.

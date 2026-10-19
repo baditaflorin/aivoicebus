@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
@@ -64,5 +65,27 @@ func TestATaskToOneSessionStaysWithIt(t *testing.T) {
 	s.Send(msg.Message{From: "other/codex.q", To: "desk/claude.z9", Body: "mine", Kind: msg.KindClaim, Re: task.ID})
 	if !containsID(s.InboxFor("lap/claude.a1", false, nil), task.ID) {
 		t.Error("a stranger's claim took a task sent to one session")
+	}
+}
+
+// A peek shows what waits for an identity without making it a session: an agent's standby looks at
+// what waits for its machine's person, and no person shows up on the roster for it.
+func TestAPeekShowsWhatWaitsWithoutMakingItASession(t *testing.T) {
+	s, _ := retractStore(t)
+	task, _ := s.Send(msg.Message{From: "desk/claude.z9", To: "lap/human", Body: msg.PersonTag + " swap the disk", Kind: msg.KindTask})
+	if !containsID(s.Peek("lap/human"), task.ID) {
+		t.Fatal("the peek does not show the person's task")
+	}
+	for _, e := range s.RosterSince(time.Time{}) {
+		if e.Me == "lap/human" {
+			t.Errorf("a peek put lap/human on the roster: %+v", e)
+		}
+	}
+	if !containsID(s.InboxFor("lap/human", false, nil), task.ID) {
+		t.Fatal("the person's own read does not show it")
+	}
+	s.Ack(task.ID, "lap/human")
+	if containsID(s.Peek("lap/human"), task.ID) {
+		t.Error("a peek shows what the person read")
 	}
 }

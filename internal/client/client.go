@@ -557,6 +557,15 @@ func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	return ms, err
 }
 
+// Peek is what waits unread for me, read on someone else's behalf: the node does not make me a
+// session on its roster (msg.FeatureInboxPeek; an older node does, so ask Health first).
+func (c *Client) Peek(me string) ([]msg.Message, error) {
+	var ms []msg.Message
+	err := c.do(c.URLs, "GET", "/v1/inbox?me="+url.QueryEscape(me)+"&peek=1", nil, &ms)
+	Check(ms)
+	return ms, err
+}
+
 // Check sets, on messages just read, what this machine finds of each signature (Verified, against
 // the key pinned for the sender's machine: the first one seen is pinned), then opens a body sealed
 // for this machine (Private). The signature covers the sealed text, so it is judged first. What a

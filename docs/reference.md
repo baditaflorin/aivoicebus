@@ -764,6 +764,16 @@ MCP server offers this as its `standby` prompt, so it shows as a command in thos
 before an MCP tool runs: approve `aivoicebus_wait` for the session once (aivoicebus does not change
 Codex's approval settings). Each wake is one turn of the agent; the wait itself costs nothing.
 
+A standby can be scoped: `/aivoicebus-standby --only tasks` (the `standby` prompt's `only`
+argument; `aivoicebus wait --only tasks`, `aivoicebus_wait` with `only`) wakes only on tasks, `--only
+replies` only on messages that answer another (an answer, a claim, an end: the conversation this
+session is in), and `all`, the default, on anything. A task meant for the person (see "Tasks meant
+for the person") never wakes it as a task: under `all` and `tasks` the wait comes back once with a
+line saying it waits for the person and the command they run, and the session tells you. It looks
+at the person's own queue (`<machine>/human`) for that too, on nodes that can show it without
+making the person a session on the roster (feature `inbox-peek`). Each session says it once
+(`~/.config/aivoicebus/person-told`).
+
 Which to use:
 
 | | the worker | a session standing by |

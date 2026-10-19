@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
@@ -345,11 +347,12 @@ func waitCmd(args []string, s Streams) error {
 	d := fs.Duration("for", 10*time.Minute, "give up after this long (exit 6)")
 	every := fs.Duration("every", 3*time.Second, "how often the nodes are asked")
 	noAck := fs.Bool("no-ack", false, "leave what arrives unread (by default it is marked read once shown)")
+	only := fs.String("only", tasks.OnlyAll, "what ends the wait: all (any message), tasks, or replies (a message that answers another). A task meant for the person is never one: the wait says once that it waits for them")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 {
-		return outbox.Usagef("usage: wait [--thread ID] [--from WHO] [--for 10m]")
+	if fs.NArg() != 0 || !tasks.ValidOnly(*only) {
+		return outbox.Usagef("usage: wait [--thread ID] [--from WHO] [--for 10m] [--only all|tasks|replies]")
 	}
 	if *every < time.Second {
 		*every = time.Second
@@ -359,7 +362,9 @@ func waitCmd(args []string, s Streams) error {
 		return err
 	}
 	me := identity.Me()
-	ms, err := waitFor(c, me, tasks.Filter{Thread: *thread, From: *from}, *d, *every)
+	var tell []msg.Message
+	f := tasks.Filter{Thread: *thread, From: *from, Only: *only, Person: personNews(me, &tell)}
+	ms, err := waitFor(c, me, f, *d, *every)
 	if errors.Is(err, tasks.ErrTimeout) {
 		fmt.Fprintf(s.Err, "nothing arrived in %s\n", d.String())
 		return exitError{exitTimeout}
@@ -367,8 +372,36 @@ func waitCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	showArrived(c, me, ms, !*noAck, s)
+	toldPerson(c, me, tell, !*noAck, s.Out)
+	if len(ms) > 0 {
+		showArrived(c, me, ms, !*noAck, s)
+	}
 	return nil
+}
+
+// personNews is a wait's tasks.Filter.Person for session me: a message meant for the person is
+// news once per session (config.Told), gathered into tell.
+func personNews(me string, tell *[]msg.Message) func(msg.Message) bool {
+	return func(m msg.Message) bool {
+		if config.Told(me, m.ID) || slices.ContainsFunc(*tell, func(x msg.Message) bool { return x.ID == m.ID }) {
+			return false
+		}
+		*tell = append(*tell, m)
+		return true
+	}
+}
+
+// toldPerson says once what waits for the person, and remembers it was said. One that reached this
+// session's own inbox is marked read for it (it is not this session's to take); one waiting at
+// <machine>/human stays unread for the person.
+func toldPerson(c *client.Client, me string, tell []msg.Message, ack bool, w io.Writer) {
+	for _, m := range tell {
+		fmt.Fprintln(w, view.PersonNotice(m))
+		config.NoteTold(me, m.ID)
+		if ack && !msg.IsHuman(m.To) {
+			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
+		}
+	}
 }
 
 // pingCmd says whether anyone is there: the sessions a target reaches and how recently each was seen.

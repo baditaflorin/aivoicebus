@@ -347,3 +347,22 @@ func SanitiseRoster(es []msg.RosterEntry) []msg.RosterEntry {
 	}
 	return out
 }
+
+// PersonNotice is one line telling an agent that m waits for the person on its machine, not for
+// it, and what the person runs. It names the message by its kind and id only: no peer text.
+func PersonNotice(m msg.Message) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(m.Body), "\n")
+	what := "a message"
+	switch {
+	case strings.HasPrefix(line, msg.TokenHandTag):
+		what = "a [token hand] task (it replaces this machine's token)"
+	case strings.HasPrefix(line, msg.ApprovalTag):
+		what = "an approval request"
+	case strings.HasPrefix(line, strings.TrimSpace(msg.AskPrefix)):
+		what = "a question for the person"
+	case m.Kind == msg.KindTask:
+		what = "a task"
+	}
+	return fmt.Sprintf("[aivoicebus] For the person, not for you: %s, %s, from %s, waits for the person on this machine (an agent's claim of it is refused). Tell the user once; they run, in their own terminal: %s",
+		what, OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), OneLine(msg.PersonStep(m), 200))
+}

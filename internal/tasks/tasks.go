@@ -152,16 +152,45 @@ func Claim(c *client.Client, me string, who Caller, id, body string, settle time
 	return r, nil
 }
 
+// What a standing-by wait is for (wait --only, aivoicebus_wait only): every message, tasks
+// only, or replies only (a message that answers another: an answer, a claim, an end...).
+const (
+	OnlyAll     = "all"
+	OnlyTasks   = "tasks"
+	OnlyReplies = "replies"
+)
+
+// ValidOnly reports whether o is one of the Only words ("" is all).
+func ValidOnly(o string) bool { return o == "" || o == OnlyAll || o == OnlyTasks || o == OnlyReplies }
+
 // Filter says which arriving messages end a wait. With Progress set, a claim (someone took the
 // task) does not end it: it is reported through Progress and marked read, and the wait goes on
 // for the answer itself.
+//
+// With Person set, a message meant for the person (msg.PersonOnly) never ends the wait as a
+// message: it goes to Person, which says whether it is news to tell the person about (then the
+// wait ends, returning what else came, maybe nothing). The wait also looks at what waits for the
+// machine's person (<machine>/human), where a node can show it without making that a session
+// (msg.FeatureInboxPeek). With Only "replies" neither is looked at.
 type Filter struct {
 	Thread, From string
+	Only         string
 	Progress     func(msg.Message)
+	Person       func(msg.Message) bool
 }
 
 // Match reports whether m is what the wait is for.
 func (f Filter) Match(m msg.Message) bool {
+	switch f.Only {
+	case OnlyTasks:
+		if m.Kind != msg.KindTask {
+			return false
+		}
+	case OnlyReplies:
+		if m.Re == "" {
+			return false
+		}
+	}
 	if f.Thread != "" && m.Thread != f.Thread {
 		return false
 	}
@@ -174,8 +203,8 @@ func (f Filter) Match(m msg.Message) bool {
 // ErrTimeout is a wait that saw nothing arrive.
 var ErrTimeout = errors.New("nothing arrived") // nextstep: every caller says what to do after a timeout
 
-// Wait polls the inbox until unread messages that match f are there, d has passed (ErrTimeout) or
-// ctx is done (ErrTimeout too). Each poll is one small request; the caller's agent spends no
+// Wait polls the inbox until unread messages that match f are there (or f.Person has news to
+// tell: then what it returns may be empty), d has passed (ErrTimeout) or ctx is done (ErrTimeout too). Each poll is one small request; the caller's agent spends no
 // tokens while it waits.
 func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every time.Duration) ([]msg.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, d)
@@ -183,10 +212,12 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 	deadline, _ := ctx.Deadline()
 	// A node that holds reads open (msg.FeatureInboxWait) answers as soon as something arrives;
 	// with an older one this asks every `every`.
-	held := false
-	if h, err := c.Health(); err == nil && h.Has(msg.FeatureInboxWait) {
-		held = true
+	held, peek := false, false
+	if h, err := c.Health(); err == nil {
+		held, peek = h.Has(msg.FeatureInboxWait), h.Has(msg.FeatureInboxPeek)
 	}
+	person := f.Person != nil && f.Only != OnlyReplies
+	peek = peek && person && !msg.IsHuman(me)
 	var gen uint64
 	hasGen := false
 	for {
@@ -216,8 +247,13 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 			}
 		}
 		var got []msg.Message
+		tell := false
 		for _, m := range ms {
 			if !f.Match(m) {
+				continue
+			}
+			if person && msg.PersonOnly(m) {
+				tell = f.Person(m) || tell
 				continue
 			}
 			if (m.Kind == msg.KindClaim || m.Kind == msg.KindProgress) && f.Progress != nil {
@@ -227,7 +263,15 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 			}
 			got = append(got, m)
 		}
-		if len(got) > 0 {
+		if peek {
+			hs, _ := c.Peek(msg.HumanOf(me))
+			for _, m := range hs {
+				if m.From != me && f.Match(m) && msg.PersonOnly(m) {
+					tell = f.Person(m) || tell
+				}
+			}
+		}
+		if len(got) > 0 || tell {
 			sort.SliceStable(got, func(i, j int) bool { return got[i].At.Before(got[j].At) })
 			return got, nil
 		}
