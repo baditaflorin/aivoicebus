@@ -48,7 +48,7 @@ var stuckTool = tool{
 			return "", err
 		}
 		if a.Re = strings.ToLower(strings.TrimSpace(a.Re)); a.Re != "" && !msg.ValidID(a.Re) {
-			return "", errors.New("re must be the full 10-character id")
+			return "", errors.New("re must be the full 10-character id: call it again with one from aivoicebus_inbox")
 		}
 		c, err := s.Client()
 		if err != nil {

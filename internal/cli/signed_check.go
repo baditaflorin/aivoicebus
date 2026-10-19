@@ -87,7 +87,7 @@ func buildSignedView(c *client.Client, days int, timeout time.Duration) signedVi
 			r, err := one.Unsigned(days)
 			switch {
 			case client.IsNotFound(err):
-				err = errors.New("runs a release that does not report unsigned messages (unsigned-report); update it to check")
+				err = errors.New("runs a release that does not report unsigned messages (unsigned-report): ask the user to update the nodes, then run it again")
 			case err == nil:
 				reps[i] = r
 				v.Nodes[i].Node, v.Nodes[i].Scanned, v.Nodes[i].RequireSigned = r.Node, r.Scanned, r.RequireSigned

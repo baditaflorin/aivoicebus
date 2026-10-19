@@ -96,14 +96,14 @@ func SendStuck(c *client.Client, r StuckReq, warn io.Writer) (StuckResult, error
 	var res StuckResult
 	reason := strings.TrimSpace(r.Reason)
 	if reason == "" {
-		return res, outbox.Usagef(`say what blocks you: stuck "waiting for the person's yes on the deploy"`)
+		return res, outbox.Usagef(`say what blocks you, like: aivoicebus stuck "waiting for the person's yes on the deploy"`)
 	}
 	need := strings.ToLower(strings.TrimSpace(r.Need))
 	if need == "" {
 		need = msg.NeedPerson
 	}
 	if !needWord.MatchString(need) {
-		return res, outbox.Usagef("--need is person, peer, or one tool or capability word (codex, gpu)")
+		return res, outbox.Usagef("--need is person, peer, or one tool or capability word (codex, gpu): run it again with one, like `--need person`")
 	}
 	body := msg.StuckPrefix + reason
 	var thread msg.Message
@@ -119,7 +119,7 @@ func SendStuck(c *client.Client, r StuckReq, warn io.Writer) (StuckResult, error
 			}
 		}
 		if thread.ID == "" {
-			return res, outbox.NotFoundf("message %s was not found on the nodes (stuck --re takes the full 10-character id)", r.Re)
+			return res, outbox.NotFoundf("message %s was not found on the nodes (stuck --re takes the full 10-character id): check it with `aivoicebus inbox --all`", r.Re)
 		}
 		if res.Side = otherSide(r.Me, thread, ms); res.Side != "" {
 			p, err := outbox.Prepare(c, outbox.Request{To: res.Side, Re: thread.ID, Thread: thread.Thread, Kind: msg.KindProgress, Body: body, TargetSaid: true}, warn)

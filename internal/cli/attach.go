@@ -91,7 +91,7 @@ func (f *metaFlag) String() string { return "" }
 func (f *metaFlag) Set(v string) error {
 	k, val, ok := strings.Cut(v, "=")
 	if !ok || !attach.ValidMetaKey(k) {
-		return fmt.Errorf("--meta %q: want key=value, key of 1-32 letters, digits, _ . - (name, size and sha256 are set by aivoicebus)", v)
+		return fmt.Errorf("--meta %q: want key=value, key of 1-32 letters, digits, _ . - (name, size and sha256 are set by aivoicebus): run it again as `--meta key=value`", v)
 	}
 	if f.m == nil {
 		f.m = map[string]string{}
