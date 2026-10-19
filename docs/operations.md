@@ -333,4 +333,18 @@ Every client of 0.7.0 or later signs every message with its machine key. Once ev
 one, start the nodes with `serve --require-signed` (or `AIVOICEBUS_REQUIRE_SIGNED=1` in the node's
 environment): a node then refuses, with 403, a message that carries no signature or whose
 signature does not verify. Join and selftest probes are exempt. Before switching it on, check that
-no machine still runs a client older than 0.7.0 (a reader flags an unsigned message as unsigned).
+nobody would be refused:
+
+    aivoicebus mesh --signed-check     # READY: no unsigned message in the last 7 days on any node
+
+NOT READY names each sender that sent a message without a valid signature in that window (a client
+older than 0.7.0, or one that could not sign); update those machines and wait until the check says
+READY. Then, on the machine you deploy from, the switch is one line (each node in turn gets
+`AIVOICEBUS_REQUIRE_SIGNED=1` in its node.env and is restarted, binary and token untouched):
+
+    AIVOICEBUS_NODE_REQUIRE_SIGNED=1 deploy/install.sh --apply --peers-only
+
+Every later install and rollout keeps the setting as each node has it; `AIVOICEBUS_NODE_REQUIRE_SIGNED=0`
+with the same command switches it off. A node added later starts without it unless the same
+variable is set for deploy/add-node.sh (which runs install.sh), or the line is run again after. `mesh --signed-check` then lists each node as "already refuses
+unsigned ones", and `/metrics` counts what was refused (`aivoicebus_refused_total{reason="unsigned"}`).

@@ -208,6 +208,8 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}))
 	// Which kind of token last acted as a machine (seen.go): the proof that a machine uses its own.
 	mux.HandleFunc("/v1/token/seen", readonly(seen.handler(cfg.node)))
+	// Who sent messages without a valid signature lately (unsigned.go): ready for --require-signed?
+	mux.HandleFunc("/v1/unsigned", readonly(unsignedHandler(s, cfg.node, cfg.requireSigned, time.Now)))
 	mux.HandleFunc("/v1/send", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
 		if cfg.ready != nil && !cfg.ready() {
 			http.Error(w, "this node is recovering from its peers; retry or use another node", http.StatusServiceUnavailable)

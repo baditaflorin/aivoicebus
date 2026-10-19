@@ -808,6 +808,14 @@ func (c *Client) TokenSeen(host string) ([]msg.TokenSeen, error) {
 	return gather[msg.TokenSeen](c, "/v1/token/seen?host="+url.QueryEscape(host))
 }
 
+// Unsigned asks a node who sent messages without a valid signature in the last days days
+// (msg.UnsignedReport). Nodes older than msg.FeatureUnsigned answer 404 (see IsNotFound).
+func (c *Client) Unsigned(days int) (msg.UnsignedReport, error) {
+	var r msg.UnsignedReport
+	err := c.do(c.URLs, "GET", "/v1/unsigned?days="+strconv.Itoa(days), nil, &r)
+	return r, err
+}
+
 // Health is a node's own account of itself: see msg.Health.
 // TokenKind asks a node what kind of token this client holds: "shared" (anyone holding it can send
 // as any machine), "machine" (bound to host), or "observer"; "" from a node too old to say.

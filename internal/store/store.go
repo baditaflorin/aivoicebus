@@ -1469,6 +1469,21 @@ func (s *Store) Messages() []msg.Message {
 	return out
 }
 
+// ArrivedSince returns the messages held that a node took in at or after t, as their senders sent
+// them (not as a reader is shown them: a retracted one keeps its words and signature), so a check of
+// what was sent, such as who sends unsigned, sees what arrived.
+func (s *Store) ArrivedSince(t time.Time) []msg.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []msg.Message
+	for _, m := range s.msgs {
+		if !m.At.Before(t) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // Readers is how many identities other than its sender acknowledged message id.
 func (s *Store) Readers(id string) int {
 	s.mu.Lock()
