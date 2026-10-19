@@ -295,7 +295,7 @@ func (r *startRun) setup(tools string) {
 	exe, exeErr := executable()
 	opts := agentcfg.Options{Tools: splitList(tools), InstallExe: exe, InstallExeErr: exeErr, ClaudeMCP: claudeMCP}
 	dry := opts
-	dry.DryRun, dry.ClaudeMCP = true, nil
+	dry.DryRun = true // claudeMCP only asks `claude mcp get` in a dry run
 	plan, _ := agentcfg.Setup(dry)
 	if !anyChanged(plan) && !anyFailed(plan) {
 		r.line("ok", "setup", "hooks, instructions and the binary are current"+toolsNote(plan))
