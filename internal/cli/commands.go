@@ -120,6 +120,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	deadline := fs.Duration("deadline", 0, "start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes")
 	maxTurns := fs.Int("max-turns", 0, "start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever")
 	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
+	quietAfter := fs.Duration("quiet-after", tasks.QuietAfter, "with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never")
 	ackIt := new(bool)
 	end := new(bool)
 	if reply {
@@ -146,6 +147,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		if *waitReply > 0 {
 			return outbox.Usagef("--end closes the conversation, so there is no reply to wait for")
 		}
+	}
+	if *quietAfter < 0 || (*quietAfter > 0 && *quietAfter < time.Second) {
+		return outbox.Usagef("--quiet-after is at least 1s, or 0 for never")
 	}
 	var fallbacks []string
 	claimWithin := new(time.Duration)
@@ -300,24 +304,70 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
 		deadline := time.Now().Add(*waitReply)
 		cur := out
+		// Who took the current task, when, and when they last said how it goes (a claim or progress):
+		// the local time it arrived drives the quiet timer, the node's times are what the alert says.
+		var takenAt, lastWordAt, lastHeard time.Time
+		quietSaid := false
+		quiet := time.Duration(0)
+		if cur.Kind == msg.KindTask {
+			quiet = *quietAfter
+		}
+		// moveOn takes cur back and gives the task to the next fallback; why says what happened.
+		moveOn := func(why string) error {
+			if _, err := c.Retract(cur.ID, me, false, false); err != nil {
+				fmt.Fprintf(s.Err, "%s, and it could not be taken back (%v): not moving it on\n", why, err)
+				fallbacks = nil
+				return nil
+			}
+			next := fallbacks[0]
+			fallbacks = fallbacks[1:]
+			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true}, io.Discard)
+			if err != nil {
+				return fmt.Errorf("moving the task on to %s: %w", next, err)
+			}
+			old := cur.ID
+			if cur, err = np.Send(c); err != nil {
+				return fmt.Errorf("moving the task on to %s: %w", next, err)
+			}
+			fmt.Fprintf(s.Err, "%s: took %s back and gave it to %s as %s\n", why, old, view.Name(next, msg.MaxIdentity), cur.ID)
+			out = cur
+			takenBy, takenAt, lastWordAt, lastHeard, quietSaid = "", time.Time{}, time.Time{}, time.Time{}, false
+			return nil
+		}
 		for {
 			window := time.Until(deadline)
-			if len(fallbacks) > 0 {
+			switch {
+			case takenBy == "" && len(fallbacks) > 0:
 				window = min(window, *claimWithin)
+			case takenBy != "" && quiet > 0 && !quietSaid:
+				window = min(window, max(time.Until(lastHeard.Add(quiet)), 0))
 			}
-			claimed := false
 			progress := claimProgress(s)
-			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) { claimed, takenBy = true, m.From; progress(m) }}, window, 3*time.Second)
+			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) {
+				if takenBy == "" {
+					takenBy, takenAt = m.From, m.At
+				}
+				lastWordAt, lastHeard = m.At, time.Now()
+				progress(m)
+			}}, window, 3*time.Second)
 			if err == nil {
 				return deliver(cur, got, true)
 			}
 			if !errors.Is(err, tasks.ErrTimeout) {
 				return err
 			}
-			if claimed {
-				fallbacks = nil // taken: wait for its answer for the rest of --wait-reply
+			if takenBy != "" && quiet > 0 && !quietSaid && time.Since(lastHeard) >= quiet {
+				quietSaid = true
+				line := tasks.SilentText(tasks.Silent{ID: cur.ID, To: cur.To, By: takenBy, TakenAt: takenAt, LastWord: lastWordAt}, time.Now())
+				fmt.Fprintf(s.Err, "[aivoicebus] %s. Ask them: aivoicebus reply --re %s \"...\"\n", strings.TrimPrefix(line, "aivoicebus: "), cur.ID)
+				if len(fallbacks) > 0 && time.Until(deadline) >= time.Second {
+					if err := moveOn(fmt.Sprintf("%s took it and then said nothing for %s", view.Name(takenBy, msg.MaxIdentity), quiet.String())); err != nil {
+						return err
+					}
+				}
+				continue
 			}
-			if len(fallbacks) == 0 || time.Until(deadline) < time.Second {
+			if takenBy != "" || len(fallbacks) == 0 || time.Until(deadline) < time.Second {
 				if time.Until(deadline) >= time.Second {
 					continue
 				}
@@ -328,22 +378,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 				return exitError{exitTimeout}
 			}
 			// Nobody took it in --claim-within: take it back there and give it to the next target.
-			if _, err := c.Retract(cur.ID, me, false, false); err != nil {
-				fmt.Fprintf(s.Err, "nobody took %s within %s, and it could not be taken back (%v): not moving it on\n", cur.ID, claimWithin.String(), err)
-				fallbacks = nil
-				continue
+			if err := moveOn(fmt.Sprintf("nobody took it within %s", claimWithin.String())); err != nil {
+				return err
 			}
-			next := fallbacks[0]
-			fallbacks = fallbacks[1:]
-			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true}, io.Discard)
-			if err != nil {
-				return fmt.Errorf("moving the task on to %s: %w", next, err)
-			}
-			if cur, err = np.Send(c); err != nil {
-				return fmt.Errorf("moving the task on to %s: %w", next, err)
-			}
-			fmt.Fprintf(s.Err, "nobody took it within %s: took %s back and gave it to %s as %s\n", claimWithin.String(), out.ID, view.Name(next, msg.MaxIdentity), cur.ID)
-			out = cur
 		}
 	}
 	return nil

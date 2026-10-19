@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
@@ -18,6 +19,68 @@ import (
 // The longest an aivoicebus_wait call blocks: a tool call that hangs for longer would look like a
 // stuck tool to most agents. To wait longer, call it again.
 const maxWaitSeconds = 600
+
+// progressLine reports a claim or progress seen while waiting for an answer.
+func progressLine(b *strings.Builder, m msg.Message) {
+	said, body := "took it", m.Body
+	switch {
+	case m.Kind == msg.KindProgress && msg.IsStuck(body):
+		said, body = "is STUCK", strings.TrimPrefix(body, msg.StuckPrefix)
+	case m.Kind == msg.KindProgress:
+		said = "says"
+	}
+	fmt.Fprintf(b, "%s %s: %q\n", view.Name(m.From, msg.MaxIdentity), said, view.OneLine(body, 120))
+}
+
+var stuckTool = tool{
+	name: "aivoicebus_stuck",
+	description: "Say you are blocked, instead of going silent or retrying the same step. With re (the task you took) its sender hears it as progress; " +
+		"by default this machine's person is told too (their inbox, and a short summary on their phone). need: peer asks any session listening right now, " +
+		"or a tool or capability word (codex, gpu) one listening with it. Then do other work, or aivoicebus_wait on the thread it names. Never put secrets in it.",
+	schema: obj([]string{"reason"}, map[string]any{
+		"reason": str("what blocks you, in a sentence: what you need and from whom"),
+		"re":     str("the full id of the task or message you are stuck on (optional)"),
+		"need":   str("who can unblock you: person (default), peer, or a tool or capability word"),
+	}),
+	run: func(s *Server, raw json.RawMessage) (string, error) {
+		var a struct{ Reason, Re, Need string }
+		if err := decode(raw, &a); err != nil {
+			return "", err
+		}
+		if a.Re = strings.ToLower(strings.TrimSpace(a.Re)); a.Re != "" && !msg.ValidID(a.Re) {
+			return "", errors.New("re must be the full 10-character id")
+		}
+		c, err := s.Client()
+		if err != nil {
+			return "", err
+		}
+		var warn strings.Builder
+		r, err := tasks.SendStuck(c, tasks.StuckReq{Me: identity.Me(), Reason: a.Reason, Re: a.Re, Need: a.Need, NotifyURL: config.NotifyURL()}, &warn)
+		if err != nil {
+			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
+		}
+		var b strings.Builder
+		wait := ""
+		if r.SideID != "" {
+			fmt.Fprintf(&b, "told %s (%s): their wait shows it\n", view.Name(r.Side, msg.MaxIdentity), r.SideID)
+		}
+		if r.PeerID != "" {
+			fmt.Fprintf(&b, "asked %s for help (task %s)\n", view.Name(r.Peer, msg.MaxIdentity), r.PeerID)
+			wait = r.PeerID
+		}
+		if r.PersonID != "" {
+			fmt.Fprintf(&b, "told the person (%s)%s\n", r.PersonID, map[bool]string{true: ", and their phone", false: ""}[r.Phoned])
+			wait = r.PersonID
+		}
+		for _, n := range r.Notes {
+			fmt.Fprintf(&b, "%s\n", n)
+		}
+		if wait != "" {
+			fmt.Fprintf(&b, "Do other work if you can; otherwise call aivoicebus_wait with thread %s. Do not retry the same step in a loop.", wait)
+		}
+		return strings.TrimSpace(b.String()), nil
+	},
+}
 
 var claimTool = tool{
 	name: "aivoicebus_claim",
@@ -84,7 +147,7 @@ var waitTool = tool{
 		me := identity.Me()
 		var progress strings.Builder
 		f := tasks.Filter{Thread: a.Thread, From: strings.ToLower(a.From), Progress: func(m msg.Message) {
-			fmt.Fprintf(&progress, "%s took it: %q\n", view.Name(m.From, msg.MaxIdentity), view.OneLine(m.Body, 120))
+			progressLine(&progress, m)
 		}}
 		ms, err := tasks.Wait(context.Background(), c, me, f, time.Duration(a.Seconds)*time.Second, 2*time.Second)
 		if errors.Is(err, tasks.ErrTimeout) {

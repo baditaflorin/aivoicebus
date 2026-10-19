@@ -36,7 +36,7 @@ func TestWatchAlertsOnceOnAnUntakenTask(t *testing.T) {
 	}
 	c, _ := client.FromEnv()
 	var out strings.Builder
-	n, err := watchOnce(c, 0, &out)
+	n, err := watchOnce(c, 0, 0, &out)
 	if err != nil || n != 1 || !strings.Contains(out.String(), "task "+stuck+" to lap has not been taken") {
 		t.Fatalf("first look: %d %v\n%s", n, err, out.String())
 	}
@@ -45,7 +45,7 @@ func TestWatchAlertsOnceOnAnUntakenTask(t *testing.T) {
 		t.Errorf("notify: %q", posts)
 	}
 	mu.Unlock()
-	if n, _ := watchOnce(c, 0, io.Discard); n != 0 {
+	if n, _ := watchOnce(c, 0, 0, io.Discard); n != 0 {
 		t.Errorf("alerted twice: %d", n)
 	}
 	if code, _, e := run(t, "", "watch", "--once"); code != 0 || e != "" {

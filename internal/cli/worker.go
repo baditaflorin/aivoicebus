@@ -76,7 +76,7 @@ func workerCmd(args []string, s Streams) error {
 	approverKey := fs.String("approver-key", "", "with --write: the approver key's public half (`aivoicebus approver show` where the approver is); only decisions signed with it count")
 	sandbox := fs.Bool("sandbox", true, "run each command without access to this user's secrets (~/.ssh, cloud and git credentials, keychains, browser profiles, the aivoicebus token and keys): sandbox-exec on macOS, bubblewrap on Linux; --sandbox=false runs it as it is")
 	budget := fs.Int("budget", 0, "tokens (in and out, as the agents report them) the runs may use in any 24 hours; over it the worker takes no task and alerts (0: no budget)")
-	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m")
+	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m, or was taken and then silent for 10m")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -241,7 +241,7 @@ func workerCmd(args []string, s Streams) error {
 				_, _ = runSchedules(wc, last, s.Out)
 			}
 			if *watch > 0 {
-				_, _ = watchOnce(wc, *watch, s.Out)
+				_, _ = watchOnce(wc, *watch, tasks.QuietAfter, s.Out)
 			}
 		}
 	}

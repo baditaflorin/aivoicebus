@@ -27,7 +27,7 @@ func waitAnswer(c *client.Client, me, thread string, seconds int) string {
 	seconds = min(seconds, maxWaitSeconds)
 	var progress strings.Builder
 	f := tasks.Filter{Thread: thread, Progress: func(m msg.Message) {
-		fmt.Fprintf(&progress, "%s took it: %q\n", view.Name(m.From, msg.MaxIdentity), view.OneLine(m.Body, 120))
+		progressLine(&progress, m)
 	}}
 	ms, err := tasks.Wait(context.Background(), c, me, f, time.Duration(seconds)*time.Second, 2*time.Second)
 	if errors.Is(err, tasks.ErrTimeout) {

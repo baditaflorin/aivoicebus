@@ -129,7 +129,7 @@ func TestHandshakeListsTheTools(t *testing.T) {
 			t.Errorf("%v", tl)
 		}
 	}
-	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
+	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_stuck,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
 		t.Errorf("%v", names)
 	}
 	for _, x := range list {

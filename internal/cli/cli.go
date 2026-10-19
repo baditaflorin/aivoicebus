@@ -90,6 +90,7 @@ func init() {
 		"ask-human":   askHumanCmd,
 		"answer":      answerCmd,
 		"progress":    progressCmd,
+		"stuck":       stuckCmd,
 		"audit":       auditCmd,
 		"unhold":      unholdCmd,
 		"tokens":      tokensCmd,
