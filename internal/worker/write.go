@@ -47,7 +47,7 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 	wm := w.Write
 	who, _ := ParseAllow(wm.Approver)
 	host := msg.HostOf(w.Me)
-	text := fmt.Sprintf("[approval needed] the worker on %s would run this task from %s with write access, in a new branch aivoicebus/task-%s of %s (not pushed):\n%s\n\nA person approves in a terminal, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits %s. An agent must not run either.",
+	text := fmt.Sprintf(msg.ApprovalTag+" the worker on %s would run this task from %s with write access, in a new branch aivoicebus/task-%s of %s (not pushed):\n%s\n\nA person approves in a terminal, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits %s. An agent must not run either.",
 		host, view.Name(m.From, msg.MaxIdentity), m.ID, wm.Repo, view.OneLine(m.Body, 600), wm.Within)
 	to := wm.Approver
 	code := ""

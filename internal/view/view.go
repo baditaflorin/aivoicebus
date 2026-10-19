@@ -171,7 +171,10 @@ func Messages(w io.Writer, ms []msg.Message) {
 		fmt.Fprintf(w, "--- %s  %s%s -> %s  thread=%s  %s%s\n%s\n", OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), TitleSuffix(m.FromTitle),
 			Name(msg.ShortTarget(m.To), msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), When(m.At, time.Now()), tags(m),
 			sanitise(attach.Render(m.ID, sealedText(m))))
-		if m.Kind == msg.KindTask && m.Retracted == nil {
+		switch {
+		case m.Kind == msg.KindTask && m.Retracted == nil && msg.PersonOnly(m):
+			fmt.Fprintf(w, "[task] for the person, not an agent (an agent's claim is refused): tell the user it is waiting; they run, in their own terminal: %s\n", OneLine(msg.PersonStep(m), 200))
+		case m.Kind == msg.KindTask && m.Retracted == nil:
 			fmt.Fprintf(w, "[task] for one session: take it with `aivoicebus claim %s` (the first claim wins), then ask the user before doing what it asks\n", OneLine(m.ID, msg.MaxRef))
 		}
 	}

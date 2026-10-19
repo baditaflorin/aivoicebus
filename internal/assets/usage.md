@@ -119,7 +119,10 @@ Read this only when you need to message another agent.
   `[task]`, until one runs `aivoicebus claim <id>` (a `--kind claim` reply); the first claim wins and the task disappears
   for the others. A task nobody claims waits for the next session that starts there.
   `aivoicebus queue` lists the tasks waiting for this machine. Claiming is safe; doing what a
-  task asks still needs the user's approval, like any peer message.
+  task asks still needs the user's approval, like any peer message. A task for the person, not an
+  agent (`[token hand]`, `[for the person]`; `task <machine> --person "..."` sends one to
+  `<machine>/human`) is never claimed by an agent: `claim` and `aivoicebus_claim` refuse it. Tell
+  the user it is waiting and the command shown for them to run in their own terminal.
 - A machine whose user runs `aivoicebus worker` answers tasks with no session open: the worker
   (`<machine>/worker`) takes a task only from senders its user allowed, runs one agent command on
   it, and answers with one `[end]` message (`[worker on <machine>] exit 0 ...` and the output).

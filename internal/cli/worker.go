@@ -342,7 +342,7 @@ func answerApproval(word string, args []string, s Streams) error {
 			req = m
 		}
 	}
-	if req.ID == "" || !strings.HasPrefix(req.Body, "[approval needed]") {
+	if req.ID == "" || !strings.HasPrefix(req.Body, msg.ApprovalTag) {
 		return outbox.Usagef("%s is not a worker's [approval needed] message", id)
 	}
 	fmt.Fprintln(s.Err, view.UntrustedBanner)

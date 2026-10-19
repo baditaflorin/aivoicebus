@@ -105,7 +105,7 @@ func TestTokenInstallOfAWithdrawnOrExpiredTaskAsksForAFreshOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _, e = run(t, "", "token", "install", taken.ID)
-	if code == 0 || !strings.Contains(e, "taken by air/claude.2") || !strings.Contains(e, "aivoicebus token hand air --to air/claude.1") {
+	if code == 0 || !strings.Contains(e, "taken by air/claude.2") || !strings.Contains(e, "goes to the person by default: aivoicebus token hand air") {
 		t.Errorf("a task another session took: %d %q", code, e)
 	}
 	gone := msg.NewID() // expired and dropped by the nodes, or never sent
@@ -134,7 +134,7 @@ func handFor(t *testing.T, n *tokenNode, respond func(task msg.Message)) (handRe
 				return
 			case <-time.After(50 * time.Millisecond):
 			}
-			ms, _ := n.c.Inbox("air/claude.1", true)
+			ms, _ := n.c.Inbox("air/human", true) // hand sends it to the person on air
 			for _, m := range ms {
 				if strings.HasPrefix(m.Body, tokenHandTag+" air") && m.Kind == msg.KindTask {
 					if why := msg.HoldReason(m); why != "" {

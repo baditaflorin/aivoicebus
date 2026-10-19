@@ -690,6 +690,34 @@ func TestClaimAndWaitTools(t *testing.T) {
 	}
 }
 
+// The MCP server is always an agent: it never takes a task meant for the person, and says what
+// the person runs. One sent to this session by name is its own.
+func TestClaimToolRefusesATaskForThePerson(t *testing.T) {
+	s, st := start(t)
+	for _, m := range []msg.Message{
+		{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: msg.TokenHandTag + " me\nhands me its token"},
+		{From: "desk/claude.z9", To: "me/human", Kind: msg.KindTask, Body: msg.PersonTag + " reboot the router"},
+	} {
+		task, err := st.Send(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, isErr := s.call("aivoicebus_claim", map[string]any{"id": task.ID})
+		if !isErr || !strings.Contains(text, "not for an agent") || !strings.Contains(text, "aivoicebus "+map[bool]string{true: "token install ", false: "claim "}[m.To == "me"]+task.ID) {
+			t.Errorf("claim of %q: %v %q", m.Body, isErr, text)
+		}
+		for _, x := range st.Thread(task.ID) {
+			if x.Kind == msg.KindClaim {
+				t.Errorf("a refused claim went out: %+v", x)
+			}
+		}
+	}
+	named, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me/mcp.test", Kind: msg.KindTask, Body: msg.TokenHandTag + " me\nfor you"})
+	if text, isErr := s.call("aivoicebus_claim", map[string]any{"id": named.ID}); isErr || !strings.Contains(text, "is yours") {
+		t.Errorf("claim of a task sent to this session by name: %v %q", isErr, text)
+	}
+}
+
 func TestTaskQueueStatusPingAndSendWithAWait(t *testing.T) {
 	s, st := start(t)
 	st.InboxFor("lap/codex.b2", false, nil)

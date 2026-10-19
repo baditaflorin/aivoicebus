@@ -427,3 +427,24 @@ func DetectOff() bool {
 	}
 	return false
 }
+
+// AgentCaller says whether this process runs in an agent's session rather than a person's
+// terminal, and how that was found: AIVOICEBUS_AGENT is set (the Claude Code hook exports it), or an
+// agent tool is above this process or marks its environment. Commands that are the person's (a
+// task meant for them, held messages) refuse when it says yes. AIVOICEBUS_ME and AIVOICEBUS_DETECT=off
+// change what an identity is called, not whether an agent runs it, so neither turns this off.
+func AgentCaller() (bool, string) {
+	if v := osGetenv("AIVOICEBUS_AGENT"); v != "" {
+		return true, "AIVOICEBUS_AGENT=" + clean(v)
+	}
+	d := detectImplicit(func(k string) string {
+		if k == "AIVOICEBUS_DETECT" {
+			return ""
+		}
+		return osGetenv(k)
+	}, chainOnce())
+	if d.Tool != "" {
+		return true, "this runs inside " + d.Tool + " (" + d.Source + ")"
+	}
+	return false, ""
+}

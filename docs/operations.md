@@ -303,8 +303,8 @@ refused. Each node must come back with its peer links up before the next is touc
       deploy/machine-token.sh add laptop-a --apply    # writes ~/.config/aivoicebus/machine-tokens/<host>
       deploy/machine-token.sh revoke laptop-a --apply
 
-  Hand it over with `aivoicebus token hand laptop-a`: a session on laptop-a runs `aivoicebus token
-  install ID`, the person there approves, and the token goes as a one-time encrypted file, checked on
+  Hand it over with `aivoicebus token hand laptop-a`: the person on laptop-a runs `aivoicebus token
+  install ID` in their own terminal (the task goes to `laptop-a/human`; agents there cannot take it) and approves, and the token goes as a one-time encrypted file, checked on
   both ends ([reference.md](reference.md), "Machine tokens"). If nobody can approve on laptop-a (no
   terminal, approver key or notify URL), install refuses at once and says so; if `hand` runs out of
   time, it says whether nobody took the task, nobody approved it, or the install never answered.

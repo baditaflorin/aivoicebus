@@ -63,8 +63,9 @@ const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node
 
 Hand a machine its own token (made by deploy/machine-token.sh add HOST, run from the root of an
 aivoicebus checkout) without anyone copying it:
-'hand' runs where the token was made and sends HOST a task; a session there runs 'install' with
-the task's id, a person approves, and the token goes over as a one-time end-to-end-encrypted file.
+'hand' runs where the token was made and sends the person on HOST a task (HOST/human: no agent
+takes it; --to SESSION names one session instead); they run 'install' with the task's id in their
+own terminal there, approve it, and the token goes over as a one-time end-to-end-encrypted file.
 'install' checks with the nodes that it is this machine's own before it replaces the token file,
 and 'hand' checks with the nodes that the answer came with it.
 'report' lists the machines heard from lately with the kind of token the nodes last saw each use,
@@ -174,7 +175,7 @@ type handResult struct {
 
 func tokenHand(args []string, s Streams) error {
 	fs := newFlagSet("token hand")
-	to := fs.String("to", "", "send the task to this one session on HOST, not to any session there")
+	to := fs.String("to", "", "send the task to this one session on HOST (it may be an agent's) instead of to the person there (HOST/human)")
 	via := fs.String("via", "", "where the encrypted file is held: node (one of the mesh's nodes) or pipe (the pipe server, AIVOICEBUS_PIPE_URL); default AIVOICEBUS_FILE_VIA, else node")
 	wait := fs.Duration("wait", 30*time.Minute, "how long to wait for a session to take it, the person to approve and the install")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
@@ -267,18 +268,23 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	if err != nil {
 		return err
 	}
-	target := host
+	// By default it goes to the person on HOST (HOST/human): no agent session there sees it, and an
+	// agent's claim of it is refused anyway (msg.PersonOnly), so the person's own terminal gets it.
+	// --to names one session, which may be an agent's: the deploy side chose it.
+	target, who := host+"/human", "The person on "+host+" takes this in their own terminal (an agent's session cannot), with"
 	if to != "" {
-		target = to
+		target, who = to, "The session "+to+" takes this with"
 	}
 	body := fmt.Sprintf("%s %s\n%s hands %s its own machine token, to use instead of the mesh's shared token.\n"+
-		"A session on %s takes this with: aivoicebus token install <this task's id>\n"+
+		"%s: aivoicebus token install <this task's id>\n"+
 		"That takes the task, asks the person on %s to approve, receives the token as a one-time end-to-end-encrypted file, "+
 		"checks with the nodes that it is %s's own, and only then replaces the token file (the old one is put back if anything fails). "+
-		"The token itself is in no message.\n"+
-		"An agent runs it as a background command: it waits for the person's approval (up to 30 minutes), longer than a tool call lasts. "+
-		"Tell your user it asks for their approval, which is theirs to give, not yours.\n"+
-		"(hand-over %s)", tokenHandTag, host, me, host, host, host, host, handOverID())
+		"The token itself is in no message.\n", tokenHandTag, host, me, host, who, host, host)
+	if to != "" {
+		body += "An agent runs it as a background command: it waits for the person's approval (up to 30 minutes), longer than a tool call lasts. " +
+			"Tell your user it asks for their approval, which is theirs to give, not yours.\n"
+	}
+	body += "(hand-over " + handOverID() + ")"
 	plan, err := outbox.Prepare(c, outbox.Request{To: target, Body: body, Kind: msg.KindTask, Prio: msg.PrioUrgent, TTL: "1h", Queue: true, TargetSaid: true}, s.Err)
 	if err != nil {
 		return err
@@ -288,9 +294,10 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		return err
 	}
 	res.Task = task.ID
-	fmt.Fprintf(s.Err, "sent task %s to %s: a session there runs `aivoicebus token install %s`; waiting up to %s\n", task.ID, target, task.ID, wait)
 	if to == "" {
-		fmt.Fprintf(s.Err, "  (any session on %s may take it; for the person's own terminal there, send it to that one with --to %s/NAME, as `aivoicebus whoami` prints it in that terminal)\n", host, host)
+		fmt.Fprintf(s.Err, "sent task %s to the person on %s (%s; agents there do not take it). They run, in their own terminal there:\n  aivoicebus token install %s\nwaiting up to %s\n", task.ID, host, target, task.ID, wait)
+	} else {
+		fmt.Fprintf(s.Err, "sent task %s to %s: it runs `aivoicebus token install %s`; waiting up to %s\n", task.ID, target, task.ID, wait)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -341,7 +348,10 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 			switch {
 			case taker == "":
 				res.Stalled = "untaken"
-				return fmt.Errorf("stalled: nobody took it; no session on %s took task %s within %s (is one standing by there? aivoicebus ping %s)", host, task.ID, wait, host)
+				if to == "" {
+					return fmt.Errorf("stalled: nobody took it; the person on %s did not run aivoicebus token install %s in a terminal there within %s", host, task.ID, wait)
+				}
+				return fmt.Errorf("stalled: nobody took it; %s did not take task %s within %s (is it standing by? aivoicebus ping %s)", to, task.ID, wait, host)
 			case approval == "":
 				res.Stalled = "approval"
 				return fmt.Errorf("stalled: taken by %s, but it neither asked the person on %s nor said ready within %s (its install may have been stopped, or runs a release before 0.10.4); task %s: ask the user on %s to run `aivoicebus update` there, then try again", taker, host, wait, task.ID, host)
@@ -548,7 +558,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 	if kerr != nil && nu == "" {
 		return "", errNobodyToApprove
 	}
-	text := "[approval needed] " + what + "\n\nA person approves in a terminal on this machine, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits " + within.String() + ". An agent must not run either."
+	text := msg.ApprovalTag + " " + what + "\n\nA person approves in a terminal on this machine, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits " + within.String() + ". An agent must not run either."
 	code := ""
 	if nu != "" && len(c.URLs) > 0 {
 		b := make([]byte, 16)
@@ -737,12 +747,12 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 	}
 	if task.ID != "" {
 		res.Task = task.ID
-		cl, err := tasks.Claim(c, me, task.ID, "installing the token "+task.From+" hands this machine", 2*time.Second, s.Err)
+		cl, err := tasks.Claim(c, me, claimer(), task.ID, "installing the token "+task.From+" hands this machine", 2*time.Second, s.Err)
 		if err != nil {
 			return err
 		}
 		if !cl.Mine {
-			return fmt.Errorf("task %s is taken by %s: it installs the token, not this session. For the person to install it at a terminal here instead, the deploy side sends it to this session alone: aivoicebus token hand %s --to %s", task.ID, cl.Owner.From, host, me)
+			return fmt.Errorf("task %s is taken by %s: it installs the token, not this session. For the person to install it at a terminal here instead, the deploy side hands a fresh one, which goes to the person by default: aivoicebus token hand %s", task.ID, cl.Owner.From, host)
 		}
 	}
 

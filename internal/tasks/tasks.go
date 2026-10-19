@@ -70,6 +70,23 @@ func Owner(c *client.Client, task msg.Message) (msg.TakeRef, bool, error) {
 // ErrOwnTask is a claim on a task this session sent.
 var ErrOwnTask = errors.New("you sent this task; a session that receives it claims it. To take it back, run `aivoicebus cancel ID`")
 
+// Caller is who claims a task: a person at a terminal, or an agent (an agent's session, the MCP
+// server, a worker). Only a person takes a task meant for the person (msg.PersonOnly).
+type Caller int
+
+const (
+	Person Caller = iota
+	Agent
+)
+
+// PersonOnlyError is an agent's claim of a task meant for the person on the machine. Nothing was sent.
+type PersonOnlyError struct{ Task msg.Message }
+
+func (e *PersonOnlyError) Error() string {
+	return fmt.Sprintf("task %s is for the person on the machine, not for an agent: an agent never takes it. Tell your user it is waiting; they run, in their own terminal: %s",
+		e.Task.ID, msg.PersonStep(e.Task))
+}
+
 // Claimed is how a claim went.
 type Claimed struct {
 	Task    msg.Message
@@ -87,7 +104,8 @@ var BeforeSend func()
 // for a claim made on another node at the same moment to replicate, and reads the thread again:
 // the earliest claim wins, so a later look can find the task is someone else's after all. A task
 // is marked read once it is this session's. warn gets what a send warns about (a weak credential shape).
-func Claim(c *client.Client, me, id, body string, settle time.Duration, warn io.Writer) (Claimed, error) {
+// An Agent's claim of a task meant for the person (msg.PersonOnly) is refused with a *PersonOnlyError.
+func Claim(c *client.Client, me string, who Caller, id, body string, settle time.Duration, warn io.Writer) (Claimed, error) {
 	task, ms, err := Find(c, id)
 	if err != nil {
 		return Claimed{}, err
@@ -95,6 +113,9 @@ func Claim(c *client.Client, me, id, body string, settle time.Duration, warn io.
 	r := Claimed{Task: task}
 	if task.From == me {
 		return r, ErrOwnTask
+	}
+	if who != Person && msg.PersonOnly(task) {
+		return r, &PersonOnlyError{Task: task}
 	}
 	if owner, taken := msg.TaskOwner(task.From, Takes(ms, id)); taken {
 		r.Owner, r.Mine, r.Already = owner, owner.From == me, owner.From == me

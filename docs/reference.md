@@ -316,6 +316,21 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**Tasks meant for the person.** Some tasks are for the person on a machine, never for an agent
+there: a `[token hand]` (it replaces the machine's credential), and any task sent with `aivoicebus
+task laptop-b --person "..."` (for an incident step, say). Both go to `laptop-b/human`, which no
+agent session reads as; `[approval needed]` requests and `ask-human` questions go there too. A task
+whose first line starts `[token hand v1]`, `[approval needed]`, `[ask-human]` or `[for the person]`
+counts as the person's wherever it was sent, unless it was sent to one session by name (the sender
+chose who takes it). `claim` and `token install` refuse such a task in an agent's session, and the
+MCP `aivoicebus_claim` always does, with a message that names what the person runs; a worker never
+takes one. An agent's session is one with `AIVOICEBUS_AGENT` set, or with an agent tool (Claude
+Code, Codex, Gemini CLI...) above the command or marking its environment; `AIVOICEBUS_ME` and
+`AIVOICEBUS_DETECT=off` do not change that. In the person's own terminal `aivoicebus queue` also
+lists the tasks waiting for them, with the command to run, and `claim` works as usual. This is a
+guard against agents taking the person's work by mistake, not against a hostile agent, which could
+clear its own environment.
+
 **Held back from agents.** Before peer text reaches an agent (the hooks, the MCP tools, and the
 commands an agent runs in its session), each message passes a screen: one whose signature does not
 verify or whose machine key changed, or whose text reads like instructions to an agent ("ignore
@@ -1088,14 +1103,18 @@ prints where the file is, for a tool that reads a file; never print the file's c
 A machine token (`deploy/machine-token.sh add HOST --apply`, see [operations.md](operations.md))
 lets that machine send, acknowledge and read mail only as `HOST/...`. It is written on the machine you
 deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HOST as its
-`~/.config/aivoicebus/token`. Two agents do that between themselves; the person only approves:
+`~/.config/aivoicebus/token`. The deploy side hands it over; the person on that machine takes it:
 
     aivoicebus token hand laptop-a              # on the deploy machine (or --to laptop-a/codex.k3 for one session)
-    aivoicebus token install <task id>          # on laptop-a, by the session that takes the task
+    aivoicebus token install <task id>          # on laptop-a, by the person, in their own terminal
 
 1. `hand` asks the nodes whether they take the token as laptop-a's own (and refuses if not, or if
-   the file is readable by others, or if laptop-a is the deploy machine itself), then sends laptop-a
-   a `[token hand v1]` task.
+   the file is readable by others, or if laptop-a is the deploy machine itself), then sends the person
+   on laptop-a a `[token hand v1]` task, addressed to `laptop-a/human`: no agent session there sees
+   it, and it is a task meant for the person (see "Tasks meant for the person"), so an agent that runs
+   `install` or `claim` on it is refused. `hand` prints the id and the command for the person to run.
+   With `--to SESSION` it goes to that one session instead, which may be an agent's: the deploy side
+   chose it (the approval then comes from the approver key or the phone).
 2. `install`, run there with the task's id, takes the task and asks the person to approve, since
    it changes a credential. At a terminal it asks y/N. An agent's session has no terminal, so it sends
    `[approval needed]` to the person and waits for one of two answers: a decision signed with the
@@ -1107,11 +1126,8 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
    it refuses at once and answers `[token install failed]`, naming the fix: run `aivoicebus token install
    ID` in a terminal there (it asks y/N), or `aivoicebus approver init` there once. Only after the
    approval does it answer `[token ready]`.
-   An agent runs `install` as a background command: the approval can take longer than a tool call
-   lasts. Agents do not claim a `[token hand]` task on their own (the snippet and standby say so): they
-   tell their person and run `install` only on a yes. For the person to install it at their own
-   terminal while sessions there are standing by, hand it to that terminal alone: `token hand
-   laptop-a --to laptop-a/NAME`, as `aivoicebus whoami` prints it in that terminal. A task that was
+   An agent named with `--to` runs `install` as a background command: the approval can take longer
+   than a tool call lasts. A task that was
    retracted or expired is refused with a request for a fresh `token hand`. An install stopped with Ctrl-C or SIGTERM (what a tool call that times out sends) answers
    `[token install failed]`; one killed outright answers nothing. Neither changes the token file,
    which is replaced only after the link was fetched and checked.
@@ -1149,14 +1165,14 @@ hand-over done by hand (a pipe link made with `p -e -f`, say). A link pasted thr
 backslash before its `#` and `~`, which fish keeps; `install` takes those out, and refuses a
 link with a backslash anywhere else. `--json` gives the result as an object on both sides. Exit 0 from `hand` means
 installed and proven. When its `--wait` runs out, `hand` says where it stalled (`stalled_at` in
-`--json`): `untaken` (no session on HOST took the task), `approval` (taken, but nobody approved it,
+`--json`): `untaken` (the person on HOST did not run `install`, or the `--to` session did not take it), `approval` (taken, but nobody approved it,
 or the install stopped before it asked), or `install` (approved and the link sent, but no
 `[token installed]` came back). The token is in no message, argument, output or log. A message that holds a
 raw token is refused by the send scan (the deploy machine's `machine-tokens/` and
 `AIVOICEBUS_MACHINE_TOKENS_DIR` count as secrets) and by the nodes. If `AIVOICEBUS_TOKEN` is set on
 the receiving machine, `install` refuses, because then the token file is not what that machine uses.
 Every message of the exchange must be signed by the sender's machine key.
-A worker never takes a `[token hand]` task: it is left for a session, where a person is there to approve.
+A worker never takes a `[token hand]` task: it is the person's.
 
 ## Updating
 

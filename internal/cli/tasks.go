@@ -26,12 +26,12 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--person] [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	valued := map[string]bool{"ttl": true, "wait-reply": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true}
 	var machine, tool, can, model, fallback, claimWithin, each, waitAll string
-	anyListening := false
+	anyListening, person := false, false
 	var rest []string
 	var words []int // indexes into rest of the plain words (not flags or their values)
 	for i := 0; i < len(args); i++ {
@@ -73,11 +73,18 @@ func taskCmd(args []string, s Streams) error {
 			anyListening = true
 			continue
 		}
+		if key == "person" {
+			person = true
+			continue
+		}
 		rest = append(rest, a)
 		if valued[key] && !hasEq && i+1 < len(args) {
 			i++
 			rest = append(rest, args[i])
 		}
+	}
+	if person && (each != "" || anyListening || fallback != "" || tool != "" || can != "" || model != "") {
+		return outbox.Usagef(`--person sends it to one machine's person: task MACHINE --person "what to do"`)
 	}
 	if each != "" {
 		var text []string
@@ -98,6 +105,15 @@ func taskCmd(args []string, s Streams) error {
 	to, err := taskTarget(machine, tool, can, model)
 	if err != nil {
 		return outbox.Usagef("%v", err)
+	}
+	if person {
+		// For the person on MACHINE, never an agent there: it goes to MACHINE/human, which no agent
+		// reads as, tagged so that an agent that sees it anyway (an old client) is refused its claim.
+		if machine == "" || strings.Contains(machine, "/") || msg.IsSelector(machine) || machine == "all" {
+			return outbox.Usagef(`--person sends it to one machine's person: task MACHINE --person "what to do"`)
+		}
+		to = machine + "/human"
+		rest = append([]string{msg.PersonTag}, rest...)
 	}
 	if to == "" && anyListening {
 		to = "all"
@@ -216,7 +232,7 @@ func claimCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	r, err := tasks.Claim(c, identity.Me(), id, strings.Join(fs.Args(), " "), *settle, s.Err)
+	r, err := tasks.Claim(c, identity.Me(), claimer(), id, strings.Join(fs.Args(), " "), *settle, s.Err)
 	switch {
 	case errors.Is(err, tasks.ErrOwnTask):
 		return outbox.Usagef("you sent task %s; a session that receives it claims it", id)
@@ -247,25 +263,37 @@ func queueCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	ms, err := c.Inbox(identity.Me(), false)
+	me := identity.Me()
+	ms, err := c.Inbox(me, false)
 	if err != nil {
 		return err
 	}
-	var tasks []msg.Message
+	if claimer() == tasks.Person && !msg.IsHuman(me) {
+		// the person's own queue too: tasks sent to this machine's person (task --person, token hand)
+		if hs, err := c.Inbox(msg.HumanOf(me), false); err == nil {
+			ms = append(ms, hs...)
+		}
+	}
+	var waiting []msg.Message
 	for _, m := range ms {
 		if m.Kind == msg.KindTask {
-			tasks = append(tasks, m)
+			waiting = append(waiting, m)
 		}
 	}
 	if *asJSON {
-		return writeJSON(s.Out, tasks)
+		return writeJSON(s.Out, waiting)
 	}
-	if len(tasks) == 0 {
+	if len(waiting) == 0 {
 		fmt.Fprintln(s.Out, "(no tasks waiting for this session)")
 		return nil
 	}
 	fmt.Fprintln(s.Out, view.UntrustedBanner)
-	view.Messages(s.Out, tasks)
+	view.Messages(s.Out, waiting)
+	for _, m := range waiting {
+		if msg.PersonOnly(m) {
+			fmt.Fprintf(s.Out, "[aivoicebus] %s is for the person, not an agent; in your own terminal: %s\n", m.ID, msg.PersonStep(m))
+		}
+	}
 	return nil
 }
 
