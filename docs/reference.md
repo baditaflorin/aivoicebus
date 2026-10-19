@@ -1093,6 +1093,18 @@ deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HO
 5. `hand` asks every node which token sent that answer (`/v1/token/seen`). It reports success only
    if a node saw the answer arrive with laptop-a's machine token. The peer's own word is not enough.
 
+Which machines still use the shared token, from the nodes' own record:
+
+    aivoicebus token report [--days 7] [--deploy HOST] [--nodes NAME,...] [--check] [--json]
+
+lists every machine heard from in the last `--days` (the roster of every node), its role (`node` for
+a node's own name or one in `--nodes`, `deploy` for this machine or `--deploy`, else `client`), the
+kind of token the nodes last saw it use (`machine`, `shared`, or `unknown` when no node has seen it
+since it started; the newest answer of any node wins), and whether a machine token for it is in
+`machine-tokens/`. Its last line says whether rotating the shared token now would cut a machine off:
+any client on the shared token or unknown, or a node that did not answer, makes it NO. `--check` exits 1
+then; `deploy/rotate-token.sh --check` runs it against the nodes in deploy/nodes.conf.
+
 `install` also takes the id of a message that carries such a link, or the link itself, for a
 hand-over done by hand (a pipe link made with `p -e -f`, say). A link pasted through zsh gets a
 backslash before its `#` and `~`, which fish keeps; `install` takes those out, and refuses a

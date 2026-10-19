@@ -269,6 +269,14 @@ out=$(deploy/machine-token.sh add lab --apply 2>&1); has "add: the machine gets 
 lacks "and the token is never printed" "$(cat "$MT")" "$out"
 for i in 1 2 3 4; do [ "$(code "$MT" "$(url $i)/v1/who")" = 200 ] && pass "node $i accepts it" || fail "node $i rejects the machine token"; done
 M=$(AIVOICEBUS_ME=lab/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "from the machine itself" 2>&1); has "it sends as its own machine" "^sent " "$M"
+before=$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")
+out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
+[ $rc = 0 ] && has "rotate-token --check: every client machine is on its own token, so a rotation cuts nobody off" "no machine would be cut off" "$out" || fail "rotate-token --check exit $rc: $out"
+has "and the report shows lab on its machine token" "^  lab .* machine  *made" "$out"
+M=$(AIVOICEBUS_ME=labtwo/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "from a machine on the shared token" 2>&1); has "a machine sends with the shared token" "^sent " "$M"
+out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
+[ $rc = 1 ] && has "rotate-token --check refuses, naming the machine on the shared token" "would cut off.*labtwo" "$out" || fail "rotate-token --check exit $rc: $out"
+[ "$before" = "$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")" ] && pass "rotate-token --check changes no file" || fail "rotate-token --check changed a file"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "pretending to be another machine" 2>&1); has "it cannot send as another machine" "may only act as lab" "$M"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" inbox 2>&1); has "or read another machine's mail" "may only act as lab" "$M"
 eventually "its message replicates (nodes talk with the shared token)" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 4)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'from the machine itself'"

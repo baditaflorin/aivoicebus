@@ -59,12 +59,15 @@ const (
 
 const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node|pipe] [--wait 30m] [--json]
        aivoicebus token install ID|LINK [--wait 30m] [--json]
+       aivoicebus token report [--days 7] [--deploy HOST] [--nodes NAME,...] [--check] [--json]
 
 Hand a machine its own token (made by deploy/machine-token.sh add HOST) without anyone copying it:
 'hand' runs where the token was made and sends HOST a task; a session there runs 'install' with
 the task's id, a person approves, and the token goes over as a one-time end-to-end-encrypted file.
 'install' checks with the nodes that it is this machine's own before it replaces the token file,
-and 'hand' checks with the nodes that the answer came with it.`
+and 'hand' checks with the nodes that the answer came with it.
+'report' lists the machines heard from lately with the kind of token the nodes last saw each use,
+the machine tokens made here, and whether rotating the shared token now would cut anyone off.`
 
 var reTokenHost = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
@@ -81,6 +84,8 @@ func tokenCmd(args []string, s Streams) error {
 		return tokenHand(args[1:], s)
 	case "install":
 		return tokenInstall(args[1:], s)
+	case "report":
+		return tokenReport(args[1:], s)
 	}
 	fmt.Fprintln(s.Err, tokenUsage)
 	return exitError{2}
