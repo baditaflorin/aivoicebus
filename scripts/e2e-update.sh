@@ -27,9 +27,9 @@ FAILED=0
 pass() { echo "  PASS: $*"; }
 fail() { echo "  FAIL: $*"; FAILED=1; }
 check() { # check <description> <pattern> <output>
-  if printf '%s' "$3" | grep -q -- "$2"; then pass "$1"; else fail "$1 (wanted /$2/ in:"; printf '%s\n' "$3" | sed 's/^/        /'; echo "      )"; fi
+  if grep -q -- "$2" <<<"$3"; then pass "$1"; else fail "$1 (wanted /$2/ in:"; printf '%s\n' "$3" | sed 's/^/        /'; echo "      )"; fi
 }
-absent() { if printf '%s' "$3" | grep -q -- "$2"; then fail "$1 (found /$2/)"; else pass "$1"; fi; }
+absent() { if grep -q -- "$2" <<<"$3"; then fail "$1 (found /$2/)"; else pass "$1"; fi; }
 
 echo "== 1. sign the release with the real key; verify with the key compiled into the binary"
 out=$("$NEW" release pack --dir "$S/rel" --key "$KEY"  2>&1); check "pack" "packed and signed release $NEWV" "$out"
