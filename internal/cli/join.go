@@ -268,7 +268,7 @@ func needConfirmation(urls, old []string, trust bool, w io.Writer) ([]string, er
 		}
 	}
 	if len(untrusted) > 0 && !trust {
-		return nil, fmt.Errorf("%s is not in this machine's signed node list, and the token must not go to an address nobody vouched for; if it really is your node, repeat with --trust-url (you will be asked to type its host:port)", strings.Join(untrusted, ", "))
+		return nil, fmt.Errorf("%s is not in this machine's signed node list, and the token must not go to an address nobody vouched for; if it really is your node, run `aivoicebus join` again with --trust-url (you will be asked to type its host:port)", strings.Join(untrusted, ", "))
 	}
 	if len(fresh) > 0 {
 		fmt.Fprintf(w, "warning: this machine is configured for %s; join would send the token to %s instead\n", strings.Join(old, ","), strings.Join(urls, ","))

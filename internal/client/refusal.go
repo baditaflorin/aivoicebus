@@ -158,10 +158,11 @@ func (e *StatusError) generic() string {
 	return "If it persists, run `aivoicebus doctor` and ask the user"
 }
 
-// explained is e.Error() for a refusal this client knows: the plain words with the node's reason.
+// explained is e.Error(): the status, then plain words and the next step for a reason this client
+// knows, or the node's words with a next step for one it does not.
 func (e *StatusError) explained(reason string) string {
 	if s, ok := e.explain(reason); ok {
-		return s + "."
+		return view.OneLine(e.Status, 60) + ": " + s + "."
 	}
 	s := view.OneLine(e.Status, 60) + ": " + view.OneLine(e.Text, 300)
 	if !view.HasNextStep(s) {

@@ -121,7 +121,7 @@ func sealTo(c *client.Client, target string, openLink bool) (box []byte, host, w
 	box, err := boxKeyFor(c, host)
 	if err != nil || len(box) != 32 {
 		if err == nil {
-			err = errors.New("its key is not one")
+			err = errors.New("its key is not one") // nextstep: a reason inside the caller's sentence
 		}
 		return nil, "", err.Error()
 	}

@@ -108,7 +108,7 @@ func TestOwnLastMessageComesBeforeAMoreRecentOneOfAnotherSession(t *testing.T) {
 func TestLastTakesNoIdAndAnotherMachinesMessagesAreNeverTheCandidate(t *testing.T) {
 	c, s := retractNode(t, meID, nil)
 	m := sendAs(t, c, meID, reader1, "mine")
-	if _, err := retractWith(t, c, m.ID, RetractOptions{Last: true}); err == nil || !strings.Contains(err.Error(), "--last takes the machine's latest message: give it no id") {
+	if _, err := retractWith(t, c, m.ID, RetractOptions{Last: true}); err == nil || !strings.Contains(err.Error(), "--last takes the machine's latest message: run it again without the id") {
 		t.Errorf("%v", err)
 	}
 	if s.Stats().Retracted != 0 {

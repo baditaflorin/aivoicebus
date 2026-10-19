@@ -30,8 +30,9 @@ func TestUsageErrorsSayWhereFlagsAre(t *testing.T) {
 		}
 	}
 	// and through Run: a bad flag value, and an unknown command
-	code, _, e := run(t, "", "tokens", "--since", "soon")
-	if code != exitUsage || !strings.Contains(e, "`aivoicebus tokens -h` lists its flags") {
+	mesh(t)
+	code, _, e := run(t, "", "pause", "--for", "1s", "why")
+	if code != exitUsage || !strings.Contains(e, "--for is 1m to 168h (`aivoicebus pause -h` lists its flags)") {
 		t.Fatalf("%d %q", code, e)
 	}
 	if _, _, e := run(t, "", "frobnicate"); !strings.Contains(e, "`aivoicebus help` lists the commands") {
