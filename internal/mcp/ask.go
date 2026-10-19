@@ -72,11 +72,7 @@ var askTool = tool{
 			var b strings.Builder
 			fmt.Fprintf(&b, "%d sessions at %s look alike; asking one would be a guess. Call again with pick N, or with the session as target:\n", len(p.Alike), view.Name(target, msg.MaxIdentity))
 			for i, e := range p.Alike {
-				state := "seen " + time.Since(e.Seen).Round(time.Second).String() + " ago"
-				if e.Listening {
-					state = "listening now"
-				}
-				fmt.Fprintf(&b, "%d  %s  %s%s\n", i+1, view.Name(e.Me, msg.MaxIdentity), state, view.TitleSuffix(e.Title))
+				fmt.Fprintf(&b, "%d  %s\n", i+1, view.Session(e, time.Now()))
 			}
 			return "", errors.New(strings.TrimSpace(b.String()))
 		case errors.Is(err, tasks.ErrNobody):

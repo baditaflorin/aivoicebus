@@ -193,11 +193,7 @@ func alikeError(target string, alike []msg.RosterEntry, question string, s Strea
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d sessions at %s look alike, and asking one of them would be a guess:\n", len(alike), view.Name(target, msg.MaxIdentity))
 	for i, e := range alike {
-		state := "seen " + now.Sub(e.Seen).Round(time.Second).String() + " ago"
-		if e.Listening {
-			state = "listening now"
-		}
-		fmt.Fprintf(&b, "  %d  %-40s %s%s\n", i+1, view.Name(e.Me, msg.MaxIdentity), state, view.TitleSuffix(e.Title))
+		fmt.Fprintf(&b, "  %d  %s\n", i+1, view.Session(e, now))
 	}
 	q := view.OneLine(question, 40)
 	fmt.Fprintf(&b, "say which: aivoicebus ask %s %q --pick N, or name the session: aivoicebus ask %s %q",
