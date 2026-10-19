@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -15,8 +17,9 @@ import (
 // request made with a machine token, and every send or inbox read as an identity on that machine
 // with any token. It is how the machine that handed a machine its own token (`aivoicebus token
 // hand`) proves that the machine now uses it, without taking the machine's word for it: the
-// answer to the hand-over must have been sent with the machine token. It is kept in memory only,
-// per node, and says nothing about a token beyond its kind and its name in the token file.
+// answer to the hand-over must have been sent with the machine token. It is kept per node, in memory
+// and in token-seen.json in the data dir (mode 600), so a restart (a rollout) does not forget it, and
+// says nothing about a token beyond its kind and its name in the token file.
 
 // maxSeenHosts bounds the record: a shared token can send as any made-up machine name.
 const maxSeenHosts = 1024
@@ -24,13 +27,76 @@ const maxSeenHosts = 1024
 var reSeenHost = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
 type seenBoard struct {
-	mu    sync.Mutex
-	hosts map[string]*msg.TokenSeen
-	now   func() time.Time
+	mu      sync.Mutex
+	hosts   map[string]*msg.TokenSeen
+	now     func() time.Time
+	path    string    // token-seen.json, "" to keep nothing on disk
+	written time.Time // when the file was last written
+	pending bool      // a write is scheduled
 }
 
-func newSeenBoard() *seenBoard {
-	return &seenBoard{hosts: map[string]*msg.TokenSeen{}, now: time.Now}
+// seenEvery bounds how often the record is written: at most once in this long, the last change
+// always written after it.
+const seenEvery = 5 * time.Second
+
+// newSeenBoard starts from what path holds (nothing when it is "", missing or unreadable: the
+// record is a convenience, and a node starts without it rather than refuse to start).
+func newSeenBoard(path string) *seenBoard {
+	b := &seenBoard{hosts: map[string]*msg.TokenSeen{}, now: time.Now, path: path}
+	if path == "" {
+		return b
+	}
+	if raw, err := os.ReadFile(path); err == nil {
+		var hosts map[string]*msg.TokenSeen
+		if json.Unmarshal(raw, &hosts) == nil {
+			for h, e := range hosts {
+				if e != nil && reSeenHost.MatchString(h) && len(b.hosts) < maxSeenHosts {
+					e.Host = h
+					b.hosts[h] = e
+				}
+			}
+		}
+	}
+	return b
+}
+
+// saveLocked writes the record now if it was not written in the last seenEvery, else once that
+// has passed. The caller holds mu.
+func (b *seenBoard) saveLocked() {
+	if b.path == "" || b.pending {
+		return
+	}
+	if wait := seenEvery - b.now().Sub(b.written); wait > 0 {
+		b.pending = true
+		time.AfterFunc(wait, func() {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			b.pending = false
+			b.writeLocked()
+		})
+		return
+	}
+	b.writeLocked()
+}
+
+// writeLocked writes the record atomically, mode 600. A failure is ignored: it only means a
+// restart forgets. The caller holds mu.
+func (b *seenBoard) writeLocked() {
+	raw, err := json.Marshal(b.hosts)
+	if err != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(b.path), ".token-seen-*")
+	if err != nil {
+		return
+	}
+	_, werr := tmp.Write(raw)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil || os.Chmod(tmp.Name(), 0o600) != nil || os.Rename(tmp.Name(), b.path) != nil {
+		os.Remove(tmp.Name())
+		return
+	}
+	b.written = b.now()
 }
 
 // kindOf is the kind of token p authenticated with: machine or shared (the observer cannot act as anyone).
@@ -62,6 +128,7 @@ func (b *seenBoard) note(host string, who Principal, sendID string) {
 	if sendID != "" {
 		e.SendID, e.SendKind, e.SendName, e.SendAt = sendID, kindOf(who), who.Name, now
 	}
+	b.saveLocked()
 }
 
 // dropOldest forgets the machine heard from longest ago. The caller holds mu.
