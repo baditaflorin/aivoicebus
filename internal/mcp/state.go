@@ -38,7 +38,7 @@ var stateTool = tool{
 			return "", err
 		}
 		if !msg.ValidID(a.ID) {
-			return "", errors.New("id must be a message's full 10-character id")
+			return "", errors.New("id must be a message's full 10-character id: call it again with the id aivoicebus_inbox or aivoicebus_queue shows")
 		}
 		c, err := s.Client()
 		if err != nil {
@@ -63,7 +63,7 @@ var stateTool = tool{
 			return b.String(), nil
 		}
 		if !msg.ValidState(a.WaitState) {
-			return "", fmt.Errorf("wait_state %q is not a state (%s)", a.WaitState, msg.StateChoices())
+			return "", fmt.Errorf("wait_state %q is not a state: call it again with one of %s", a.WaitState, msg.StateChoices())
 		}
 		if a.WaitSeconds <= 0 {
 			a.WaitSeconds = 120

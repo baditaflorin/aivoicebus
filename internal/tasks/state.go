@@ -106,7 +106,7 @@ func deadlineOf(ctx context.Context) time.Time {
 }
 
 // ErrRefused is a state move the rules do not allow (msg.StateView.CheckMove); nothing was sent.
-var ErrRefused = errors.New("refused")
+var ErrRefused = errors.New("refused") // nextstep: MoveState wraps it with the rule's reason, which says what to do instead
 
 // MoveState checks the move against the thread's state and sends it: a progress message to the
 // other side, in the thread of id, replying to id.
@@ -122,7 +122,7 @@ func MoveState(c *client.Client, me, id, state, note string, warn io.Writer) (ms
 		}
 	}
 	if at.ID == "" {
-		return msg.Message{}, outbox.NotFoundf("message %s was not found on the nodes", id)
+		return msg.Message{}, outbox.NotFoundf("message %s was not found on the nodes: check the id with `aivoicebus inbox --all`, or try again in a moment (it may not have reached this node yet)", id)
 	}
 	v := msg.ThreadState(ms)
 	if err := v.CheckMove(me, state); err != nil {

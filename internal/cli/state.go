@@ -52,7 +52,7 @@ func (w *waitState) Set(v string) error {
 	st, d, hasD := strings.Cut(v, ":")
 	st = strings.ToLower(strings.TrimSpace(st))
 	if !msg.ValidState(st) {
-		return fmt.Errorf("%q is not a state (%s)", st, msg.StateChoices())
+		return fmt.Errorf("%q is not a state: run it again with one of %s", st, msg.StateChoices())
 	}
 	w.state, w.d = st, 10*time.Minute
 	if hasD {
@@ -138,7 +138,7 @@ func stateCmd(args []string, s Streams) error {
 			return err
 		}
 		if len(ms) == 0 {
-			return outbox.NotFoundf("no thread with message %s on the nodes", id)
+			return outbox.NotFoundf("no thread with message %s on the nodes: check the id with `aivoicebus inbox --all`, or try again in a moment", id)
 		}
 		v := msg.ThreadState(ms)
 		if *asJSON {
