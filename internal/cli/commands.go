@@ -110,6 +110,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	file := fs.String("file", "", "send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID")
 	via := fs.String("via", "", "with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe")
 	tail := fs.String("tail", "", "point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME")
+	openLink := fs.Bool("open-link", false, "with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once")
 	keep := fs.Bool("keep", false, "with --file: let several sessions read the file (it is not burned by the first read)")
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
@@ -171,7 +172,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			return outbox.Usagef("reply with --file or --tail needs --re ID: nothing is inferred for an attachment")
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -41,8 +42,10 @@ import (
 //     restarts the worker and answers with the new token.
 //  5. hand asks the nodes which token sent that answer: success is the nodes' word, not the peer's.
 //
-// The token is in no message, no argument and no log; the link's key is shown to no agent (a
-// message renders it as a summary).
+// The token is in no message, no argument and no log. The link's key is sealed for HOST's machine
+// key (the box key its ready message was signed with), so the board holds no key that opens it;
+// an install of 0.10.4 or older gets the key in the link, which no agent is shown (a message
+// renders it as a summary).
 
 const (
 	tokenHandTag      = msg.TokenHandTag
@@ -51,6 +54,7 @@ const (
 	tokenInstalledTag = "[token installed]"
 	tokenFailedTag    = "[token install failed]"
 	tokenWaitingTag   = "[token waiting for approval]" // a progress message: install asked the person
+	tokenOpensSealed  = "(opens sealed keys)"          // in a ready message: install opens a key sealed for its machine
 )
 
 const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node|pipe] [--wait 30m] [--json]
@@ -152,6 +156,7 @@ type handResult struct {
 	Session   string `json:"session,omitempty"` // the session that took it
 	Approved  string `json:"approved_by,omitempty"`
 	Installed bool   `json:"installed"`
+	Sealed    bool   `json:"sealed"` // the link's key was sealed for HOST's machine key, so it is in no message
 	Answer    string `json:"answer_id,omitempty"`
 	Said      string `json:"said,omitempty"`        // the receiver's own account, untrusted
 	Proven    bool   `json:"proven"`                // a node saw the answer sent with HOST's machine token
@@ -367,7 +372,18 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		return fmt.Errorf("could not store the encrypted token: %v", err)
 	}
 	l.Name, l.Size, l.SHA256 = "machine-token", 0, "" // a checksum of a token is a way to test guesses: none
-	linkBody := tokenLinkTag + " " + host + "\nthe machine token of " + host + ": one read, five minutes, end-to-end encrypted\n" + l.Line()
+	// The key is sealed for the box key the ready message was signed with (HOST's machine key, as
+	// pinned here), so the board never holds a key that opens the token. An install that does not
+	// say it opens sealed keys (0.10.4 or older) gets the link with its key, sent to it only.
+	if box, err := base64.StdEncoding.DecodeString(ready.Box); err == nil && strings.Contains(ready.Body, tokenOpensSealed) {
+		if l, err = attach.SealFor(l, box, host); err != nil {
+			return fmt.Errorf("could not seal the token's key for %s: %v", host, err)
+		}
+		res.Sealed = true
+	} else {
+		fmt.Fprintf(s.Err, "  %s runs a release that cannot open a sealed key: the link carries its key (one read, five minutes, sent to that session only)\n", view.Name(ready.From, msg.MaxIdentity))
+	}
+	linkBody := tokenLinkTag + " " + host + "\nthe machine token of " + host + ": one read, five minutes, end-to-end encrypted\n" + l.Lines()
 	lp, err := outbox.Prepare(c, outbox.Request{To: ready.From, Re: ready.ID, Thread: task.Thread, Body: linkBody, File: true, TargetSaid: true}, s.Err)
 	if err != nil {
 		return err
@@ -766,7 +782,7 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 
 	answerTo := from.ID
 	if task.ID != "" {
-		ready := fmt.Sprintf("%s %s\napproved by the person (%s); waiting for the link, up to %s", tokenReadyTag, host, how, wait)
+		ready := fmt.Sprintf("%s %s\napproved by the person (%s); waiting for the link, up to %s %s", tokenReadyTag, host, how, wait, tokenOpensSealed)
 		readyMsg, err := tokenSay(c, me, task, task.ID, ready, s)
 		if err != nil {
 			return err

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/attach"
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
@@ -63,12 +65,12 @@ func logStream() (attach.LogStream, error) {
 	return nil, errors.New("no log service is configured (AIVOICEBUS_TAIL_URL)")
 }
 
-// withLine puts an attachment line under the sender's text.
+// withLine puts an attachment's lines under the sender's text.
 func withLine(text string, l attach.Link) string {
 	if text == "" {
-		return l.Line()
+		return l.Lines()
 	}
-	return text + "\n" + l.Line()
+	return text + "\n" + l.Lines()
 }
 
 // sendOpts are the send flags an attachment send needs beyond the plain request.
@@ -76,7 +78,51 @@ type sendOpts struct {
 	file, tail, via string
 	waitReply       time.Duration
 	keep, wait      bool
+	openLink        bool
 	dry             bool
+}
+
+// sealTo is the box key a file link to target is sealed for, and that machine's name, or why the
+// link goes with its key: a broadcast or selector, a machine whose key is not known here, or
+// --open-link. A key is sealed only for one machine; every session on it can open it.
+func sealTo(c *client.Client, target string, openLink bool) (box []byte, host, why string) {
+	switch {
+	case openLink:
+		return nil, "", "--open-link"
+	case target == "all" || msg.IsSelector(target) || strings.HasPrefix(target, "*/") || strings.HasPrefix(target, "@"):
+		return nil, "", "it goes to " + view.OneLine(target, 60) + ", not one machine"
+	}
+	host = msg.HostOf(target)
+	if host == msg.HostOf(identity.Me()) { // this machine: its own key, even before anything pinned it
+		_, priv, err := config.MachineKeys()
+		if err != nil {
+			return nil, "", "this machine's key cannot be read: " + err.Error()
+		}
+		return msg.BoxPublic(priv), host, ""
+	}
+	box, err := boxKeyFor(c, host)
+	if err != nil || len(box) != 32 {
+		if err == nil {
+			err = errors.New("its key is not one")
+		}
+		return nil, "", err.Error()
+	}
+	return box, host, ""
+}
+
+// sealLink seals l for target when it can, and otherwise says on warn why the key travels in the
+// link.
+func sealLink(c *client.Client, l attach.Link, target string, openLink bool, warn io.Writer) attach.Link {
+	box, host, why := sealTo(c, target, openLink)
+	if why == "" {
+		sl, err := attach.SealFor(l, box, host)
+		if err == nil {
+			return sl
+		}
+		why = err.Error()
+	}
+	fmt.Fprintf(warn, "  the key is in the link (%s): whoever can read the board can fetch the file once while it lives\n", why)
+	return l
 }
 
 // sendAttachment sends a message that points at a file in the pipe or a live log in the tail.
@@ -159,6 +205,11 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 	if o.dry {
 		plan.Describe(s.Out)
 		fmt.Fprintf(s.Out, "  file      %s, %s, would be encrypted here and held for five minutes by the %s\n", name, attach.HumanSize(int64(len(data))), fs.Name())
+		if _, host, why := sealTo(c, plan.Msg.To, o.openLink); why == "" {
+			fmt.Fprintf(s.Out, "  key       sealed for %s's machine key: only that machine opens it\n", host)
+		} else {
+			fmt.Fprintf(s.Out, "  key       in the link (%s): whoever can read the board can fetch it once\n", why)
+		}
 		return nil
 	}
 	if plan.Role != nil {
@@ -169,6 +220,7 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 		return err
 	}
 	l.Name = name
+	l = sealLink(c, l, plan.Msg.To, o.openLink, s.Err)
 	plan.Msg.Body = withLine(text, l)
 	out, err := plan.Send(c)
 	if err != nil {
@@ -274,7 +326,11 @@ func getCmd(args []string, s Streams) error {
 
 	switch p := prov.(type) {
 	case attach.FileStore:
-		data, err := p.Get(ctx, l)
+		open, err := attach.Unseal(l)
+		if err != nil {
+			return err
+		}
+		data, err := p.Get(ctx, open)
 		if err != nil {
 			return err
 		}

@@ -194,7 +194,7 @@ func handOverTwoNodes(t *testing.T, via string) {
 		t.Errorf("install: %+v %v", ir, err)
 	}
 	var hr handResult
-	if err := json.Unmarshal([]byte(handOut.String()), &hr); err != nil || !hr.Installed || !hr.Proven || hr.Session != "air/codex.1" || hr.Approved != "approver key" || hr.Answer != ir.Answer || !strings.Contains(hr.Proof, "saw its answer "+ir.Answer+" sent with the machine token \"air\"") {
+	if err := json.Unmarshal([]byte(handOut.String()), &hr); err != nil || !hr.Installed || !hr.Sealed || !hr.Proven || hr.Session != "air/codex.1" || hr.Approved != "approver key" || hr.Answer != ir.Answer || !strings.Contains(hr.Proof, "saw its answer "+ir.Answer+" sent with the machine token \"air\"") {
 		t.Errorf("hand: %+v %v", hr, err)
 	}
 	// while the person had not yet approved, hand said what it waited for
@@ -222,6 +222,10 @@ func handOverTwoNodes(t *testing.T, via string) {
 		}
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("node %s: no link message to %s (the exchange went some other way)", u, want)
+		}
+		// the link's key is sealed for air's machine key: no message holds a key that opens it
+		if reKeyInLink.MatchString(string(raw)) || !strings.Contains(string(raw), "sealed=v1.") {
+			t.Errorf("node %s: the link message carries its key, or no seal", u)
 		}
 	}
 	errMu.Lock()

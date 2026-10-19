@@ -220,10 +220,14 @@ func TestTokenHandSaysWhereItStalled(t *testing.T) {
 	})
 	t.Run("approved, but no install", func(t *testing.T) {
 		n := tokenMachine(t, approved)
-		res, _ := handFor(t, n, func(task msg.Message) {
+		res, e := handFor(t, n, func(task msg.Message) {
 			n.answer(t, task, msg.KindClaim, "installing the token")
 			n.answer(t, task, "", tokenReadyTag+" air\napproved by the person (terminal); waiting for the link, up to 30m0s")
 		})
+		// a ready that does not say it opens sealed keys is an install of 0.10.4 or older
+		if res.Sealed || !strings.Contains(e, "runs a release that cannot open a sealed key: the link carries its key") {
+			t.Errorf("an older install's link: sealed=%v %q", res.Sealed, e)
+		}
 		if res.Stalled != "install" || !strings.Contains(res.Error, "approved by the person on air, but air/claude.1 did not answer") || res.Approved != "terminal" {
 			t.Errorf("%+v", res)
 		}

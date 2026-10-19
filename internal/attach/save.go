@@ -40,7 +40,11 @@ func FetchFile(ctx context.Context, body, token string) ([]byte, Link, string, e
 	if !ok {
 		return nil, l, "", ErrNotAFile
 	}
-	data, err := fs.Get(ctx, l)
+	open, err := Unseal(l)
+	if err != nil {
+		return nil, l, "", err
+	}
+	data, err := fs.Get(ctx, open)
 	if err != nil {
 		return nil, l, "", err
 	}

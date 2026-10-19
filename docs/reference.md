@@ -709,13 +709,14 @@ service is an adapter behind it:
 
 | Provider | Service | Link in the message | What it gives |
 |---|---|---|---|
-| `pipe` | pipe server (default `https://pipe.0exec.com`) | `https://<pipe>/#ID~KEY`, the pipe's own end-to-end link | a file up to 7 MiB, encrypted on the sender's machine (AES-256-CTR + HMAC, the pipe's own envelope, so `p open` reads it), burn-after-read, 5 minutes |
-| `node` | one of your nodes (`/v1/files`) | `https://<node>/v1/files/ID#KEY` | the same envelope and limits, held in the node's memory, behind the mesh token |
+| `pipe` | pipe server (default `https://pipe.0exec.com`) | `https://<pipe>/#ID~KEY`, the pipe's own end-to-end link (`https://<pipe>/#ID` plus `sealed=` when the key is sealed) | a file up to 7 MiB, encrypted on the sender's machine (AES-256-CTR + HMAC, the pipe's own envelope, so `p open` reads it), burn-after-read, 5 minutes |
+| `node` | one of your nodes (`/v1/files`) | `https://<node>/v1/files/ID#KEY` (no `#KEY`, plus `sealed=`, when sealed) | the same envelope and limits, held in the node's memory, behind the mesh token |
 | `tail` | tail server (a server you run; none is set by default) | `https://<your tail>/STREAM`, the tail's own stream URL | a live log many readers can follow; the long random stream name is the only access control |
 
 ```
 aivoicebus send --to host/claude --file build.tgz "the artifact"     # --keep for several readers, --wait for a read receipt
 aivoicebus send --to host/claude --file build.tgz --via node "..."    # held by your own nodes instead of the pipe
+aivoicebus send --to host/claude --file build.tgz --open-link "..."   # key in the link, for an old reader or `p save`
 aivoicebus get MSGID                                                  # receiver: saves under ~/.local/share/aivoicebus/received/MSGID/
 make 2>&1 | aivoicebus tail push --to host/claude "following the build"
 aivoicebus get MSGID --follow                                         # receiver: reads the log for a minute
@@ -724,9 +725,27 @@ aivoicebus get MSGID --follow                                         # receiver
 What keeps it safe:
 
 - The message body holds one `[attach]` line; the view shows a summary (`aivoicebus get ID`) in its
-  place, so the key in a link never reaches an agent's context. The link is still in the board's
-  log, like any message: whoever can read the board can fetch the file, once, in the five
-  minutes it lives. The recipient then gets a 404 and the sender's `--wait` says it was read.
+  place, so the key in a link never reaches an agent's context.
+- **Sealed keys.** A file to one machine, or one session on it, whose machine key is known here
+  (pinned, or read from a message it signed) goes with its key sealed for that machine: the
+  `[attach]` line holds the link *without* its key plus `for=HOST sealed=v1.…`, and only that
+  machine's box key (`~/.config/aivoicebus/machine.box`, the X25519 key every signed message
+  carries) opens it. The seal is X25519 with a fresh key per file, HKDF-SHA256 and AES-256-GCM over
+  the whole link, bound to the keyless link, so it cannot be moved to another file, and an altered
+  one is refused. The board's log then holds no key that opens the file; any session on that
+  machine can fetch it with `aivoicebus get ID`, and another machine is told it is sealed for
+  someone else (the file is not burned by trying). `token hand` seals the token's key this way
+  by default.
+- **The key in the link**, as before, when there is no one machine to seal for or no key for it:
+  a broadcast or selector, a machine that has not sent a signed message yet, or `--open-link`
+  (for a reader on 0.10.4 or older, or so the pipe's own `p save` / `p open` can open the link).
+  `send` says so on stderr, and `--dry-run` says which it will be. Then whoever can read the
+  board can fetch the file, once, in the five minutes it lives; the recipient gets a 404 and the
+  sender's `--wait` says it was read. A reader on 0.10.4 or older that gets a sealed file sees
+  "not set up to use" and a `[sealed file]` line saying the key is sealed for that machine and
+  needs a newer aivoicebus; the sender can resend with `--open-link`. `token hand` sends the key
+  in the link only to an install that does not say it opens sealed keys (0.10.4 or older), and
+  says so.
 - A reader fetches only from the servers it is configured with (the pipe, `AIVOICEBUS_TAIL_URL`,
   https only, or http to loopback, and its own nodes), never from a host in a message. A link
   to any other host is shown as "not set up to use" and never fetched, so the mesh token goes
@@ -740,8 +759,7 @@ What keeps it safe:
   selector that reaches several sessions is refused unless `--keep`.
 - The pipe and the tail are public and unauthenticated; the metadata they see is size, timing,
   the sender's and reader's IP addresses and the (random) id. A node sees the same, and only
-  token holders reach it. Per-recipient keys, so the board need not be trusted with the key, are
-  not done yet.
+  token holders reach it.
 
 Adding another service means one adapter in `internal/attach` that implements `Provider`
 (and `FileStore` or `LogStream` if it stores files or logs).
