@@ -23,6 +23,9 @@ type resultView struct {
 	Ended    bool         `json:"ended"`
 	Answers  []answerView `json:"answers"`
 	Note     string       `json:"note"`
+	// Outcome and Why are `ask`'s: answered | nobody | timeout, and who the question went to and why.
+	Outcome string `json:"outcome,omitempty"`
+	Why     string `json:"why,omitempty"`
 }
 
 type answerView struct {

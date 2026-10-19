@@ -389,6 +389,41 @@ closes the thread an hour after its first message: every node (0.10.0 or later) 
 message in it with 409, an `[end]` always goes. It combines with `--max-turns`; set by the first
 message only, at most 30 days.
 
+**Ask and get the answer, in one command.** `aivoicebus ask laptop-b "which branch is deployed?"`
+(MCP: `aivoicebus_ask`) picks one session to ask, sends the question, waits, and prints the answer.
+TARGET is a machine, a tool on it (`laptop-b/codex`, or `laptop-b --tool codex`), one session
+(`laptop-b/codex.a1b2`), or `--any [--tool codex]` for anyone. Which session:
+
+- one listening now (a session standing by, a worker): it reads the question within a second;
+- with none listening, the one seen most recently (in the last 30 minutes, `--within`): it sees the
+  question on its next prompt;
+- a session id as named. The line `ask: SESSION: why` (on stderr) says which and why.
+
+When two candidates look alike (both listening, or none listening and seen within 2 minutes of each
+other), `ask` lists them, numbered, and refuses (exit 2) rather than guess: say `--pick N`, or name
+the session. `--any` takes any of them (one listening is picked at random). With nobody live at the
+target, nothing is sent (exit 3).
+
+The question goes as a task in a conversation with limits: `--max-turns 4` and `--deadline 15m` by
+default (an ask always carries both; raise them if a back-and-forth needs it), and `ask` waits up to
+the deadline (`--wait-reply`). Claims and progress show while it waits. Nobody took it (no claim, no
+answer, and the one session asked has not read it) in `--claim-within` (2m): the question is taken
+back, given to the next `--fallback M2,M3` machine (the session picked there; the machine itself
+when several there look alike, so the first claim wins; a machine with nobody live is skipped), and
+with none left `ask` exits 3. `--json` prints the one result object of `--wait-reply --json`, plus
+`outcome` (`answered`, `nobody`, `timeout`) and `why`.
+
+| exit | meaning |
+|---|---|
+| 0 | answered (printed, marked read) |
+| 2 | sessions look alike (listed), or a usage error |
+| 3 | nobody took it: nobody live there, or nobody took it in `--claim-within` (taken back) |
+| 6 | taken, but no answer in `--wait-reply`: `aivoicebus wait --thread T` waits on |
+
+`aivoicebus_ask` takes `target`, `body`, `tool`, `any`, `pick`, `wait_seconds` (at most 600) and
+`claim_seconds` (120), and returns `ANSWERED`, `NOBODY TOOK IT` or the thread to wait on; look-alikes
+are an error that lists them.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.

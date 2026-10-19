@@ -90,6 +90,13 @@ func trailingFlags(fs *flag.FlagSet, s Streams) ([]string, error) {
 type taskMove struct {
 	next        []string
 	claimWithin time.Duration
+	// ask is `aivoicebus ask`: a task nobody took in claimWithin, with no next machine left, is
+	// taken back and the command exits 3 (nobody took it); a session it went to has it once it
+	// read it; and each next machine's copy goes to the session pick chooses there ("" skips one
+	// with nobody live). why is who it went to and why, for --json.
+	ask  bool
+	why  string
+	pick func(machine string) (to, why string)
 }
 
 func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
@@ -278,6 +285,18 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if *waitReply > 0 {
 		me := identity.Me()
 		takenBy := ""
+		var mv taskMove
+		if len(moves) > 0 {
+			mv = moves[0]
+		}
+		result := func(cur msg.Message, got []msg.Message, outcome string) resultView {
+			r := resultOf(cur, takenBy, got)
+			if mv.ask {
+				r.Outcome, r.Why = outcome, mv.why
+			}
+			return r
+		}
+		turns, closeAfter := *maxTurns, *deadline // the conversation's limits, for a copy moved on
 		deliver := func(cur msg.Message, got []msg.Message, ack bool) error {
 			if !*asJSON {
 				showArrived(c, me, got, ack, s)
@@ -293,7 +312,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 					takenBy = r.Owner.By
 				}
 			}
-			return writeJSON(s.Out, resultOf(cur, takenBy, got))
+			return writeJSON(s.Out, result(cur, got, "answered"))
 		}
 		if repeat { // its answer may be in already, read by the first wait: show it rather than wait for another
 			if done := answeredIn(c, out, me); len(done) > 0 {
@@ -309,6 +328,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		var takenAt, lastWordAt, lastHeard time.Time
 		claimBy := time.Now().Add(*claimWithin) // with --fallback: when the current target's turn ends
 		quietSaid := false
+		held := false // ask: the nodes say the one session asked read it, or cannot say: not moved on
 		quiet := time.Duration(0)
 		if cur.Kind == msg.KindTask {
 			quiet = *quietAfter
@@ -317,12 +337,25 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		moveOn := func(why string) error {
 			if _, err := c.Retract(cur.ID, me, false, false); err != nil {
 				fmt.Fprintf(s.Err, "%s, and it could not be taken back (%v): not moving it on\n", why, err)
-				fallbacks = nil
+				fallbacks, held = nil, true
 				return nil
 			}
-			next := fallbacks[0]
-			fallbacks = fallbacks[1:]
-			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true}, io.Discard)
+			next, nextWhy := "", ""
+			for next == "" && len(fallbacks) > 0 {
+				next, fallbacks = fallbacks[0], fallbacks[1:]
+				if mv.pick != nil {
+					next, nextWhy = mv.pick(next)
+				}
+			}
+			if next == "" { // ask, and no next machine with anyone there
+				fmt.Fprintf(s.Err, "%s: took %s back. Nobody answered; ask again later or another target.\n", why, cur.ID)
+				if *asJSON {
+					_ = writeJSON(s.Out, result(cur, nil, "nobody"))
+				}
+				return exitError{exitNotFound}
+			}
+			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true,
+				MaxTurns: turns, Deadline: closeAfter}, io.Discard)
 			if err != nil {
 				return fmt.Errorf("moving the task on to %s: %w", next, err)
 			}
@@ -331,15 +364,19 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 				return fmt.Errorf("moving the task on to %s: %w", next, err)
 			}
 			fmt.Fprintf(s.Err, "%s: took %s back and gave it to %s as %s\n", why, old, view.Name(next, msg.MaxIdentity), cur.ID)
+			if nextWhy != "" {
+				mv.why = nextWhy
+				fmt.Fprintf(s.Err, "  %s: %s\n", view.Name(next, msg.MaxIdentity), nextWhy)
+			}
 			out = cur
-			takenBy, takenAt, lastWordAt, lastHeard, quietSaid = "", time.Time{}, time.Time{}, time.Time{}, false
+			takenBy, takenAt, lastWordAt, lastHeard, quietSaid, held = "", time.Time{}, time.Time{}, time.Time{}, false, false
 			claimBy = time.Now().Add(*claimWithin)
 			return nil
 		}
 		for {
 			window := time.Until(deadline)
 			switch {
-			case takenBy == "" && len(fallbacks) > 0:
+			case takenBy == "" && !held && (len(fallbacks) > 0 || mv.ask):
 				window = min(window, max(time.Until(claimBy), 0))
 			case takenBy != "" && quiet > 0 && !quietSaid:
 				window = min(window, max(time.Until(lastHeard.Add(quiet)), 0))
@@ -375,15 +412,29 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 				continue
 			}
 			if time.Until(deadline) < time.Second {
+				if mv.ask && takenBy == "" && !held { // nobody took it at all: take it back (exit 3)
+					fallbacks = nil
+					return moveOn(fmt.Sprintf("nobody took it within %s", waitReply.String()))
+				}
 				fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), cur.Thread)
 				if *asJSON {
-					_ = writeJSON(s.Out, resultOf(cur, takenBy, nil))
+					_ = writeJSON(s.Out, result(cur, nil, "timeout"))
 				}
 				return exitError{exitTimeout}
 			}
 			// Nobody took it in --claim-within: take it back there and give it to the next target.
 			// (A window can end sooner, to look at the quiet timer: that is not this.)
-			if takenBy == "" && len(fallbacks) > 0 && !time.Now().Before(claimBy) {
+			if takenBy == "" && !held && (len(fallbacks) > 0 || mv.ask) && !time.Now().Before(claimBy) {
+				if mv.ask { // a session asked may answer without claiming: once it read it, it has it
+					if by, how, known := tasks.TakenBy(c, cur); !known || by != "" {
+						held = true
+						if by != "" {
+							takenBy, lastHeard = by, time.Now()
+							fmt.Fprintf(s.Err, "[aivoicebus] %s %s; still waiting for the answer...\n", view.Name(by, msg.MaxIdentity), how)
+						}
+						continue
+					}
+				}
 				if err := moveOn(fmt.Sprintf("nobody took it within %s", claimWithin.String())); err != nil {
 					return err
 				}
