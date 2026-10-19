@@ -376,3 +376,13 @@ func TestAgentCallerIsTheEnvironmentOrAToolAboveNeverTurnedOff(t *testing.T) {
 		})
 	}
 }
+
+// msg cannot import this package, so it keeps its own list of tool names: a tool's name addresses
+// every session of it (host/codex), never one session, so a task for the person sent there stays theirs.
+func TestEveryDetectedToolIsAToolToMsg(t *testing.T) {
+	for _, tl := range tools {
+		if !msg.KnownTool(tl.name) {
+			t.Errorf("msg.KnownTool(%q) is false: add it to msg.knownTools", tl.name)
+		}
+	}
+}
