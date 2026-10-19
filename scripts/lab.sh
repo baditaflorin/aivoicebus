@@ -269,6 +269,12 @@ out=$(deploy/machine-token.sh add lab --apply 2>&1); has "add: the machine gets 
 lacks "and the token is never printed" "$(cat "$MT")" "$out"
 for i in 1 2 3 4; do [ "$(code "$MT" "$(url $i)/v1/who")" = 200 ] && pass "node $i accepts it" || fail "node $i rejects the machine token"; done
 M=$(AIVOICEBUS_ME=lab/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "from the machine itself" 2>&1); has "it sends as its own machine" "^sent " "$M"
+before=$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")
+out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
+# The nodes were restarted by machine-token add: machines heard from before are not proven either way.
+[ $rc = 1 ] && has "rotate-token --check refuses while a machine is not proven to have its own token" "do not rotate the shared token now" "$out" || fail "rotate-token --check exit $rc: $out"
+has "and the report shows lab on its machine token" "^  lab .* machine  *made" "$out"
+[ "$before" = "$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")" ] && pass "rotate-token --check changes no file" || fail "rotate-token --check changed a file"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "pretending to be another machine" 2>&1); has "it cannot send as another machine" "may only act as lab" "$M"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" inbox 2>&1); has "or read another machine's mail" "may only act as lab" "$M"
 eventually "its message replicates (nodes talk with the shared token)" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 4)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'from the machine itself'"
