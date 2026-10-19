@@ -206,7 +206,8 @@ func workerCmd(args []string, s Streams) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	unlock, ok := config.Lock(filepath.Join(dir, ".worker.lock"), 0)
+	// A moment's wait: `aivoicebus status` takes the lock for an instant to see whether a worker runs.
+	unlock, ok := config.Lock(filepath.Join(dir, ".worker.lock"), time.Second)
 	if !ok {
 		return errors.New("another aivoicebus worker is running for this user: one at a time, so two runs never overlap")
 	}

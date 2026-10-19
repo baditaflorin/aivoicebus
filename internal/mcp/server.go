@@ -38,6 +38,8 @@ type Server struct {
 	// Client connects to the mesh; it is called once per tool call, so a node
 	// list refreshed in the meantime is used.
 	Client func() (*client.Client, error)
+	// Home, if set, is the home screen (`aivoicebus status` with no id), for aivoicebus_status.
+	Home func() (string, error)
 	// Log receives diagnostics. Standard output carries the protocol, never logs.
 	Log io.Writer
 	// OnClient, if set, is called with clientInfo.name when the client introduces

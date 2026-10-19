@@ -52,7 +52,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"keys", "this machine's signing key, and the keys pinned for other machines (forget one after a reinstall)"},
 	{"room", "a standing conversation of several agents: join, say, wait, who, invite"},
 	{"lease", "take, release or list a lease on a file, branch or anything named, so two agents do not edit it at once"},
-	{"status", "did it get through: who read a message and when, who took a task, how many replies"},
+	{"status", "where this session stands, in one screen, each problem with its fix; `status ID`: did that message get through"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
 	{"tokens", "what aivoicebus cost on this machine: context it put into each session (estimated) and the worker's runs (reported tokens)"},

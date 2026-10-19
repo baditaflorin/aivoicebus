@@ -530,6 +530,37 @@ as a task it can claim; with nobody listening the person is told instead. A task
 sends progress every 2 minutes while it runs, and the standby and snippet texts tell an agent to do
 the same every 5 minutes, so working sessions never trip it.
 
+**Where do I stand?** `aivoicebus status` (no id; `--json` for scripts; MCP: `aivoicebus_status` with no id) is one
+screen of about fifteen lines: who this session is and how that was worked out, the token's kind (machine, shared,
+observer, or refused), the release here, on the nodes and whether a newer one is announced, the nodes in one line
+(how many of the configured ones answer, links between them, clock spread and this machine's offset), unread messages
+by priority, tasks waiting for this session or machine, questions, approvals, stuck agents and tasks meant for the person (looked at with `inbox?peek=1`, so the person never shows as a session; nodes without `inbox-peek` are not asked), messages held
+back from agents, a pause in force, whether a worker runs here (the service, or one started by hand), which sessions
+on this machine are in a wait (standby), and quiet hours. A line marked `!` is something to act on and ends with
+`-> ` and the command that does it; `?` is a part that did not answer in time. Everything is asked at once under one
+budget (`--budget`, default 1.5s): a hung node costs the screen that and no more (a hedged read moves on to the next
+node after a quarter of a second), and what has not answered by then is `unknown` (`null` in the JSON, named in
+`unknown`) rather than a wait. It only reads; the exit code is 0 whatever it finds (read `problems` in the JSON).
+
+```
+aivoicebus status (air/claude.a1b2, 212ms)
+  me       air/claude.a1b2 (tool claude, from AIVOICEBUS_AGENT=claude.a1b2 (exported by the session-start hook))
+  token    a machine token, bound to air
+  release  0.10.4 here; nodes run 0.10.4 on 4; 0.10.5 is available
+!          release 0.10.5 is available (this is 0.10.4) -> aivoicebus update
+  nodes    4 of 5 up; peers 16/20 ok; clocks within 0.1s, this machine 0.0s off
+!          1 of 5 nodes do not answer: 0db.example:7777 -> aivoicebus mesh
+!          4 of 20 links between nodes are down -> aivoicebus mesh
+! inbox    2 unread: 1 urgent, 1 ask, 0 fyi -> aivoicebus inbox
+  tasks    none waiting for this session or machine
+  person   no question or approval waits for the person
+  held     nothing held back from agents
+  pause    none
+  worker   running (pid 4242)
+  standby  1 listening here: air/codex.k3j4
+  quiet    22:00-07:00 daily, not active now
+```
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
