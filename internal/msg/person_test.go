@@ -14,7 +14,7 @@ func TestPersonOnlyIsTheAddressOrATagNotSentToOneSession(t *testing.T) {
 		{"AIR/Human", "anything", true},
 		{"air", TokenHandTag + " air\nhands air its token", true},
 		{"air", "  " + TokenHandTag + " air", true},
-		{"air/claude", TokenHandTag + " air", true},       // every claude session there: not one
+		{"air/claude", TokenHandTag + " air", true},        // every claude session there: not one
 		{"air/*", PersonTag + " restart the router", true}, // whole machine
 		{"all", ApprovalTag + " run it?", true},
 		{"@repo=x", AskPrefix + "which one?", true},

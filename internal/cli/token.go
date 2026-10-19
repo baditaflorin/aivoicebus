@@ -271,7 +271,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	// By default it goes to the person on HOST (HOST/human): no agent session there sees it, and an
 	// agent's claim of it is refused anyway (msg.PersonOnly), so the person's own terminal gets it.
 	// --to names one session, which may be an agent's: the deploy side chose it.
-	target, who := host + "/human", "The person on "+host+" takes this in their own terminal (an agent's session cannot), with"
+	target, who := host+"/human", "The person on "+host+" takes this in their own terminal (an agent's session cannot), with"
 	if to != "" {
 		target, who = to, "The session "+to+" takes this with"
 	}
