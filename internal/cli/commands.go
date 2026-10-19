@@ -105,6 +105,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		name = "reply"
 	}
 	fs := newFlagSet(name)
+	args = joinWaitState(args)
+	ws := &waitState{}
+	fs.Var(ws, "wait-state", "after sending, wait until the conversation gets to this state or past it (offered|taken|ready|doing|done|stuck|declined), e.g. --wait-state ready 10m; it also ends when the other side writes, or it becomes stuck or final (exit 1)")
 	to := fs.String("to", "", "all | host | host/agent | */agent | host/* | @repo=x,branch=y | @here | @+group (see: aivoicebus usage); default for --re: whoever wrote that message")
 	re := fs.String("re", "", "reply to message id (or its first characters, if they name one message)")
 	thread := fs.String("thread", "", "thread id (default: new, or the reply's)")
@@ -146,7 +149,13 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if len(metas.m) > 0 && *file == "" {
 		return outbox.Usagef("--meta goes with --file: it is sealed inside the file's payload")
 	}
+	if ws.state != "" && *waitReply > 0 {
+		return outbox.Usagef("--wait-state and --wait-reply are two ways to wait: use one")
+	}
 	if *end {
+		if ws.state != "" {
+			return outbox.Usagef("--end closes the conversation, so there is no state to wait for")
+		}
 		if *kind != "" && *kind != msg.KindEnd {
 			return outbox.Usagef("--end and --kind %s say different things; use one", *kind)
 		}
@@ -186,6 +195,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		}
 		if reply && *re == "" {
 			return outbox.Usagef("reply with --file or --tail needs --re ID: nothing is inferred for an attachment")
+		}
+		if ws.state != "" {
+			return outbox.Usagef("--wait-state does not combine with --file or --tail: send it, then aivoicebus state ID --wait-state %s", ws.state)
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
 			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
@@ -259,7 +271,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if *ackIt && plan.Msg.Re != "" { // the reply is out: its message is handled
 		_ = c.AckVia(plan.Msg.Re, identity.Me(), msg.ViaCLI, 0)
 	}
-	if *asJSON && *waitReply == 0 {
+	if *asJSON && *waitReply == 0 && ws.state == "" {
 		return writeJSON(s.Out, sentView{ID: out.ID, Thread: out.Thread, To: view.Name(out.To, msg.MaxIdentity), Re: out.Re, Reach: reachOf(plan), Notes: append([]string{}, plan.Notes...)})
 	}
 	sentOut := s.Out
@@ -282,6 +294,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if len(plan.Suspect) > 0 {
 		fmt.Fprintln(s.Err, "if that went out: aivoicebus retract --leak "+out.ID)
 	}
+	if ws.state != "" {
+		return waitForState(c, identity.Me(), out.ID, ws, *asJSON, "", s)
+	}
 	if *waitReply > 0 {
 		me := identity.Me()
 		takenBy := ""
@@ -294,7 +309,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			if mv.ask {
 				r.Outcome, r.Why = outcome, mv.why
 			}
-			return r
+			return withState(c, r) // the conversation's state when the wait ended
 		}
 		turns, closeAfter := *maxTurns, *deadline // the conversation's limits, for a copy moved on
 		deliver := func(cur msg.Message, got []msg.Message, ack bool) error {
