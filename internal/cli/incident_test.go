@@ -336,3 +336,30 @@ func TestIncidentUsage(t *testing.T) {
 		t.Errorf("-h: %d %q", code, e)
 	}
 }
+
+// Even a plan runs a dry run, so a deploy/ in some other repository is never run unasked; in an
+// aivoicebus checkout ./deploy is used.
+func TestIncidentRunsOnlyAnAivoicebusCheckoutsDeployScripts(t *testing.T) {
+	incidentMesh(t)
+	dir, log := fakeDeploy(t)
+	t.Setenv("AIVOICEBUS_DEPLOY_DIR", "")
+	cwd, _ := os.Getwd()
+	if err := os.Symlink(dir, filepath.Join(cwd, "deploy")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, e := run(t, "", "incident", "machine", "lap")
+	if code != 0 || !strings.Contains(out, "not an aivoicebus checkout") || len(calls(t, log)) != 0 {
+		t.Fatalf("someone else's deploy/: %d %q %q ran %q", code, out, e, calls(t, log))
+	}
+	fakeTerminal(t)
+	typed(t, "incident")
+	if code, _, e := run(t, "", "incident", "machine", "lap", "--apply"); code == 0 || !strings.Contains(e, "nothing was done") || len(calls(t, log)) != 0 {
+		t.Fatalf("applied with someone else's deploy/: %d %q", code, e)
+	}
+	if err := os.WriteFile("go.mod", []byte("module github.com/baditaflorin/aivoicebus\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := run(t, "", "incident", "machine", "lap"); code != 0 || !strings.Contains(out, "its dry run now") || len(calls(t, log)) != 1 {
+		t.Fatalf("a checkout's deploy/: %d %q ran %q", code, out, calls(t, log))
+	}
+}

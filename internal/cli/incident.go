@@ -134,7 +134,7 @@ func incidentCmd(args []string, s Streams) error {
 		return nil
 	}
 	for _, st := range p.steps {
-		if _, err := os.Stat(st.script); err != nil {
+		if _, err := os.Stat(st.script); p.deployDir == "" || err != nil {
 			return fmt.Errorf("%s is not there: nothing was done (pass --deploy DIR, the deploy/ directory of an aivoicebus checkout)", st.script)
 		}
 	}
@@ -158,7 +158,13 @@ var incidentTerminal = func(in io.Reader) bool { _, ok := terminalFile(in); retu
 func planIncident(what, name string, ids []string, deploy string, retire bool) (*incidentPlan, error) {
 	p := &incidentPlan{what: what, name: name, deployDir: deployDir(deploy)}
 	script := func(file string) string {
+		if p.deployDir == "" {
+			return "deploy/" + file
+		}
 		return filepath.Join(p.deployDir, file)
+	}
+	if p.deployDir == "" && (what == "shared" || what == "machine") {
+		p.notes = append(p.notes, "the deploy scripts were not looked for here (not an aivoicebus checkout): run this in one, or pass --deploy DIR")
 	}
 	switch what {
 	case "shared":
@@ -244,13 +250,20 @@ func planIncident(what, name string, ids []string, deploy string, retire bool) (
 	return p, nil
 }
 
-// deployDir is where the deploy scripts are: --deploy, else $AIVOICEBUS_DEPLOY_DIR, else ./deploy.
+// deployDir is where the deploy scripts are: --deploy, else $AIVOICEBUS_DEPLOY_DIR, else ./deploy
+// when this directory is an aivoicebus checkout. Even a plan runs a script's dry run, so a deploy/
+// that merely happens to be here (some other repository's) is never run unasked: "" then.
 func deployDir(flagDir string) string {
 	d := flagDir
 	if d == "" {
 		d = os.Getenv("AIVOICEBUS_DEPLOY_DIR")
 	}
 	if d == "" {
+		b, _ := os.ReadFile("go.mod")
+		first, _, _ := strings.Cut(string(b), "\n")
+		if strings.TrimSpace(first) != "module github.com/baditaflorin/aivoicebus" {
+			return ""
+		}
 		d = "deploy"
 	}
 	if abs, err := filepath.Abs(d); err == nil {
@@ -320,6 +333,9 @@ func (p *incidentPlan) print(w io.Writer, apply bool) {
 		fmt.Fprintf(w, "   run: %s %s --apply\n        %s\n", st.script, strings.Join(st.args, " "), st.why)
 		if i > 0 {
 			continue // a later step's dry run depends on the earlier one having been applied
+		}
+		if p.deployDir == "" {
+			continue
 		}
 		fmt.Fprintln(w, "        its dry run now:")
 		if err := runScript(indent(w, "          | "), st.script, st.args...); err != nil {
@@ -420,6 +436,11 @@ func (p *incidentPlan) apply(c *client.Client, w io.Writer) error {
 	}
 
 	fmt.Fprintln(w, "\n2. Retracting the messages that held it")
+	if len(p.steps) > 0 { // a retired shared token is gone from this machine's token file too
+		if fresh, err := client.FromEnv(); err == nil {
+			c = fresh
+		}
+	}
 	var done, failed []string
 	for _, l := range p.msgs {
 		if l.m.From == "" {
