@@ -444,7 +444,7 @@ func AgentCaller() (bool, string) {
 		return osGetenv(k)
 	}, chainOnce())
 	if d.Tool != "" {
-		return true, "tool " + d.Tool + ", from " + d.Source
+		return true, "this runs inside " + d.Tool + " (" + d.Source + ")"
 	}
 	return false, ""
 }
