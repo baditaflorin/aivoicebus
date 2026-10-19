@@ -43,7 +43,7 @@ func TestWithNoIdOnlyThisSessionsOwnLastMessageIsTakenBack(t *testing.T) {
 		t.Fatalf("it refuses, and says it all in the error: %v %q", err, out)
 	}
 	has(t, err.Error(), "nothing sent as "+meID+" is remembered, so nothing was taken back",
-		"last message from this machine: "+theirs.ID+" sent as "+mePeer+" to "+reader1+" at ", ` UTC: "the other session's note"`,
+		"last message from this machine: "+theirs.ID+" sent as "+mePeer+" to "+reader1+" at ", `: "the other session's note"`,
 		"retract it with: aivoicebus retract "+theirs.ID, "--last")
 	if s.VV()["n1"] != n || s.Thread(theirs.ID)[0].Retracted != nil || len(s.InboxFor(reader1, false, nil)) != 1 {
 		t.Error("nothing is written: the other session's message stands")

@@ -252,7 +252,8 @@ var whoTool = tool{
 		if err != nil {
 			return "", err
 		}
-		cutoff := time.Now().Add(-span)
+		now := time.Now()
+		cutoff := now.Add(-span)
 		var b strings.Builder
 		fmt.Fprintln(&b, view.UntrustedBanner) // identities and labels are whatever sessions declared about themselves
 		// The most recent first, and only the labels that pick a target: the whole roster with
@@ -275,11 +276,7 @@ var whoTool = tool{
 					}
 				}
 			}
-			listening := ""
-			if e.Listening {
-				listening = " [listening now]"
-			}
-			fmt.Fprintf(&b, "%-32s seen %s%s%s  %s\n", view.Name(e.Me, 64), e.Seen.Local().Format("01-02 15:04"), listening, view.TitleSuffix(e.Title), view.Name(labels.String(), 300))
+			fmt.Fprintf(&b, "%s  %s\n", view.Session(e, now), view.Name(labels.String(), 300))
 		}
 		if n == 0 {
 			return "(no matching session seen in that time)", nil

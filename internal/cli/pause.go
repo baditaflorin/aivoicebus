@@ -10,6 +10,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // pauseCmd is the kill switch: every worker the target reaches stops its run and takes no task,
@@ -51,7 +52,7 @@ func pauseCmd(args []string, s Streams) error {
 		return err
 	}
 	config.Audit(identity.Me(), "pause", fmt.Sprintf("%s until %s: %s", target, until.UTC().Format(time.RFC3339), reason))
-	fmt.Fprintf(s.Out, "paused %s until %s: workers stop and take no task, schedules hold, sessions are told to stop. A person here lifts it: aivoicebus resume %s\n", target, until.Local().Format("01-02 15:04"), target)
+	fmt.Fprintf(s.Out, "paused %s until %s: workers stop and take no task, schedules hold, sessions are told to stop. A person here lifts it: aivoicebus resume %s\n", target, view.When(until, time.Now()), target)
 	return nil
 }
 

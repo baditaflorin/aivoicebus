@@ -184,7 +184,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 	if p, until, on := msg.ActivePause(ms, w.now()); on && !w.DryRun {
 		if note := p.ID + until.String(); note != w.pausedNote {
 			w.pausedNote = note
-			w.say("paused by %s until %s: taking no task (aivoicebus resume, on that machine, lifts it)", view.Name(p.From, msg.MaxIdentity), until.Local().Format("01-02 15:04"))
+			w.say("paused by %s until %s: taking no task (aivoicebus resume, on that machine, lifts it)", view.Name(p.From, msg.MaxIdentity), view.When(until, time.Now()))
 		}
 		return 0, nil
 	}

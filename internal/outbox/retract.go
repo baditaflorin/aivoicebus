@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
@@ -148,7 +149,7 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 	leak := o.Leak
 	mesh := viewMesh(c)
 	if r := m.Retracted; r != nil && !(leak && !r.Leak) {
-		fmt.Fprintf(w, "already retracted by %s at %s UTC", view.Name(r.By, 80), r.At.UTC().Format("2006-01-02 15:04"))
+		fmt.Fprintf(w, "already retracted by %s at %s", view.Name(r.By, 80), view.When(r.At, time.Now()))
 		if r.Leak {
 			fmt.Fprint(w, " (flagged as having held a credential)")
 		}
@@ -178,7 +179,7 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 // candidate says which message a retraction without an id would be about: the machine's latest,
 // with who sent it and when, which is what a person needs to decide whether it is the one.
 func candidate(e sentMsg, text string) string {
-	return fmt.Sprintf("last message from this machine: %s sent as %s to %s at %s UTC: %s", e.ID, view.Name(e.From, 80), view.Name(e.To, 80), e.At.UTC().Format("2006-01-02 15:04"), text)
+	return fmt.Sprintf("last message from this machine: %s sent as %s to %s at %s: %s", e.ID, view.Name(e.From, 80), view.Name(e.To, 80), view.When(e.At, time.Now()), text)
 }
 
 // shown is how a message is named before it is taken back: the start of its text cut to one line,

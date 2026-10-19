@@ -8,6 +8,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // quietCmd's `for` span is bounded: a typo (`for 9999d`) must not silence the hooks for years.
@@ -73,7 +74,7 @@ func quietCmd(args []string, s Streams) error {
 		parts = append(parts, q.String()+" daily")
 	}
 	if q.Until.After(now) {
-		parts = append(parts, "until "+q.Until.Local().Format("15:04 (Jan 2)"))
+		parts = append(parts, "until "+view.When(q.Until, time.Now()))
 	}
 	state := "not active now"
 	if q.Active(now) {

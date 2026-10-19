@@ -209,7 +209,7 @@ func leaseLines(live []msg.Lease, me, repo string) []string {
 		if identityShape.MatchString(h.By) {
 			who = h.By
 		}
-		fmt.Fprintf(&b, " %s by %s until %s;", view.OneLine(h.Key, 120), who, h.Until.Local().Format("15:04"))
+		fmt.Fprintf(&b, " %s by %s until %s;", view.OneLine(h.Key, 120), who, view.When(h.Until, time.Now()))
 	}
 	return []string{strings.TrimSuffix(b.String(), ";")}
 }

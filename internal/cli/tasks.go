@@ -162,10 +162,10 @@ func pickListening(target string, s Streams) (string, error) {
 		return "", err
 	}
 	me := identity.Me()
-	var free []string
+	var free []msg.RosterEntry
 	for _, e := range roster {
 		if e.Listening && e.Me != me && msg.MatchesLabeled(target, e.Me, e.Labels) {
-			free = append(free, e.Me)
+			free = append(free, e)
 		}
 	}
 	if len(free) == 0 {
@@ -173,8 +173,8 @@ func pickListening(target string, s Streams) (string, error) {
 		return target, nil
 	}
 	pick := free[rand.IntN(len(free))]
-	fmt.Fprintf(s.Err, "  --any: %s (picked from %d listening now)\n", view.Name(pick, msg.MaxIdentity), len(free))
-	return pick, nil
+	fmt.Fprintf(s.Err, "  --any: %s, picked from %d listening now\n", view.Session(pick, time.Now()), len(free))
+	return pick.Me, nil
 }
 
 // taskTarget is the narrowest address for who may take a task: a machine, a tool on it
@@ -233,7 +233,7 @@ func claimCmd(args []string, s Streams) error {
 		fmt.Fprintf(s.Out, "task %s is already yours\n", id)
 		return nil
 	case !r.Mine && r.ClaimID == "":
-		return fmt.Errorf("task %s was already taken by %s at %s; leave it to them", id, view.Name(r.Owner.From, msg.MaxIdentity), r.Owner.At.Local().Format("15:04:05"))
+		return fmt.Errorf("task %s was already taken by %s at %s; leave it to them", id, view.Name(r.Owner.From, msg.MaxIdentity), view.WhenSec(r.Owner.At, time.Now()))
 	case !r.Mine:
 		fmt.Fprintf(s.Out, "claimed %s, but %s claimed it first: it is theirs. Leave it (your claim %s stays in the thread).\n", id, view.Name(r.Owner.From, msg.MaxIdentity), r.ClaimID)
 		return exitError{exitFailure}
@@ -375,11 +375,11 @@ func pingCmd(args []string, s Streams) error {
 			continue
 		}
 		n++
-		state := "seen " + now.Sub(e.Seen).Round(time.Second).String() + " ago"
+		line := view.Session(e, now)
 		if e.Listening {
-			state = "listening now (in a wait: a message reaches it within a second)"
+			line += ": in a wait, a message reaches it within a second"
 		}
-		fmt.Fprintf(s.Out, "%-40s %s%s\n", view.Name(e.Me, msg.MaxIdentity), state, view.TitleSuffix(e.Title))
+		fmt.Fprintln(s.Out, line)
 	}
 	if n == 0 {
 		fmt.Fprintf(s.Out, "nobody at %s was seen in the last %s; a task waits for the next session there: aivoicebus task %s \"...\"\n", view.Name(target, msg.MaxIdentity), within.String(), view.Name(target, msg.MaxIdentity))

@@ -80,7 +80,7 @@ func leaseCmd(args []string, s Streams) error {
 			_, _ = c.Retract(out.ID, me, false, false) // someone else was first: give ours back
 			return fmt.Errorf("%s (taken at the same moment; yours is withdrawn)", leaseLine(h, me))
 		}
-		fmt.Fprintf(s.Out, "you hold %s until %s (lease %s); release it with: aivoicebus lease release %s\n", key, out.At.Add(ttlOf(*ttl)).Local().Format("15:04"), out.ID, key)
+		fmt.Fprintf(s.Out, "you hold %s until %s (lease %s); release it with: aivoicebus lease release %s\n", key, view.When(out.At.Add(ttlOf(*ttl)), time.Now()), out.ID, key)
 		return nil
 	case "release":
 		if len(args) != 2 || !msg.ValidLeaseKey(args[1]) {
@@ -126,7 +126,7 @@ func leaseLine(h msg.Lease, me string) string {
 	if h.By == me {
 		who = "you"
 	}
-	line := fmt.Sprintf("%s is held by %s until %s", h.Key, who, h.Until.Local().Format("15:04"))
+	line := fmt.Sprintf("%s is held by %s until %s", h.Key, who, view.When(h.Until, time.Now()))
 	if h.Note != "" {
 		line += ": " + view.OneLine(h.Note, 120)
 	}

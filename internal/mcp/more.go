@@ -176,11 +176,7 @@ var pingTool = tool{
 			if e.Me == me || !msg.MatchesLabeled(a.Target, e.Me, e.Labels) || now.Sub(e.Seen) > time.Duration(a.WithinMinutes)*time.Minute {
 				continue
 			}
-			state := "seen " + now.Sub(e.Seen).Round(time.Second).String() + " ago"
-			if e.Listening {
-				state = "listening now"
-			}
-			fmt.Fprintf(&b, "%s  %s%s\n", view.Name(e.Me, msg.MaxIdentity), state, view.TitleSuffix(e.Title))
+			fmt.Fprintln(&b, view.Session(e, now))
 		}
 		if b.Len() == 0 {
 			return fmt.Sprintf("nobody at %s was seen in the last %d minutes; a task (aivoicebus_task) waits for the next session there", view.Name(a.Target, msg.MaxIdentity), a.WithinMinutes), nil
