@@ -715,7 +715,7 @@ func gather[T any](c *Client, path string) ([]T, error) {
 		wg.Add(1)
 		go func(i int, u string) {
 			defer wg.Done()
-			one := &Client{Token: c.Token, Timeout: min(c.timeout(), gatherTimeout)}
+			one := &Client{Token: c.Token, Timeout: min(c.timeout(), gatherTimeout), Deadline: c.Deadline}
 			_, rs[i].err = one.once(u, "GET", path, nil, &rs[i].v)
 			rs[i].latest = one.Latest
 		}(i, u)

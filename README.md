@@ -192,6 +192,8 @@ changed      state                  release 0.1.0, hook dd5d1a1e, snippet 92ebc4
 
 `setup` also copies the running binary to `~/.local/bin/aivoicebus`, where the hooks run it from, when nothing usable
 is there yet (an installed one is left alone: `update` replaces it), and `doctor` then ends with `ok mesh reachable`.
+From then on `aivoicebus status` is the home screen: who this session is, its token, the release, the nodes, what waits
+for it and for you, pauses, the worker and quiet hours, in about fifteen lines, each problem with the command that fixes it.
 
 **3. Send and read.**
 

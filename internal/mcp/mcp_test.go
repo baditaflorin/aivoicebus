@@ -29,6 +29,12 @@ type session struct {
 
 func start(t *testing.T) (*session, *store.Store) {
 	t.Helper()
+	return startWith(t, nil)
+}
+
+// startWith is start with a home screen for aivoicebus_status (nil: none).
+func startWith(t *testing.T, home func() (string, error)) (*session, *store.Store) {
+	t.Helper()
 	st, _ := store.Open(t.TempDir(), "n1")
 	srv := httptest.NewServer(server.NewHandler(st, "tok"))
 	t.Cleanup(srv.Close)
@@ -40,7 +46,7 @@ func start(t *testing.T) (*session, *store.Store) {
 	t.Chdir(t.TempDir())
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	s := &Server{Name: "aivoicebus", Version: "test", Client: client.FromEnv}
+	s := &Server{Name: "aivoicebus", Version: "test", Client: client.FromEnv, Home: home}
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(inR, outW); outW.Close() }()
 	t.Cleanup(func() { inW.Close() })
@@ -929,5 +935,19 @@ func TestAskPicksAsksAndSaysWhenNobodyTookIt(t *testing.T) {
 	text, isErr = s.call("aivoicebus_ask", map[string]any{"target": "lap/codex.bb", "body": "are you there?", "claim_seconds": 5})
 	if isErr || !strings.Contains(text, "NOBODY TOOK IT within 5s") {
 		t.Fatalf("not taken: %v %q", isErr, text)
+	}
+}
+
+func TestStatusWithoutAnIDIsTheHomeScreen(t *testing.T) {
+	s, _ := start(t)
+	if text, isErr := s.call("aivoicebus_status", map[string]any{}); !isErr || !strings.Contains(text, "10-character id") {
+		t.Errorf("no home screen wired: %v %q", isErr, text)
+	}
+	s, _ = startWith(t, func() (string, error) { return "aivoicebus status (me/mcp.test, 3ms)\n", nil })
+	if text, isErr := s.call("aivoicebus_status", map[string]any{}); isErr || !strings.HasPrefix(text, "aivoicebus status (me/mcp.test") {
+		t.Errorf("home screen: %v %q", isErr, text)
+	}
+	if text, isErr := s.call("aivoicebus_status", map[string]any{"id": "nope"}); !isErr || !strings.Contains(text, "10-character") {
+		t.Errorf("a bad id: %v %q", isErr, text)
 	}
 }

@@ -118,13 +118,21 @@ var queueTool = tool{
 }
 
 var statusTool = tool{
-	name:        "aivoicebus_status",
-	description: "Did a message get through? Who read it and when, who took it if it is a task, how many replies it has. Use it before asking a person to check another machine.",
-	schema:      obj([]string{"id"}, map[string]any{"id": str("the message's full 10-character id")}),
+	name: "aivoicebus_status",
+	description: "Without an id: where this session stands, in one screen (who it is, its token, the release, the nodes, unread messages, waiting tasks, " +
+		"questions and approvals for the person, pauses, the worker, standby, quiet hours), each problem with the command that fixes it. " +
+		"With an id: did that message get through? Who read it and when, who took it if it is a task, how many replies it has. Use it before asking a person to check another machine.",
+	schema: obj(nil, map[string]any{"id": str("a message's full 10-character id; leave it out for this session's home screen")}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct{ ID string }
 		if err := decode(raw, &a); err != nil {
 			return "", err
+		}
+		if a.ID == "" {
+			if s.Home == nil {
+				return "", errors.New("give the message's full 10-character id")
+			}
+			return s.Home()
 		}
 		if !msg.ValidID(a.ID) {
 			return "", errors.New("id must be the full 10-character message id: call it again with one from aivoicebus_inbox")

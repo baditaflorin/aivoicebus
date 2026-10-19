@@ -173,6 +173,10 @@ AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url 2),$(url 1)" AIVOICEBUS_TOKEN="$(
 ms=$(( ($(date +%s%N) - start) / 1000000 ))
 [ $rc = 0 ] && [ $ms -lt 2000 ] && pass "inbox answered in ${ms}ms with the first node frozen" || fail "inbox took ${ms}ms (exit $rc)"
 start=$(date +%s%N)
+AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url 2),$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" status >/dev/null 2>&1; rc=$?
+ms=$(( ($(date +%s%N) - start) / 1000000 ))
+[ $rc = 0 ] && [ $ms -lt 2000 ] && pass "status answered in ${ms}ms with the first node frozen" || fail "status took ${ms}ms (exit $rc)"
+start=$(date +%s%N)
 M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 2),$(url 1),$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "sent while node 2 is frozen" 2>&1)
 ms=$(( ($(date +%s%N) - start) / 1000000 ))
 has "a send still succeeds" "^sent " "$M"
