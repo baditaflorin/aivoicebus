@@ -115,14 +115,12 @@ func TestStuckNeedPeerGoesToAListeningSession(t *testing.T) {
 	mesh(t)
 	c, _ := client.FromEnv()
 	const helper = "box/codex.l2"
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { // hold a read open again and again, as a session standing by does
+	background(t, func(ctx context.Context) { // hold a read open again and again, as a session standing by does
 		_, g, err := c.InboxWait(ctx, helper, 0, false, 0)
 		for err == nil && ctx.Err() == nil {
 			_, g, err = c.InboxWait(ctx, helper, g, true, 30*time.Second)
 		}
-	}()
+	})
 	time.Sleep(800 * time.Millisecond)
 	t.Setenv("AIVOICEBUS_ME", sb)
 	code, out, e := run(t, "", "stuck", "--need", "peer", "cannot reach the staging database")
@@ -146,47 +144,66 @@ func TestStuckNeedPeerGoesToAListeningSession(t *testing.T) {
 	}
 }
 
+// background runs f until the test ends, and the test ends only after f has returned. A goroutine
+// that outlives its test reads messages under the next test's HOME, and reading pins the sender's
+// machine key there: that test then sees its own messages as signed by a changed key.
+func background(t *testing.T, f func(ctx context.Context)) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); f(ctx) }()
+	t.Cleanup(func() { cancel(); <-done }) // before mesh's HOME is put back (cleanups run last first)
+}
+
+// pause waits d or until ctx ends, and says whether the test is still on.
+func pause(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
+}
+
 // claimAs takes the next task that reaches who, as who (the env names the test's sender meanwhile),
-// and returns its id ("" after d).
-func claimAs(c *client.Client, who string, d time.Duration) string {
-	for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+// and returns it (ok false when none came before ctx ended).
+func claimAs(ctx context.Context, c *client.Client, who string) (msg.Message, bool) {
+	for pause(ctx, 100*time.Millisecond) {
 		ms, _ := c.Inbox(who, false)
 		for _, m := range ms {
 			if m.Kind == msg.KindTask {
 				if _, err := c.Send(msg.Message{ID: msg.NewID(), From: who, To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindClaim, Body: "on it"}); err == nil {
 					_ = c.Ack(m.ID, who) // handled: the next call takes the next task
-					return m.ID
+					return m, true
 				}
 			}
 		}
 	}
-	return ""
+	return msg.Message{}, false
 }
+
+// Each of these tests names its own machines, so that nothing another test pinned can collide.
 
 // A task taken and then silent for --quiet-after is reported once to the waiting sender, at that
 // time and not when a long wait ends: here the answer comes 5s after the claim, long before the
 // 30s wait would end, and the alert (due 2s after the claim) is already out.
 func TestAWaitSaysOnceWhenATakenTaskGoesSilent(t *testing.T) {
+	const taker = "qa-lap/claude.q1"
 	mesh(t)
-	present(t, sa)
+	present(t, taker)
 	c, _ := client.FromEnv()
-	go func() {
-		id := claimAs(c, sa, 5*time.Second)
-		if id == "" {
-			return
+	background(t, func(ctx context.Context) {
+		if m, ok := claimAs(ctx, c, taker); ok && pause(ctx, 5*time.Second) {
+			c.Send(msg.Message{ID: msg.NewID(), From: taker, To: boss, Re: m.ID, Thread: m.Thread, Kind: msg.KindAnswer, Body: "late but done"})
 		}
-		time.Sleep(5 * time.Second)
-		ms, _ := c.Thread(id)
-		c.Send(msg.Message{ID: msg.NewID(), From: sa, To: boss, Re: id, Thread: ms[0].Thread, Kind: msg.KindAnswer, Body: "late but done"})
-	}()
+		// Without an answer the one alert is all (the second task below).
+		claimAs(ctx, c, taker)
+	})
 	t.Setenv("AIVOICEBUS_ME", boss)
-	code, out, e := run(t, "", "task", "lap", "silent one", "--wait-reply", "30s", "--quiet-after", "2s")
-	if code != 0 || !strings.Contains(out, "late but done") || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "was taken by "+sa) {
+	code, out, e := run(t, "", "task", "qa-lap", "silent one", "--wait-reply", "30s", "--quiet-after", "2s")
+	if code != 0 || !strings.Contains(out, "late but done") || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "was taken by "+taker) {
 		t.Fatalf("%d\n%s\n%s", code, out, e)
 	}
-	// Without an answer the one alert is all: the wait runs out (exit 6) with no second one.
-	go claimAs(c, sa, 5*time.Second)
-	code, _, e = run(t, "", "task", "lap", "silent two", "--wait-reply", "7s", "--quiet-after", "2s")
+	code, _, e = run(t, "", "task", "qa-lap", "silent two", "--wait-reply", "7s", "--quiet-after", "2s")
 	if code != exitTimeout || strings.Count(e, "has been silent since") != 1 {
 		t.Fatalf("%d\n%s", code, e)
 	}
@@ -194,23 +211,23 @@ func TestAWaitSaysOnceWhenATakenTaskGoesSilent(t *testing.T) {
 
 // Progress heartbeats keep a taken task from looking silent: no alert, and the answer arrives.
 func TestHeartbeatsKeepATakenTaskFromLookingSilent(t *testing.T) {
+	const taker = "qb-lap/claude.q2"
 	mesh(t)
-	present(t, sa)
+	present(t, taker)
 	c, _ := client.FromEnv()
-	go func() {
-		id := claimAs(c, sa, 5*time.Second)
-		if id == "" {
-			return
+	background(t, func(ctx context.Context) {
+		m, ok := claimAs(ctx, c, taker)
+		for i := 0; ok && i < 12; i++ { // a heartbeat every 500ms, an eighth of --quiet-after
+			if ok = pause(ctx, 500*time.Millisecond); ok {
+				c.Send(msg.Message{ID: msg.NewID(), From: taker, To: boss, Re: m.ID, Thread: m.Thread, Kind: msg.KindProgress, Body: "still on it " + time.Now().Format("05.000")})
+			}
 		}
-		ms, _ := c.Thread(id)
-		for i := 0; i < 12; i++ { // a heartbeat every 500ms, well inside --quiet-after
-			time.Sleep(500 * time.Millisecond)
-			c.Send(msg.Message{ID: msg.NewID(), From: sa, To: boss, Re: id, Thread: ms[0].Thread, Kind: msg.KindProgress, Body: "still on it " + time.Now().Format("05.000")})
+		if ok {
+			c.Send(msg.Message{ID: msg.NewID(), From: taker, To: boss, Re: m.ID, Thread: m.Thread, Kind: msg.KindAnswer, Body: "done after the heartbeats"})
 		}
-		c.Send(msg.Message{ID: msg.NewID(), From: sa, To: boss, Re: id, Thread: ms[0].Thread, Kind: msg.KindAnswer, Body: "done after the heartbeats"})
-	}()
+	})
 	t.Setenv("AIVOICEBUS_ME", boss)
-	code, out, e := run(t, "", "task", "lap", "busy one", "--wait-reply", "20s", "--quiet-after", "2s")
+	code, out, e := run(t, "", "task", "qb-lap", "busy one", "--wait-reply", "20s", "--quiet-after", "4s")
 	if code != 0 || !strings.Contains(out, "done after the heartbeats") || strings.Contains(e, "silent") {
 		t.Fatalf("%d\n%s\n%s", code, out, e)
 	}
@@ -218,13 +235,13 @@ func TestHeartbeatsKeepATakenTaskFromLookingSilent(t *testing.T) {
 
 // With --fallback, a task taken and then silent moves on to the next machine, which answers.
 func TestASilentTaskMovesOnToTheFallback(t *testing.T) {
+	const taker, helper = "qc-lap/claude.q3", "qc-desk2/claude.q7"
 	mesh(t)
-	present(t, sa)
+	present(t, taker)
 	c, _ := client.FromEnv()
-	const helper = "desk2/claude.q7"
-	go claimAs(c, sa, 5*time.Second)
-	go func() {
-		for end := time.Now().Add(20 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+	background(t, func(ctx context.Context) { claimAs(ctx, c, taker) })
+	background(t, func(ctx context.Context) {
+		for pause(ctx, 100*time.Millisecond) {
 			ms, _ := c.Inbox(helper, false)
 			for _, m := range ms {
 				if m.Kind == msg.KindTask {
@@ -233,9 +250,9 @@ func TestASilentTaskMovesOnToTheFallback(t *testing.T) {
 				}
 			}
 		}
-	}()
+	})
 	t.Setenv("AIVOICEBUS_ME", boss)
-	code, out, e := run(t, "", "task", "lap", "build the site", "--wait-reply", "30s", "--claim-within", "5s", "--quiet-after", "2s", "--fallback", "desk2")
+	code, out, e := run(t, "", "task", "qc-lap", "build the site", "--wait-reply", "30s", "--claim-within", "5s", "--quiet-after", "2s", "--fallback", "qc-desk2")
 	if code != 0 || !strings.Contains(out, "done on desk2") || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "said nothing for 2s: took") {
 		t.Fatalf("%d\n%s\n%s", code, out, e)
 	}
@@ -243,7 +260,7 @@ func TestASilentTaskMovesOnToTheFallback(t *testing.T) {
 	if ms, _ := c.Thread(first); len(ms) == 0 || ms[0].Retracted == nil {
 		t.Errorf("the silent task was not taken back")
 	}
-	if code, _, _ := run(t, "", "task", "lap", "x", "--quiet-after", "-1s", "--wait-reply", "1m"); code != exitUsage {
+	if code, _, _ := run(t, "", "task", "qc-lap", "x", "--quiet-after", "-1s", "--wait-reply", "1m"); code != exitUsage {
 		t.Errorf("negative --quiet-after: %d", code)
 	}
 }
