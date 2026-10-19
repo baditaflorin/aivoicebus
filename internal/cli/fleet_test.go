@@ -94,8 +94,9 @@ func TestFleetShowsReleasesAndAsksThePersonToUpdate(t *testing.T) {
 		t.Fatalf("sent twice: %d tasks, %d notes", n, m)
 	}
 
-	// without --only-behind the machine whose release no node knows gets both
-	if code, out, e = run(t, "", "fleet", "update", "--apply"); code != 0 || !strings.Contains(out, "sent 2 of 2") {
+	// without --only-behind the machines whose release no node knows get both (deploy, which runs
+	// this, said none either), and imac nothing new
+	if code, out, e = run(t, "", "fleet", "update", "--apply"); code != 0 || !strings.Contains(out, "sent 3 of 3") || !strings.Contains(out, "imac: the same task") {
 		t.Fatalf("apply all: %d\n%s\n%s", code, out, e)
 	}
 	if n, m := len(sentTo(s.Inbox("old/human", false), "old/human")), len(sentTo(s.Inbox("old/claude", false), "old")); n != 1 || m != 1 {
