@@ -64,8 +64,12 @@ const (
 // and hand takes either; an install facing a hand from 0.10.x finds no mark and answers with the tags.
 const tokenStatesMark = "; states)"
 
-// speaksStates reports whether the hand-over task asks for states.
-func speaksStates(task msg.Message) bool { return strings.Contains(task.Body, tokenStatesMark) }
+// speaksStates reports whether the hand-over task asks for states. handMark ends hand's task. Both
+// are variables only so a test can play a 0.10.x peer, which knows no states.
+var (
+	speaksStates = func(task msg.Message) bool { return strings.Contains(task.Body, tokenStatesMark) }
+	handMark     = tokenStatesMark
+)
 
 // deniedErr is a person's no: install answers declined, not stuck.
 type deniedErr string
@@ -73,7 +77,7 @@ type deniedErr string
 func (e deniedErr) Error() string        { return string(e) }
 func (e deniedErr) Is(target error) bool { return target == errDenied }
 
-var errDenied = errors.New("the person denied it")
+var errDenied = errors.New("the person denied it") // nextstep: only matched with errors.Is; what is shown is the deniedErr text, which says to ask the user
 
 const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node|pipe] [--wait 30m] [--json]
        aivoicebus token install ID|LINK [--wait 30m] [--json]
@@ -302,7 +306,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		body += "An agent runs it as a background command: it waits for the person's approval (up to 30 minutes), longer than a tool call lasts. " +
 			"Tell your user it asks for their approval, which is theirs to give, not yours.\n"
 	}
-	body += "(hand-over " + handOverID() + tokenStatesMark
+	body += "(hand-over " + handOverID() + handMark
 	plan, err := outbox.Prepare(c, outbox.Request{To: target, Body: body, Kind: msg.KindTask, Prio: msg.PrioUrgent, TTL: "1h", Queue: true, TargetSaid: true}, s.Err)
 	if err != nil {
 		return err
@@ -387,7 +391,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 					ready = m
 				case st == msg.StateStuck, st == msg.StateDeclined:
 					res.Session, res.Said = m.From, view.OneLine(m.Body, 400)
-					return fmt.Errorf("%s did not install it: %s", m.From, view.OneLine(m.Body, 400))
+					return fmt.Errorf("%s did not install it: %s", m.From, view.OneLine(m.Body, 400)) // nextstep: the installing side's stuck or declined note says why and what to do
 				}
 				if ready.ID != "" {
 					break

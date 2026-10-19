@@ -98,7 +98,68 @@ func TestTokenHandOverBetweenTwoMachinesOnTwoNodes(t *testing.T) {
 // airTerm is the person's terminal on air: no agent tool above it, so it is the person's.
 const airTerm = "air/agent"
 
-func handOverTwoNodes(t *testing.T, via string) {
+func handOverTwoNodes(t *testing.T, via string) { handOverTwoNodesWith(t, via, "") }
+
+// The hand-over against a peer from 0.10.x that knows no conversation states (oldPeer "old-hand"
+// or "old-install", see TestMain): the [token ...] tags still carry it. Two current sides run it on
+// states. Each case checks what the sides wrote, from the nodes' own records.
+func TestTokenHandOverWithAnOldTagPeer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs two CLI processes against two replicating nodes")
+	}
+	for _, old := range []string{"", "old-hand", "old-install"} {
+		name := old
+		if name == "" {
+			name = "both current"
+		}
+		t.Run(name, func(t *testing.T) {
+			var thread []msg.Message // both nodes hold every message: each once
+			seen := map[string]bool{}
+			for _, r := range handOverTwoNodesWith(t, "node", old) {
+				if r.Msg != nil && !seen[r.Msg.ID] {
+					seen[r.Msg.ID] = true
+					thread = append(thread, *r.Msg)
+				}
+			}
+			root := ""
+			for _, m := range thread {
+				if strings.HasPrefix(m.Body, msg.TokenHandTag) {
+					root = m.Thread
+				}
+			}
+			var tags, states []string
+			var ours []msg.Message
+			for _, m := range thread {
+				if m.Thread != root {
+					continue
+				}
+				ours = append(ours, m)
+				if m.From != airTerm {
+					continue
+				}
+				line, _, _ := strings.Cut(m.Body, "\n")
+				if st, _, ok := msg.StateOf(m); ok {
+					states = append(states, st)
+				} else if strings.HasPrefix(line, "[token ready] air") || strings.HasPrefix(line, "[token installed] air") {
+					tags = append(tags, line[:strings.Index(line, "] air")+5])
+				}
+			}
+			v := msg.ThreadState(ours)
+			if old == "" {
+				if len(tags) != 0 || strings.Join(states, ",") != "ready,done" || v.State != msg.StateDone || v.Path() != "offered -> taken -> ready -> done" || v.Taker != airTerm {
+					t.Errorf("both current: tags %q, states %q, %s by %s", tags, states, v.Path(), v.Taker)
+				}
+				return
+			}
+			// what a 0.10.x hand reads: first lines "[token ready] air" and "[token installed] air"
+			if len(states) != 0 || strings.Join(tags, ",") != "[token ready] air,[token installed] air" {
+				t.Errorf("%s: tags %q, states %q", old, tags, states)
+			}
+		})
+	}
+}
+
+func handOverTwoNodesWith(t *testing.T, via, oldPeer string) []msg.Record {
 	a, b := twoNodes(t)
 	deployHome, airHome := t.TempDir(), t.TempDir()
 	writeSecret(t, filepath.Join(deployHome, ".config/aivoicebus/token"), thShared)
@@ -118,6 +179,9 @@ func handOverTwoNodes(t *testing.T, via string) {
 	// the deploy machine hands air its token
 	var handOut, handErr strings.Builder
 	hand := asCLI(t, deployHome, "deploy/claude.1", a+","+b, "token", "hand", "air", "--via", via, "--json", "--wait", "2m")
+	if oldPeer == "old-hand" {
+		hand.Env = append(hand.Env, "AIVOICEBUS_TEST_TOKEN_PEER=old-hand")
+	}
 	hand.Stdout = &handOut
 	pipe, _ := hand.StderrPipe()
 	if err := hand.Start(); err != nil {
@@ -159,6 +223,9 @@ func handOverTwoNodes(t *testing.T, via string) {
 	// the person on air runs install with the task's id, in their own terminal
 	var instOut, instErr strings.Builder
 	inst := asCLI(t, airHome, airTerm, b+","+a, "token", "install", id, "--json", "--wait", "2m")
+	if oldPeer == "old-install" {
+		inst.Env = append(inst.Env, "AIVOICEBUS_TEST_TOKEN_PEER=old-install")
+	}
 	inst.Stdout, inst.Stderr = &instOut, &instErr
 	if err := inst.Start(); err != nil {
 		t.Fatal(err)
@@ -224,8 +291,10 @@ func handOverTwoNodes(t *testing.T, via string) {
 
 	// The token is in no message on either node, in no output, and in no file but the two it
 	// belongs in (the deploy machine's machine-tokens/air and air's token file).
+	var all []msg.Record
 	for _, u := range []string{a, b} {
 		recs, err := (&client.Client{URLs: []string{u}, Token: thShared}).Sync(map[string]uint64{})
+		all = append(all, recs...)
 		raw, _ := json.Marshal(recs)
 		if err != nil || len(recs) < 6 || strings.Contains(string(raw), thAir) {
 			t.Errorf("node %s: %d records, holds the token: %v (%v)", u, len(recs), strings.Contains(string(raw), thAir), err)
@@ -263,4 +332,5 @@ func handOverTwoNodes(t *testing.T, via string) {
 			return nil
 		})
 	}
+	return all
 }
