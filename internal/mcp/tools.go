@@ -319,7 +319,7 @@ var threadTool = tool{
 			return "", err
 		}
 		if len(ms) == 0 {
-			return "(no such thread)", nil
+			return "(no such thread: check the id with aivoicebus_inbox, or try again in a minute if it was just sent)", nil
 		}
 		if a.Digest {
 			var b strings.Builder
