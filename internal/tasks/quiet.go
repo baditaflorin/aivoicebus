@@ -82,7 +82,11 @@ func SilentTasks(c *client.Client, host string, quiet time.Duration, now time.Ti
 // SilentText is one silent task as a line for a person. It names ids, sessions and times only,
 // never what the task or anyone in its thread said.
 func SilentText(s Silent, now time.Time) string {
+	quiet := now.Sub(s.LastWord).Round(time.Second)
+	if quiet >= time.Minute {
+		quiet = quiet.Round(time.Minute)
+	}
 	return fmt.Sprintf("aivoicebus: task %s to %s was taken by %s at %s and has been silent since %s (%s): no progress, answer or end. aivoicebus status %s",
 		s.ID, msg.SafeName(s.To), msg.SafeName(s.By), s.TakenAt.Local().Format("15:04"), s.LastWord.Local().Format("15:04"),
-		outbox.SpanText(now.Sub(s.LastWord).Round(time.Minute)), s.ID)
+		quiet, s.ID)
 }
