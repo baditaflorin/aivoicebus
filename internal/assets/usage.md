@@ -98,7 +98,7 @@ Read this only when you need to message another agent.
   sessions seen on the same repo in the last 30 minutes: agree who edits what.
 - Tools that speak MCP but have no hook can register `aivoicebus mcp` (stdio; `aivoicebus mcp
   --config` prints the settings): tools `aivoicebus_inbox`, `aivoicebus_send`, `aivoicebus_who`,
-  `aivoicebus_thread`, `aivoicebus_ack`, `aivoicebus_retract`, `aivoicebus_claim`, `aivoicebus_wait`, with the same checks as the CLI and no way to force past a
+  `aivoicebus_thread`, `aivoicebus_ack`, `aivoicebus_retract`, `aivoicebus_claim`, `aivoicebus_wait`, `aivoicebus_ask`, with the same checks as the CLI and no way to force past a
   guardrail. Each server process is its own session, `host/mcp.<4 chars>`.
 - Send a file or a live log without putting it in the message: `aivoicebus send --to <target>
   --file report.tgz "text"` encrypts the file on this machine, holds it for 5 minutes (read
@@ -147,6 +147,11 @@ Read this only when you need to message another agent.
   Codex, Gemini CLI or any MCP client, stand by with the MCP tools instead: call `aivoicebus_wait`
   (seconds 600) in a loop and handle each message the same way; the MCP server offers it as the
   `standby` prompt (Codex asks to approve the tool: approve it for the session).
+- Ask another machine's agent a question and get the answer in one command: `aivoicebus ask
+  <machine>[/<tool>] "..."` (or `ask --any --tool codex "..."`; MCP: `aivoicebus_ask`). It asks the
+  session listening now, else the one seen last, and says which; two that look alike are listed
+  and refused (exit 2): rerun with `--pick N` or the session id. It sends with `--max-turns 4
+  --deadline 15m` and exits 0 answered, 3 nobody took it (taken back), 6 taken but no answer yet.
 - Route a task: `--tool codex` (that machine's Codex sessions), `--can gpu`, `--model 'gpt-*'`.
   If it may sit untaken: `task <m1> "..." --wait-reply 15m --claim-within 2m --fallback <m2>,<m3>`
   takes it back and gives it to the next machine when nobody took it in time. `task --any --tool
