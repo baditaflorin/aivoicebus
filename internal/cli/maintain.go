@@ -111,7 +111,7 @@ func confirmFirstSetup(s Streams, url string, tools []string, asJSON bool) error
 	case err != nil:
 		return err
 	case !ok:
-		return errors.New("cancelled: nothing was changed")
+		return errors.New("cancelled: nothing was changed. Run it again to go ahead")
 	}
 	return nil
 }
@@ -158,7 +158,7 @@ func doctor(args []string, s Streams) error {
 		return err
 	}
 	if *dry && !*fix {
-		return errors.New("--dry-run goes with --fix")
+		return errors.New("--dry-run goes with --fix: run `aivoicebus doctor --fix --dry-run`")
 	}
 	if *fix {
 		exe, exeErr := executable()
@@ -338,5 +338,5 @@ func tokenKindCheck() (agentcfg.Check, bool) {
 	case kind == "observer":
 		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the observer token: read-only, this machine cannot send"}, true
 	}
-	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply"}, true
+	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply (from the root of an aivoicebus checkout), then aivoicebus token hand " + msg.HostOf(identity.Me())}, true
 }

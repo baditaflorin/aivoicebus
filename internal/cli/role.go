@@ -72,7 +72,7 @@ func roleCmd(args []string, s Streams) error {
 			return err
 		}
 		if !removed {
-			return outbox.NotFoundf("@%s is not pinned", msg.SafeName(role))
+			return outbox.NotFoundf("@%s is not pinned: `aivoicebus role` lists the pinned roles", msg.SafeName(role))
 		}
 		fmt.Fprintf(s.Out, "@%s is no longer pinned: a send to it needs --trust-role again\n", role)
 	default:

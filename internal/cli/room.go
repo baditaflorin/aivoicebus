@@ -86,7 +86,7 @@ func roomCmd(args []string, s Streams) error {
 			keep = append(keep, r)
 		}
 		if !found {
-			return outbox.NotFoundf("this session is not in %s", name)
+			return outbox.NotFoundf("this session is not in %s: join it with `aivoicebus room join %s`", name, name)
 		}
 		config.SaveRooms(me, strings.Join(keep, "+"))
 		if c, err := sessionClient(); err == nil {

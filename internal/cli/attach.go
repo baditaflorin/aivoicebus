@@ -42,7 +42,7 @@ func fileStore(c *client.Client, via string) (attach.FileStore, error) {
 				return f, nil
 			}
 		}
-		return nil, errors.New("the pipe is turned off (AIVOICEBUS_PIPE_URL=off); send it with --via node, or set AIVOICEBUS_PIPE_URL to a pipe you run")
+		return nil, errors.New("the pipe is turned off (AIVOICEBUS_PIPE_URL=off); run it again with --via node, or ask the user to set AIVOICEBUS_PIPE_URL to a pipe they run")
 	case "node":
 		return &attach.Node{URLs: c.URLs, Token: c.Token}, nil
 	}
@@ -63,7 +63,7 @@ func logStream() (attach.LogStream, error) {
 			return l, nil
 		}
 	}
-	return nil, errors.New("no log service is configured (AIVOICEBUS_TAIL_URL)")
+	return nil, errors.New("no log service is configured (AIVOICEBUS_TAIL_URL): ask the user to set it, or send the log as a file with `aivoicebus send --file`")
 }
 
 // withLine puts an attachment's lines under the sender's text.
@@ -195,13 +195,13 @@ func sendAttachment(c *client.Client, req outbox.Request, o sendOpts, s Streams)
 	case err != nil:
 		return err
 	case fi.IsDir():
-		return fmt.Errorf("%s is a directory; make an archive of it first (tar czf x.tgz DIR)", o.file)
+		return fmt.Errorf("%s is a directory; make an archive of it first (`tar czf x.tgz DIR`), then send that", o.file)
 	case !fi.Mode().IsRegular():
-		return fmt.Errorf("%s is not a regular file", o.file)
+		return fmt.Errorf("%s is not a regular file: send a regular file (`tar czf x.tgz PATH` makes one)", o.file)
 	case fi.Size() > attach.MaxFile:
-		return fmt.Errorf("%s is %s; a file may be at most %s", o.file, attach.HumanSize(fi.Size()), attach.HumanSize(attach.MaxFile))
+		return fmt.Errorf("%s is %s; a file may be at most %s: send a smaller one (`split -b` cuts it), or ask the user", o.file, attach.HumanSize(fi.Size()), attach.HumanSize(attach.MaxFile))
 	case fi.Size() == 0:
-		return fmt.Errorf("%s is empty", o.file)
+		return fmt.Errorf("%s is empty: send it again once it holds something", o.file)
 	}
 	data, err := os.ReadFile(o.file)
 	if err != nil {
@@ -318,7 +318,7 @@ func getCmd(args []string, s Streams) error {
 			id = strings.SplitN(u.Fragment, "~", 2)[0]
 		}
 		if !reMsgID.MatchString(id) {
-			return errors.New("that link has no id after the #")
+			return errors.New("that link has no id after the #: ask the sender for the whole link")
 		}
 		c, _ = client.FromEnv() // only a node link needs the token
 		if c == nil {
@@ -341,13 +341,13 @@ func getCmd(args []string, s Streams) error {
 			}
 		}
 		if body == "" {
-			return outbox.NotFoundf("message %s was not found on the nodes", id)
+			return outbox.NotFoundf("message %s was not found on the nodes: try again in a minute, or check the id with `aivoicebus inbox --all`", id)
 		}
 		var found bool
 		l, found, err = attach.Find(body)
 		switch {
 		case !found:
-			return fmt.Errorf("message %s has no attachment", id)
+			return fmt.Errorf("message %s has no attachment: `aivoicebus thread %s` shows what it says", id, id)
 		case err != nil:
 			return err
 		}
@@ -357,7 +357,7 @@ func getCmd(args []string, s Streams) error {
 		prov = withToken(prov, c)
 	}
 	if prov == nil {
-		return errors.New("the attachment is a link to a service this machine is not set up to use, so it was not fetched")
+		return errors.New("the attachment is a link to a service this machine is not set up to use, so it was not fetched: ask the sender to send it with `--via node`")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -388,7 +388,7 @@ func getCmd(args []string, s Streams) error {
 		sum := sha256.Sum256(data)
 		got := hex.EncodeToString(sum[:])
 		if l.SHA256 != "" && got != l.SHA256 {
-			return errors.New("the decrypted file does not match the checksum the sender gave; not saved")
+			return errors.New("the decrypted file does not match the checksum the sender gave; not saved: ask the sender to send it again")
 		}
 		path, err := attach.SavePath(id, l.Name, *out)
 		if err != nil {
@@ -409,7 +409,7 @@ func getCmd(args []string, s Streams) error {
 		fmt.Fprintln(s.Out, view.UntrustedBanner)
 		return p.Read(ctx, l, s.Out, *lines, *follow, 256<<10)
 	}
-	return errors.New("this service cannot be fetched")
+	return errors.New("this service cannot be fetched: ask the sender to send it with `--via node`")
 }
 
 // tailCmd: `aivoicebus tail push` streams stdin to a live log others can follow.

@@ -136,7 +136,7 @@ func ParseTokens(text string) (*TokenSet, error) {
 			tok = strings.TrimSpace(rest)
 			switch {
 			case name == "":
-				return nil, fmt.Errorf("token file line %d: empty name before ':'", i+1)
+				return nil, fmt.Errorf("token file line %d: empty name before ':': fix that line, then try again", i+1)
 			case strings.HasPrefix(name, "~"):
 				p = Principal{Name: strings.TrimPrefix(name, "~")}
 			default:
@@ -144,11 +144,11 @@ func ParseTokens(text string) (*TokenSet, error) {
 			}
 		}
 		if len(tok) < MinTokenLen {
-			return nil, fmt.Errorf("token file line %d: a token is shorter than %d characters", i+1, MinTokenLen)
+			return nil, fmt.Errorf("token file line %d: a token is shorter than %d characters: fix that line (`openssl rand -hex 24` makes a token), then try again", i+1, MinTokenLen)
 		}
 		for _, e := range ts.entries {
 			if string(e.token) == tok {
-				return nil, fmt.Errorf("token file line %d: the same token appears twice", i+1)
+				return nil, fmt.Errorf("token file line %d: the same token appears twice: remove one, then try again", i+1)
 			}
 		}
 		if bare { // told apart in metrics by fingerprint, so the old and the new token of a rotation are two series
@@ -157,10 +157,10 @@ func ParseTokens(text string) (*TokenSet, error) {
 		ts.Add(tok, p)
 	}
 	if len(ts.entries) == 0 {
-		return nil, fmt.Errorf("token file holds no token")
+		return nil, fmt.Errorf("token file holds no token: add one (`openssl rand -hex 24` makes it), then try again")
 	}
 	if ts.Primary() == "" {
-		return nil, fmt.Errorf("token file needs at least one unrestricted token for replication")
+		return nil, fmt.Errorf("token file needs at least one unrestricted token for replication: add a line with the shared token, then try again")
 	}
 	return ts, nil
 }

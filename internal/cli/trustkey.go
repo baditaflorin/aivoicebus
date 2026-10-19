@@ -33,7 +33,7 @@ than the one you got the key from. The official project key is built into the bi
 	case "rm", "remove":
 		return trustKeyRemove(args[1:], s)
 	}
-	return fmt.Errorf("unknown trust-key command %q (list, add or rm)", args[0])
+	return fmt.Errorf("unknown trust-key command %q (list, add or rm): `aivoicebus trust-key -h` lists them", args[0])
 }
 
 func trustKeyList(args []string, s Streams) error {
@@ -77,17 +77,17 @@ func trustKeyAdd(args []string, s Streams) error {
 	switch {
 	case *want != "":
 		if *want != fp {
-			return fmt.Errorf("the fingerprint does not match: you expected %s, this key is %s; nothing was added", *want, fp)
+			return fmt.Errorf("the fingerprint does not match: you expected %s, this key is %s; nothing was added. Ask whoever gave you the fingerprint", *want, fp)
 		}
 	default:
 		got, err := askLine(s, "Type the fingerprint to trust this key: ")
 		switch {
 		case errors.Is(err, errNoTerminal):
-			return errors.New("adding a trusted key needs a terminal to type its fingerprint on, or --fingerprint with the one you were given")
+			return errors.New("adding a trusted key needs a terminal to type its fingerprint on, or --fingerprint with the one you were given: ask the user to run it in a terminal")
 		case err != nil:
 			return err
 		case got != fp:
-			return errors.New("that is not the fingerprint: nothing was added")
+			return errors.New("that is not the fingerprint: nothing was added. Run it again and type the one you were given")
 		}
 	}
 	added, err := release.AddUserKey(k, *label)
@@ -115,7 +115,7 @@ func trustKeyRemove(args []string, s Streams) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("no key you added has the fingerprint %s (built-in keys cannot be removed)", fs.Arg(0))
+		return fmt.Errorf("no key you added has the fingerprint %s (built-in keys cannot be removed): `aivoicebus trust-key list` lists them", fs.Arg(0))
 	}
 	fmt.Fprintln(s.Out, "removed")
 	return nil

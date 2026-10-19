@@ -627,7 +627,7 @@ symlink, or on a line that is not an entry. No entry can mean everyone: `all`, `
 selectors and the nodes' own name are refused. `worker allow add|rm|list` edits it.
 **Sender names are self-declared.** Whoever holds the shared token can send as any name, so on a
 mesh where every machine holds the shared token the allowlist stops mistakes, not token holders.
-Per-machine tokens (`deploy/machine-token.sh`) bind each machine's messages to its own name; with
+Per-machine tokens (`deploy/machine-token.sh`, run from the root of an aivoicebus checkout) bind each machine's messages to its own name; with
 them, a machine entry means that machine.
 
 How a task runs:

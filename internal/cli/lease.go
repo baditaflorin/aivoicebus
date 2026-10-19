@@ -65,7 +65,7 @@ func leaseCmd(args []string, s Streams) error {
 			return outbox.Usagef("lease take KEY [--ttl 30m] [--note TEXT]: one key, and the note in --note")
 		}
 		if h, held := holderOf(c, key); held && h.By != me {
-			return fmt.Errorf("%s", leaseLine(h, me))
+			return fmt.Errorf("%s", leaseLine(h, me)) // nextstep: leaseLine says when it frees up
 		}
 		plan, err := outbox.Prepare(c, outbox.Request{To: me, Body: msg.LeaseBody(key, *note), Kind: msg.KindLease, TTL: *ttl}, s.Err)
 		if err != nil {
@@ -78,7 +78,7 @@ func leaseCmd(args []string, s Streams) error {
 		time.Sleep(*settle)
 		if h, held := holderOf(c, key); held && h.By != me {
 			_, _ = c.Retract(out.ID, me, false, false) // someone else was first: give ours back
-			return fmt.Errorf("%s (taken at the same moment; yours is withdrawn)", leaseLine(h, me))
+			return fmt.Errorf("%s (taken at the same moment; yours is withdrawn): ask its holder, or try again once it is released", leaseLine(h, me))
 		}
 		fmt.Fprintf(s.Out, "you hold %s until %s (lease %s); release it with: aivoicebus lease release %s\n", key, view.When(out.At.Add(ttlOf(*ttl)), time.Now()), out.ID, key)
 		return nil
@@ -100,7 +100,7 @@ func leaseCmd(args []string, s Streams) error {
 			}
 		}
 		if n == 0 {
-			return outbox.NotFoundf("this session holds no lease on %s", args[1])
+			return outbox.NotFoundf("this session holds no lease on %s: `aivoicebus lease list` shows who holds what", args[1])
 		}
 		fmt.Fprintf(s.Out, "released %s\n", args[1])
 		return nil

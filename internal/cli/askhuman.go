@@ -133,7 +133,7 @@ func askHumanCmd(args []string, s Streams) error {
 var readTTYLine = func(prompt string) (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return "", errors.New("no terminal here")
+		return "", errors.New("no terminal here") // nextstep: wrapped by "answer needs a person at a terminal"
 	}
 	defer tty.Close()
 	fmt.Fprint(tty, prompt)
@@ -214,10 +214,10 @@ func answerCmd(args []string, s Streams) error {
 		return fmt.Errorf("answer needs a person at a terminal: %v", err)
 	}
 	if text = strings.TrimSpace(text); text == "" {
-		return errors.New("no answer given; nothing sent")
+		return errors.New("no answer given; nothing sent: run `aivoicebus answer` again to answer")
 	}
 	if len(choices) > 0 && !slices.Contains(choices, strings.ToLower(text)) {
-		return fmt.Errorf("the choices are %s", strings.Join(choices, ", "))
+		return fmt.Errorf("the choices are %s: run `aivoicebus answer` again and type one", strings.Join(choices, ", "))
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: q.From, Re: q.ID, Thread: q.Thread, Kind: msg.KindAnswer, Body: msg.HumanAnswerPrefix + text, TargetSaid: true, From: msg.HumanOf(identity.Me())}, io.Discard)
 	if err != nil {

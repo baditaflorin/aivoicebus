@@ -125,7 +125,7 @@ func Run(args []string, s Streams) int {
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
-		fmt.Fprintln(s.Err, "error:", fmt.Errorf("unknown command %q", args[0]))
+		fmt.Fprintln(s.Err, "error:", fmt.Errorf("unknown command %q: `aivoicebus help` lists the commands", args[0]))
 		return 1
 	}
 	var counted *countingWriter
@@ -138,6 +138,7 @@ func Run(args []string, s Streams) int {
 		config.NoteUsage(identity.Me(), "cli:"+args[0], counted.n)
 	}
 	code := exitCode(err)
+	err = withNextStep(err, args[0])
 	var ee exitError
 	switch {
 	case err == nil, errors.As(err, &ee):

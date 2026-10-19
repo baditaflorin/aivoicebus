@@ -92,11 +92,11 @@ func probeRoundTrip(c *client.Client) (probeResult, error) {
 	res.retracted = time.Since(t3)
 	switch {
 	case wrong:
-		return res, errors.New("the probe came back from the mesh with a different body than was sent")
+		return res, errors.New("the probe came back from the mesh with a different body than was sent: ask the user to check the nodes (`aivoicebus nodes`)")
 	case !found && readErr != nil:
 		return res, fmt.Errorf("the probe message was sent but reading it failed: %v", readErr)
 	case !found:
-		return res, errors.New("the probe message was sent but did not come back from the mesh within a few seconds")
+		return res, errors.New("the probe message was sent but did not come back from the mesh within a few seconds: try again in a minute, then run `aivoicebus doctor`")
 	}
 	return res, nil
 }

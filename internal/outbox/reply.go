@@ -42,5 +42,5 @@ func pickReply(ms []msg.Message, now time.Time) (msg.Message, error) {
 	case 1:
 		return only, nil
 	}
-	return msg.Message{}, Usagef("%d unread messages could be answered, so none is guessed (a reply goes to whoever wrote the one it answers): %s; pick one with --re ID", len(cands), listCandidates(cands))
+	return msg.Message{}, Usagef("%d unread messages could be answered, so none is guessed (a reply goes to whoever wrote the one it answers): %s; run it again with --re ID to pick one", len(cands), listCandidates(cands))
 }

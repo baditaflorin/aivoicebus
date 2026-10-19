@@ -121,7 +121,7 @@ func parseNodeConf(path string, port string) ([]release.NodeEntry, error) {
 		}
 		parts := strings.Split(line, ":")
 		if len(parts) != 3 {
-			return nil, fmt.Errorf("%s: %q is not name:alias:ip", path, line)
+			return nil, fmt.Errorf("%s: %q is not name:alias:ip: fix that line, then run it again", path, line)
 		}
 		out = append(out, release.NodeEntry{Name: parts[0], URL: "http://" + parts[2] + ":" + port})
 	}
@@ -141,7 +141,7 @@ func releaseNodes(args []string, s Streams) error {
 		return err
 	}
 	if *dir == "" {
-		return errors.New("release nodes needs --dir")
+		return errors.New("release nodes needs --dir: run it again as `aivoicebus release nodes --dir DIR`")
 	}
 	entries, err := parseNodeConf(*conf, *port)
 	if err != nil {

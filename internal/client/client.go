@@ -26,7 +26,7 @@ import (
 )
 
 // ErrNoURL is returned by FromEnv when no node URL is configured.
-var ErrNoURL = errors.New("AIVOICEBUS_URL not set (comma-separate several nodes)")
+var ErrNoURL = errors.New("AIVOICEBUS_URL not set (comma-separate several nodes): run `aivoicebus join` to connect this machine, or ask the user for the node URLs")
 
 const (
 	defaultTimeout = 8 * time.Second
@@ -38,11 +38,16 @@ type StatusError struct {
 	Code   int
 	Status string // "429 Too Many Requests"
 	Text   string // what the node said
+	// Reason is why, as one msg.Refused* word: the node's msg.HeaderRefused, or what its status
+	// and text add up to for a node from before that header ("" when unknown).
+	Reason     string
+	RetryAfter time.Duration // the node's Retry-After, when it gave one
 }
 
-// Error is one safe line: a node is a peer, so its words never reach a terminal or an error object raw.
+// Error is one safe line that says what happened and what to do next, in this client's words for
+// a reason it knows: a node is a peer, so its words never reach a terminal or an error object raw.
 func (e *StatusError) Error() string {
-	return view.OneLine(e.Status, 60) + ": " + view.OneLine(e.Text, 300)
+	return e.explained(e.Refused())
 }
 
 // IsNotFound reports whether err is a node saying the endpoint does not exist,
@@ -56,7 +61,9 @@ func IsNotFound(err error) bool {
 // does not unwrap to the last failure: callers that look for a node's refusal must not find one here.
 type unreachableError struct{ last error }
 
-func (e *unreachableError) Error() string { return fmt.Sprintf("no node reachable: %v", e.last) }
+func (e *unreachableError) Error() string {
+	return fmt.Sprintf("no node reachable: %v. Check the network, then run `aivoicebus doctor` (it says which node fails and why)", e.last)
+}
 
 func unreachable(last error) error { return &unreachableError{last} }
 
@@ -223,7 +230,10 @@ func (c *Client) onceCtx(ctx context.Context, base, method, path string, in, out
 	}
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return true, &StatusError{Code: resp.StatusCode, Status: resp.Status, Text: strings.TrimSpace(string(b))}
+		text := strings.TrimSpace(string(b))
+		retry, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+		return true, &StatusError{Code: resp.StatusCode, Status: resp.Status, Text: text,
+			Reason: reasonOf(resp.StatusCode, resp.Header.Get(msg.HeaderRefused), text), RetryAfter: time.Duration(retry) * time.Second}
 	}
 	if out == nil {
 		return true, nil
@@ -234,7 +244,7 @@ func (c *Client) onceCtx(ctx context.Context, base, method, path string, in, out
 			return false, err // a body cut short is a network problem: try another node
 		}
 		if int64(len(b)) > raw.Limit {
-			return true, fmt.Errorf("response is larger than %d bytes", raw.Limit)
+			return true, fmt.Errorf("response is larger than %d bytes: ask the user to check the node (`aivoicebus nodes`)", raw.Limit)
 		}
 		raw.Data = b
 		return true, nil
@@ -244,7 +254,7 @@ func (c *Client) onceCtx(ctx context.Context, base, method, path string, in, out
 	lr := &io.LimitedReader{R: resp.Body, N: maxResponse + 1}
 	derr := json.NewDecoder(lr).Decode(out)
 	if lr.N <= 0 {
-		return false, fmt.Errorf("%s: response is larger than %d bytes", base, maxResponse)
+		return false, fmt.Errorf("%s: response is larger than %d bytes", base, maxResponse) // nextstep: one node's failure; unreachable() says what to do
 	}
 	return true, derr
 }
@@ -625,7 +635,7 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, 0, fmt.Errorf("%s answered %s", base, resp.Status)
+			return nil, 0, fmt.Errorf("%s answered %s", base, resp.Status) // nextstep: one node's failure; unreachable() says what to do
 		}
 		var ms []msg.Message
 		if err := json.Unmarshal(body, &ms); err != nil {
@@ -633,7 +643,7 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 		}
 		g, err := strconv.ParseUint(resp.Header.Get(msg.HeaderGen), 10, 64)
 		if err != nil {
-			return nil, 0, fmt.Errorf("%s does not hold reads open (no %s)", base, msg.HeaderGen)
+			return nil, 0, fmt.Errorf("%s does not hold reads open (no %s)", base, msg.HeaderGen) // nextstep: callers fall back to polling
 		}
 		Check(ms)
 		return ms, g, nil
@@ -728,7 +738,7 @@ func gather[T any](c *Client, path string) ([]T, error) {
 	case last != nil:
 		return nil, unreachable(last)
 	}
-	return nil, errors.New("no node configured")
+	return nil, errors.New("no node configured: run `aivoicebus join`, or ask the user for the node URLs")
 }
 
 // Roster lists the sessions the nodes have heard from, with the labels each
@@ -916,7 +926,7 @@ func (c *Client) FetchRelease(name string, limit int64) ([]byte, error) {
 		return raw.Data, nil
 	}
 	if last == nil {
-		last = errors.New("no node configured")
+		last = errors.New("no node configured: run `aivoicebus join`, or ask the user for the node URLs")
 	}
 	return nil, last
 }

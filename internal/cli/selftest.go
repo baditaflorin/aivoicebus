@@ -104,7 +104,7 @@ func probeAllowed(path string, now time.Time) error {
 		}
 	}
 	if len(recent) >= selftestMaxRuns {
-		return fmt.Errorf("a probe already ran %d times in the last hour on this machine (each run leaves a message and a tombstone in the log); wait, or pass --force (selftest)", len(recent))
+		return fmt.Errorf("a probe already ran %d times in the last hour on this machine (each run leaves a message and a tombstone in the log); try again in an hour, or run it again with --force (selftest)", len(recent))
 	}
 	recent = append(recent, now.Unix())
 	var b strings.Builder
@@ -146,7 +146,7 @@ func runSelftest(c *client.Client) ([]selftestHop, error) {
 		return hops, fmt.Errorf("the node refused this machine's token: %v", view.OneLine(herr.Error(), 120))
 	default:
 		_ = add("health", time.Since(t0), "", herr)
-		return hops, errors.New("no node answered /v1/health")
+		return hops, errors.New("no node answered /v1/health: check the network, then run `aivoicebus doctor`")
 	}
 
 	res, err := probeRoundTrip(c)
@@ -185,7 +185,7 @@ func runSelftest(c *client.Client) ([]selftestHop, error) {
 			tomb = tomb || (m.ID == res.id && m.Retracted != nil && !strings.HasPrefix(m.Body, probeBodyPrefix))
 		}
 		if terr == nil && !tomb {
-			terr = errors.New("the thread still shows the probe after the retraction")
+			terr = errors.New("the thread still shows the probe after the retraction: try again in a minute; if it stays, ask the user to check the nodes (`aivoicebus nodes`)")
 		}
 		if err := add("verify", time.Since(t), "the thread shows a tombstone, not the probe", terr); err != nil {
 			return hops, err

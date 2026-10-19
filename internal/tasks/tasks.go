@@ -5,6 +5,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -34,13 +35,18 @@ func Find(c *client.Client, id string) (msg.Message, []msg.Message, error) {
 	}
 	for _, m := range ms {
 		if m.ID == id {
-			if m.Kind != msg.KindTask {
+			switch {
+			case m.Kind != msg.KindTask:
 				return msg.Message{}, nil, outbox.Usagef("%s is not a task (it is a %s); answer it with: aivoicebus reply --re %s", id, KindWord(m.Kind), id)
+			case m.Retracted != nil: // a withdrawn task is nobody's to take
+				return msg.Message{}, nil, fmt.Errorf("task %s was withdrawn by its sender, so nothing was claimed: ask the sender for a fresh one if the work is still wanted", id)
+			case m.Exp != nil && time.Now().After(*m.Exp):
+				return msg.Message{}, nil, fmt.Errorf("task %s expired at %s, so nothing was claimed: ask the sender for a fresh one if the work is still wanted", id, m.Exp.Local().Format("15:04"))
 			}
 			return m, ms, nil
 		}
 	}
-	return msg.Message{}, nil, outbox.NotFoundf("task %s was not found on the nodes (claim takes the full 10-character id)", id)
+	return msg.Message{}, nil, outbox.NotFoundf("task %s was not found on the nodes (claim takes the full 10-character id; a task expires): check the id with `aivoicebus inbox --all`, or ask the sender for a fresh one", id)
 }
 
 // KindWord names a kind for a person: "plain message" for none.
@@ -62,7 +68,7 @@ func Owner(c *client.Client, task msg.Message) (msg.TakeRef, bool, error) {
 }
 
 // ErrOwnTask is a claim on a task this session sent.
-var ErrOwnTask = errors.New("you sent this task; a session that receives it claims it")
+var ErrOwnTask = errors.New("you sent this task; a session that receives it claims it. To take it back, run `aivoicebus cancel ID`")
 
 // Claimed is how a claim went.
 type Claimed struct {
@@ -145,7 +151,7 @@ func (f Filter) Match(m msg.Message) bool {
 }
 
 // ErrTimeout is a wait that saw nothing arrive.
-var ErrTimeout = errors.New("nothing arrived")
+var ErrTimeout = errors.New("nothing arrived") // nextstep: every caller says what to do after a timeout
 
 // Wait polls the inbox until unread messages that match f are there, d has passed (ErrTimeout) or
 // ctx is done (ErrTimeout too). Each poll is one small request; the caller's agent spends no

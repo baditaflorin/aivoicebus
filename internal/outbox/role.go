@@ -18,9 +18,9 @@ func ResolveRole(c *client.Client, role, me string, o msg.RoleOpts) (msg.RoleRes
 	roster, err := c.RosterAll() // a decision, not a display: probes are counted
 	switch {
 	case client.IsNotFound(err):
-		return msg.RoleResolution{Role: role}, fmt.Errorf("@%s cannot be resolved: this node does not report who is around; send to the session by identity", role)
+		return msg.RoleResolution{Role: role}, fmt.Errorf("@%s cannot be resolved: this node does not report who is around: send to the session by identity (`aivoicebus who` lists them), or ask the user to update the nodes", role)
 	case err != nil:
-		return msg.RoleResolution{Role: role}, fmt.Errorf("@%s cannot be resolved: the nodes could not say who is around (%v); send to the session by identity", role, err)
+		return msg.RoleResolution{Role: role}, fmt.Errorf("@%s cannot be resolved: the nodes could not say who is around (%v): send to the session by identity, or try again", role, err)
 	}
 	text, err := config.ReadRoles()
 	if err != nil { // a roles file that cannot be trusted is no pin: say so rather than fall back to none

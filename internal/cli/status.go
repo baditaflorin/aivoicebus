@@ -33,7 +33,7 @@ func statusCmd(args []string, s Streams) error {
 		if client.IsUnreachable(err) {
 			return err
 		}
-		return outbox.NotFoundf("message %s was not found on the nodes (status takes the full id)", fs.Arg(0))
+		return outbox.NotFoundf("message %s was not found on the nodes (status takes the full id): check it with `aivoicebus inbox --all`", fs.Arg(0))
 	}
 	if *asJSON {
 		return writeJSON(s.Out, r)

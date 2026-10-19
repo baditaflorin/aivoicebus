@@ -5,6 +5,10 @@ Everything here is a script in `deploy/`, a command of the binary, or a check in
 `--apply`**, touch one node at a time, and stop at the first node that does not come back
 healthy. None of them prints a token. The node list is `deploy/nodes.conf`.
 
+Commands that start with `deploy/` or `scripts/` are files in this repository: run them from the
+root of an aivoicebus checkout (`git clone https://github.com/baditaflorin/aivoicebus && cd aivoicebus`),
+not from any other directory, where the shell says `no such file or directory`.
+
 ## Is it healthy?
 
     aivoicebus mesh            # every node: release, clock, records, peer links; lists what is wrong

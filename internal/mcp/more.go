@@ -127,7 +127,7 @@ var statusTool = tool{
 			return "", err
 		}
 		if !msg.ValidID(a.ID) {
-			return "", errors.New("id must be the full 10-character message id")
+			return "", errors.New("id must be the full 10-character message id: call it again with one from aivoicebus_inbox")
 		}
 		c, err := s.Client()
 		if err != nil {
@@ -196,7 +196,7 @@ var getTool = tool{
 			return "", err
 		}
 		if !msg.ValidID(a.ID) {
-			return "", errors.New("id must be the full 10-character message id")
+			return "", errors.New("id must be the full 10-character message id: call it again with one from aivoicebus_inbox")
 		}
 		c, err := s.Client()
 		if err != nil {
@@ -213,7 +213,7 @@ var getTool = tool{
 			}
 		}
 		if body == "" {
-			return "", fmt.Errorf("message %s was not found on the nodes", a.ID)
+			return "", fmt.Errorf("message %s was not found on the nodes: try again in a minute, or check the id with aivoicebus_inbox", a.ID)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()

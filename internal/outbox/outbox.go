@@ -90,7 +90,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	me := identity.Me()
 	if r.From != "" {
 		if !msg.ValidIdentity(r.From) || msg.HostOf(r.From) != msg.HostOf(me) {
-			return p, Usagef("a message can be sent as another identity of this machine only, not %s", view.Name(r.From, msg.MaxIdentity))
+			return p, Usagef("a message can be sent as another identity of this machine only, not %s: leave --as out, or name one of this machine (`aivoicebus whoami`)", view.Name(r.From, msg.MaxIdentity))
 		}
 		me = r.From
 	}
@@ -99,7 +99,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	urgent := strings.EqualFold(r.Prio, msg.PrioUrgent)
 	if r.Re != "" && hexPrefix(strings.ToLower(r.Re)) { // --re 3fa9 names the message by its first characters
 		if len(r.Re) < 10 && (urgent || r.File || r.Attach) { // a peer can plant a message whose id starts with the same characters
-			return p, Usagef("--re %s is an abbreviation: an urgent message, a file or a log link goes only to a message named by its full id (a peer can plant an id with the same first characters)", view.Name(r.Re, 12))
+			return p, Usagef("--re %s is an abbreviation: an urgent message, a file or a log link goes only to a message named by its full id (a peer can plant an id with the same first characters): run it again with the full id (`aivoicebus inbox --all` lists ids)", view.Name(r.Re, 12))
 		}
 		var err error
 		ids := NewIDResolver(c, me)
@@ -120,7 +120,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			if err != nil {
 				return p, err
 			}
-			return p, NotFoundf("message %s was not found on the nodes; say who to send to with --to", r.Re)
+			return p, NotFoundf("message %s was not found on the nodes: run it again with --to WHO, or check the id with `aivoicebus inbox --all`", r.Re)
 		case to == "":
 			to = replyTarget(orig, me)
 			if !r.TargetSaid { // nothing is sent to a recipient the sender was not shown
@@ -132,18 +132,18 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 	}
 	if to == "" || body == "" {
-		return p, Usagef("need --to and a body (args or stdin)")
+		return p, Usagef("need --to and a body (args or stdin), like `aivoicebus send --to laptop-b \"text\"`")
 	}
 	// A name that only looks like another (a Unicode hyphen, a Cyrillic letter, an invisible
 	// character) would route the message to, or pass as, someone else: the nodes refuse it too.
 	if why := msg.SenderProblem(me); why != "" {
-		return p, fmt.Errorf("refused: this session's identity %s: its machine name %q looks like something else (pin a plain ASCII one with AIVOICEBUS_HOST), or AIVOICEBUS_ME / AIVOICEBUS_AGENT does", why, view.OneLine(msg.HostOf(me), 60))
+		return p, fmt.Errorf("refused: this session's identity %s: its machine name %q looks like something else (pin a plain ASCII one with AIVOICEBUS_HOST), or AIVOICEBUS_ME / AIVOICEBUS_AGENT does: `aivoicebus whoami` shows it", why, view.OneLine(msg.HostOf(me), 60))
 	}
 	if why := msg.TargetProblem(to); why != "" {
-		return p, fmt.Errorf("refused: the target %s", why)
+		return p, fmt.Errorf("refused: the target %s: name it with plain letters (`aivoicebus who` lists the sessions)", why)
 	}
 	if f, found := credentialIn(body); found {
-		return p, errors.New("refused: " + secrets.Refusal(f) + " (nothing was sent)")
+		return p, errors.New("refused: " + secrets.Refusal(f) + " (nothing was sent)") // nextstep: secrets.Refusal says it
 	}
 	for _, f := range secrets.Find(body) {
 		fmt.Fprintf(warn, "warning: this message contains something that looks like a %s; if it is one, resend without it\n", f.Kind)
@@ -178,7 +178,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if p.ByCaps && (urgent || r.File || r.Attach) {
 		// capabilities are claimed by the sessions themselves, so whoever claims one gets the message:
 		// nothing urgent, no file and no log link goes to them (a pinned role or an explicit --to does)
-		return p, Usagef("refused: %s routes by capability, which any session can claim; an urgent message, a file or a log link never goes to such a route (name the session with --to, or use a pinned role)", view.Name(to, 80))
+		return p, Usagef("refused: %s routes by capability, which any session can claim; an urgent message, a file or a log link never goes to such a route (name the session with --to, or use a pinned role; `aivoicebus who` lists them)", view.Name(to, 80))
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,
 		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns, Deadline: int64(r.Deadline / time.Second)}
@@ -186,15 +186,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		// Sent from a run a worker started for a task: what this sends is one task deeper.
 		m.Depth = min(d, msg.MaxDepthField)
 		if m.Kind == msg.KindTask && d > msg.MaxTaskDepth {
-			return p, fmt.Errorf("refused: this would be a task %d tasks deep (a task sent from the run of a task sent from ...); more than %d is a chain reaction, not work: tell the user instead", d, msg.MaxTaskDepth)
+			return p, fmt.Errorf("refused: this would be a task %d tasks deep (a task sent from the run of a task sent from ...); more than %d is a chain reaction, not work: ask the user instead", d, msg.MaxTaskDepth)
 		}
 	}
 	if r.MaxTurns != 0 || r.Deadline != 0 {
 		if r.Re != "" || r.Thread != "" {
-			return p, Usagef("--max-turns and --deadline go on the message that starts a conversation, not on a reply")
+			return p, Usagef("--max-turns and --deadline go on the message that starts a conversation, not on a reply: run it again without them")
 		}
 		if old := nodeTooOldFor(c, msg.TurnsSince); old != "" {
-			return p, fmt.Errorf("refused: %s runs a release older than %s, which does not enforce --max-turns or --deadline; update the nodes first", old, msg.TurnsSince)
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which does not enforce --max-turns or --deadline: ask the user to update the nodes first", old, msg.TurnsSince)
 		}
 	}
 	if r.File {
@@ -233,7 +233,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if m.Kind == msg.KindTask || m.Kind == msg.KindClaim || m.Kind == msg.KindEnd {
 		// A node older than this quarantines the record instead of relaying it.
 		if old := nodeTooOldFor(c, msg.TaskSince); old != "" {
-			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a %s; update the nodes first", old, msg.TaskSince, m.Kind)
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a %s: ask the user to update the nodes first", old, msg.TaskSince, m.Kind)
 		}
 	}
 	// Sign only when every node keeps the signature (see msg.SignSince); the client signs as it sends.
@@ -242,15 +242,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	if m.Kind == msg.KindLease {
 		if old := nodeTooOldFor(c, msg.LeaseSince); old != "" {
-			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a lease; update the nodes first", old, msg.LeaseSince)
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a lease: ask the user to update the nodes first", old, msg.LeaseSince)
 		}
 	}
 	if m.Kind == msg.KindProgress {
 		if m.Re == "" {
-			return p, Usagef("a progress message says which task it is about: --re ID")
+			return p, Usagef("a progress message says which task it is about: run it again with --re TASK_ID (`aivoicebus queue` lists tasks)")
 		}
 		if old := nodeTooOldFor(c, msg.ProgressSince); old != "" {
-			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a progress message; update the nodes first", old, msg.ProgressSince)
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which cannot hold a progress message: ask the user to update the nodes first", old, msg.ProgressSince)
 		}
 	}
 
@@ -288,9 +288,9 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if r.File {
 		switch {
 		case known && n == 0:
-			return p, fmt.Errorf("no session seen in the last %s matches %s, and a file can be read for only five minutes, so it cannot wait for one to start", ReachWindowText, to)
+			return p, fmt.Errorf("no session seen in the last %s matches %s, and a file can be read for only five minutes, so it cannot wait for one to start: check the target with `aivoicebus who %s`", ReachWindowText, to, to)
 		case known && n > 1 && !r.Keep && !strings.EqualFold(r.Kind, msg.KindTask): // a task has one reader: whoever takes it
-			return p, fmt.Errorf("%s reaches %d sessions but a file is burned by the first one to read it; send to one session, or add --keep to let each of them read it for five minutes", to, n)
+			return p, fmt.Errorf("%s reaches %d sessions but a file is burned by the first one to read it; run it again to one session (`aivoicebus who %s` lists them), or with --keep to let each of them read it for five minutes", to, n, to)
 		}
 	}
 
@@ -303,10 +303,10 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		// A task interrupts the sessions it reaches only until one of them takes it, so a task to a
 		// machine with many sessions is not refused; a task to everyone still is.
 		if m.Priority() == msg.PrioUrgent && known && n >= UrgentFanout && (m.Kind != msg.KindTask || to == "all") {
-			return p, fmt.Errorf("an urgent message to %s would interrupt %d sessions; use --prio ask, narrow the target, or add --force if that is what you want", to, n)
+			return p, fmt.Errorf("an urgent message to %s would interrupt %d sessions; run it again with --prio ask, or a narrower target (`aivoicebus who` lists them), or --force if that is what you want", to, n)
 		}
 		if known && n >= BulkReaders && utf8.RuneCountInString(body) > BulkChars {
-			return p, fmt.Errorf("a %d-character message to %d sessions puts about %d characters into their contexts; shorten it, send a pointer instead, or add --force", utf8.RuneCountInString(body), n, p.Context*n)
+			return p, fmt.Errorf("a %d-character message to %d sessions puts about %d characters into their contexts; send it again shorter, or as a pointer, or with --force", utf8.RuneCountInString(body), n, p.Context*n)
 		}
 	}
 
@@ -331,7 +331,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 // may not: this machine's own secrets matched exactly, and anything shaped like a credential.
 func CheckContent(data []byte) error {
 	if f, found := credentialIn(string(data)); found {
-		return errors.New("refused: the file contains what looks like a " + f.Kind + "; say where the secret lives instead of sending it")
+		return errors.New("refused: the file contains what looks like a " + f.Kind + "; say where the secret lives instead, and send it again")
 	}
 	return nil
 }

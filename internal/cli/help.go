@@ -112,5 +112,5 @@ func helpCmd(args []string, s Streams) error {
 		names = append(names, t.name)
 	}
 	sort.Strings(names)
-	return fmt.Errorf("unknown command %q (commands: %s)", args[0], strings.Join(names, ", "))
+	return fmt.Errorf("unknown command %q (commands: %s): `aivoicebus help COMMAND` says what one does", args[0], strings.Join(names, ", "))
 }
