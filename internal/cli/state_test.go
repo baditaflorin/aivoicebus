@@ -49,7 +49,9 @@ func (p peer) say(to msg.Message, kind, body string) {
 	}
 }
 
-func (p peer) state(to msg.Message, st, note string) { p.say(to, msg.KindProgress, msg.StateBody(st, note)) }
+func (p peer) state(to msg.Message, st, note string) {
+	p.say(to, msg.KindProgress, msg.StateBody(st, note))
+}
 
 func TestStateMovesAndRefusesWithAClearMessage(t *testing.T) {
 	mesh(t)
