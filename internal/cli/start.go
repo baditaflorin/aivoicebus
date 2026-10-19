@@ -193,7 +193,7 @@ func (r *startRun) mesh(flagURLs string, trust bool, tools string) {
 				return
 			}
 		} else {
-			o.urls, o.typed = got, true
+			o.urls, o.typed, o.nodesFrom = got, true, "as you typed them"
 		}
 	}
 	if err := joinRun(o, r.s); err != nil {
@@ -217,7 +217,7 @@ func (r *startRun) fromLink(link string, o *joinOpts) bool {
 		r.failed = true
 		return false
 	}
-	o.urls, o.token, o.tokenFrom, o.typed, o.replace = strings.Join(urls, ","), tok, "from the join link", true, true
+	o.urls, o.token, o.tokenFrom, o.typed, o.nodesFrom, o.replace = strings.Join(urls, ","), tok, "from the join link", true, "from the join link", true
 	return true
 }
 

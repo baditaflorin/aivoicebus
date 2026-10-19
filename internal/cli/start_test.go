@@ -217,7 +217,7 @@ func TestStartAsksThePersonAndDoesEachStep(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s\n%s\nasked %q", code, out, e, *asked)
 	}
-	for _, want := range []string{"(as you gave them)", st("done", "mesh"), st("ok", "setup"), st("done", "codex trust"), st("done", "approver"), st("skipped", "notify"), st("ok", "doctor")} {
+	for _, want := range []string{"(as you typed them)", st("done", "mesh"), st("ok", "setup"), st("done", "codex trust"), st("done", "approver"), st("skipped", "notify"), st("ok", "doctor")} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

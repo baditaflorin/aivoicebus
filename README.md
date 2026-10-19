@@ -144,6 +144,13 @@ signature before it installs anything (see [docs/releasing.md](docs/releasing.md
 
 ## Quickstart: one node, one machine
 
+**Joining a mesh that already runs?** One guided command, in a terminal, does it all; run it again any time, it skips
+what is done (`--yes` asks nothing and lists what is left for you):
+
+```
+aivoicebus start     # join (a join link, or the node URL and token), set up the tools, Codex trust, approver key, phone alerts, doctor, then a hello
+```
+
 The output below is from a real run of this code in a clean container (home directory shortened to `~`).
 
 **1. Start a node.** It needs a token of at least 24 characters, and it listens on loopback unless you say otherwise.

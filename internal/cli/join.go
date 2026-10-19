@@ -54,9 +54,11 @@ type joinOpts struct {
 	// token is a token already in hand (start took it from a join link or a pipe); empty asks for
 	// it. tokenFrom says where it came from.
 	token, tokenFrom string
-	// typed says the person typed or pasted the URLs at this terminal a moment ago (start's prompt):
-	// that is the confirmation join otherwise asks for, so it is not asked twice.
-	typed bool
+	// typed says the person typed or pasted the URLs (or the join link that holds them) at this
+	// terminal a moment ago: that is the confirmation join otherwise asks for, so it is not asked
+	// twice. nodesFrom says how they came.
+	typed     bool
+	nodesFrom string
 }
 
 func joinRun(o joinOpts, s Streams) error {
@@ -88,7 +90,7 @@ func joinRun(o joinOpts, s Streams) error {
 	// 1. who gets the token: confirmed by typing, before the token is even asked for
 	switch {
 	case len(confirm) == 0 && o.typed:
-		line("ok", "nodes", strings.Join(nodeURLs, ",")+" (as you gave them)")
+		line("ok", "nodes", strings.Join(nodeURLs, ",")+" ("+o.nodesFrom+")")
 	case len(confirm) == 0:
 		line("ok", "nodes", strings.Join(nodeURLs, ","))
 	case o.dry:
