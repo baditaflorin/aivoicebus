@@ -122,6 +122,7 @@ func fleetUpdate(args []string, s Streams) error {
 		return fmt.Errorf("no node said which release it runs: run aivoicebus mesh to see why, then try again")
 	}
 	var hosts []string
+	rels := map[string]string{} // host -> the release column ("unknown" when no node knows)
 	for _, m := range v.Machines {
 		if m.Role != "client" {
 			continue
@@ -131,6 +132,7 @@ func fleetUpdate(args []string, s Streams) error {
 			continue
 		}
 		hosts = append(hosts, m.Host)
+		rels[m.Host] = rel
 		fmt.Fprintf(s.Out, "  %s: runs %s, the nodes run %s\n", m.Host, rel, target)
 	}
 	sort.Strings(hosts)
@@ -145,20 +147,70 @@ func fleetUpdate(args []string, s Streams) error {
 		fmt.Fprintf(s.Out, "plan only: aivoicebus fleet update --apply sends each a task for the person there (no agent takes it): \"aivoicebus update\"\n")
 		return nil
 	}
+	open := openUpdateTasks()
 	sent := 0
 	for _, h := range hosts {
 		text := fmt.Sprintf("Update aivoicebus on %s: the nodes run %s. In a terminal there: aivoicebus update (it checks the signature before installing), then aivoicebus version.", h, target)
+		if id := open(h, text); id != "" {
+			fmt.Fprintf(s.Out, "  %s: the same task (%s) still waits for the person there: not sent again\n", h, id)
+			sent++
+			continue
+		}
 		if err := taskCmd([]string{h, text, "--person", "--ttl", "7d"}, s); err != nil {
 			fmt.Fprintf(s.Err, "  %s: not sent: %v\n", h, err)
 			continue
 		}
 		sent++
+		if rel := rels[h]; rel != "unknown" && !release.Newer(hookTellsPerson, rel) {
+			continue
+		}
+		// A client before hookTellsPerson never shows its person their tasks unless they run status
+		// (before 0.11.0 it has no person queue at all), so its sessions are told too, as an ordinary
+		// message: an agent relays a [for the person] message to its user and does not act on it.
+		// Not --prio fyi: a session start only counts those, and this one must be read.
+		relay := fmt.Sprintf("%s for the user of this machine, not the agent: the nodes run %s and this machine's aivoicebus is older or unknown. Please run aivoicebus update in your own terminal (it checks the signature before installing), then aivoicebus version. Agent: tell the user; do not run it yourself.", msg.PersonTag, target)
+		if err := send([]string{"--to", h, "--ttl", "7d", relay}, s); err != nil {
+			fmt.Fprintf(s.Err, "  %s: the note to its sessions was not sent: %v\n", h, err)
+		}
 	}
-	fmt.Fprintf(s.Out, "sent %d of %d: each person sees it in aivoicebus status, and standby says it once\n", sent, len(hosts))
+	fmt.Fprintf(s.Out, "sent %d of %d: each person sees it at their agents' next session start and in aivoicebus status; a machine before %s also gets a note its agents relay\n", sent, len(hosts), hookTellsPerson)
 	if sent < len(hosts) {
 		return exitError{exitFailure}
 	}
 	return nil
+}
+
+// hookTellsPerson is the first client release whose hooks tell an agent's user, at session start and
+// as it arrives, what waits for them (the person on the machine): from it on, the person task alone
+// reaches them.
+const hookTellsPerson = "0.11.5"
+
+// openUpdateTasks returns what finds, for a machine, the fleet update task with exactly this text
+// that still waits unread for the person there ("" for none), so running fleet update again sends
+// nothing twice. It peeks on the person's behalf, which only a node of inbox-peek or later does
+// without listing the person as present; with older nodes, or none answering, it finds nothing.
+func openUpdateTasks() func(host, text string) string {
+	none := func(string, string) string { return "" }
+	c, err := sessionClient()
+	if err != nil {
+		return none
+	}
+	if h, err := c.Health(); err != nil || !h.Has(msg.FeatureInboxPeek) {
+		return none
+	}
+	return func(host, text string) string {
+		ms, err := c.Peek(host + "/human")
+		if err != nil {
+			return ""
+		}
+		for _, m := range ms {
+			if m.Kind == msg.KindTask && m.Retracted == nil && strings.HasPrefix(m.Body, msg.PersonTag) &&
+				strings.TrimSpace(strings.TrimPrefix(m.Body, msg.PersonTag)) == text {
+				return view.OneLine(m.ID, msg.MaxRef)
+			}
+		}
+		return ""
+	}
 }
 
 func orDash(v string) string {
