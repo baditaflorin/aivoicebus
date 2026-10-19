@@ -271,9 +271,11 @@ for i in 1 2 3 4; do [ "$(code "$MT" "$(url $i)/v1/who")" = 200 ] && pass "node 
 M=$(AIVOICEBUS_ME=lab/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "from the machine itself" 2>&1); has "it sends as its own machine" "^sent " "$M"
 before=$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")
 out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
-# The nodes were restarted by machine-token add: machines heard from before are not proven either way.
-[ $rc = 1 ] && has "rotate-token --check refuses while a machine is not proven to have its own token" "do not rotate the shared token now" "$out" || fail "rotate-token --check exit $rc: $out"
+[ $rc = 0 ] && has "rotate-token --check: every client machine is on its own token, so a rotation cuts nobody off" "no machine would be cut off" "$out" || fail "rotate-token --check exit $rc: $out"
 has "and the report shows lab on its machine token" "^  lab .* machine  *made" "$out"
+M=$(AIVOICEBUS_ME=labtwo/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "from a machine on the shared token" 2>&1); has "a machine sends with the shared token" "^sent " "$M"
+out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
+[ $rc = 1 ] && has "rotate-token --check refuses, naming the machine on the shared token" "would cut off.*labtwo" "$out" || fail "rotate-token --check exit $rc: $out"
 [ "$before" = "$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")" ] && pass "rotate-token --check changes no file" || fail "rotate-token --check changed a file"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "pretending to be another machine" 2>&1); has "it cannot send as another machine" "may only act as lab" "$M"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" inbox 2>&1); has "or read another machine's mail" "may only act as lab" "$M"
