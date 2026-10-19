@@ -212,3 +212,29 @@ func TestAskMovesOnToTheFallback(t *testing.T) {
 		t.Errorf("the moved copy lost the limits: %+v", moved)
 	}
 }
+
+// A short --wait-reply with the default --claim-within used to stop ask with a usage error (the
+// 2m default was not shorter than the wait): found live on 0.11.0 with `ask HOST "q" --wait-reply 2m`.
+func TestAskFitsItsDefaultClaimWaitInsideAShortReplyWait(t *testing.T) {
+	for _, c := range []struct {
+		set         bool
+		claim, wait time.Duration
+		want        time.Duration
+	}{
+		{false, 2 * time.Minute, 15 * time.Minute, 2 * time.Minute}, // the default fits: kept
+		{false, 2 * time.Minute, 2 * time.Minute, time.Minute},      // equal: half the wait
+		{false, 2 * time.Minute, 6 * time.Second, 5 * time.Second},  // never under 5s
+		{true, 2 * time.Minute, 2 * time.Minute, 2 * time.Minute},   // set by the person: kept, checked later
+	} {
+		if got := askClaimWithin(c.set, c.claim, c.wait); got != c.want {
+			t.Errorf("askClaimWithin(%v, %s, %s) = %s, want %s", c.set, c.claim, c.wait, got, c.want)
+		}
+	}
+	mesh(t)
+	present(t, sa)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, _, e := run(t, "", "ask", "lap", "a short one?", "--wait-reply", "6s")
+	if code == exitUsage || strings.Contains(e, "claim-within is at least") {
+		t.Fatalf("a short --wait-reply alone must work: %d %q", code, e)
+	}
+}

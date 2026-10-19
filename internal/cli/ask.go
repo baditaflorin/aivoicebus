@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"math/rand/v2"
 	"strconv"
@@ -70,6 +71,9 @@ func askCmd(args []string, s Streams) error {
 	if *waitReply > *deadline {
 		return outbox.Usagef("--wait-reply %s is longer than --deadline %s: the conversation closes before that", *waitReply, *deadline)
 	}
+	explicit := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	*claimWithin = askClaimWithin(explicit["claim-within"], *claimWithin, *waitReply)
 	if *ttl == "" {
 		*ttl = deadline.String()
 	}
@@ -199,4 +203,14 @@ func alikeError(target string, alike []msg.RosterEntry, question string, s Strea
 	fmt.Fprintf(&b, "say which: aivoicebus ask %s %q --pick N, or name the session: aivoicebus ask %s %q",
 		view.Name(target, msg.MaxIdentity), q, view.Name(alike[0].Me, msg.MaxIdentity), q)
 	return outbox.Usagef("%s", b.String())
+}
+
+// askClaimWithin is how long ask gives a session to take the question. The default (2m) must not
+// break a short --wait-reply: when the person did not set --claim-within, it fits inside the wait
+// (half of it, at least 5s). A value the person set is kept, and checked as on task.
+func askClaimWithin(set bool, claim, waitReply time.Duration) time.Duration {
+	if set || claim < waitReply {
+		return claim
+	}
+	return max(waitReply/2, 5*time.Second)
 }
