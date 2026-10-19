@@ -307,6 +307,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		// Who took the current task, when, and when they last said how it goes (a claim or progress):
 		// the local time it arrived drives the quiet timer, the node's times are what the alert says.
 		var takenAt, lastWordAt, lastHeard time.Time
+		claimBy := time.Now().Add(*claimWithin) // with --fallback: when the current target's turn ends
 		quietSaid := false
 		quiet := time.Duration(0)
 		if cur.Kind == msg.KindTask {
@@ -332,13 +333,14 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			fmt.Fprintf(s.Err, "%s: took %s back and gave it to %s as %s\n", why, old, view.Name(next, msg.MaxIdentity), cur.ID)
 			out = cur
 			takenBy, takenAt, lastWordAt, lastHeard, quietSaid = "", time.Time{}, time.Time{}, time.Time{}, false
+			claimBy = time.Now().Add(*claimWithin)
 			return nil
 		}
 		for {
 			window := time.Until(deadline)
 			switch {
 			case takenBy == "" && len(fallbacks) > 0:
-				window = min(window, *claimWithin)
+				window = min(window, max(time.Until(claimBy), 0))
 			case takenBy != "" && quiet > 0 && !quietSaid:
 				window = min(window, max(time.Until(lastHeard.Add(quiet)), 0))
 			}
@@ -372,10 +374,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 				}
 				continue
 			}
-			if takenBy != "" || len(fallbacks) == 0 || time.Until(deadline) < time.Second {
-				if time.Until(deadline) >= time.Second {
-					continue
-				}
+			if time.Until(deadline) < time.Second {
 				fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), cur.Thread)
 				if *asJSON {
 					_ = writeJSON(s.Out, resultOf(cur, takenBy, nil))
@@ -383,8 +382,11 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 				return exitError{exitTimeout}
 			}
 			// Nobody took it in --claim-within: take it back there and give it to the next target.
-			if err := moveOn(fmt.Sprintf("nobody took it within %s", claimWithin.String())); err != nil {
-				return err
+			// (A window can end sooner, to look at the quiet timer: that is not this.)
+			if takenBy == "" && len(fallbacks) > 0 && !time.Now().Before(claimBy) {
+				if err := moveOn(fmt.Sprintf("nobody took it within %s", claimWithin.String())); err != nil {
+					return err
+				}
 			}
 		}
 	}

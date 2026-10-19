@@ -253,7 +253,9 @@ func TestASilentTaskMovesOnToTheFallback(t *testing.T) {
 	})
 	t.Setenv("AIVOICEBUS_ME", boss)
 	code, out, e := run(t, "", "task", "qc-lap", "build the site", "--wait-reply", "30s", "--claim-within", "5s", "--quiet-after", "2s", "--fallback", "qc-desk2")
-	if code != 0 || !strings.Contains(out, "done on desk2") || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "said nothing for 2s: took") {
+	if code != 0 || !strings.Contains(out, "done on desk2") || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "said nothing for 2s: took") ||
+		strings.Contains(e, "nobody took it") { // it was taken: a window that ends to look at the quiet timer is not --claim-within running out
+
 		t.Fatalf("%d\n%s\n%s", code, out, e)
 	}
 	first, _ := sentID(t, out)
