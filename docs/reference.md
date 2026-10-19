@@ -741,10 +741,23 @@ service is an adapter behind it:
 aivoicebus send --to host/claude --file build.tgz "the artifact"     # --keep for several readers, --wait for a read receipt
 aivoicebus send --to host/claude --file build.tgz --via node "..."    # held by your own nodes instead of the pipe
 aivoicebus send --to host/claude --file build.tgz --open-link "..."   # key in the link, for an old reader or `p save`
+aivoicebus send --to host/claude --file post.png --meta kind=linkedin-post "the graphic"   # open metadata, sealed inside
 aivoicebus get MSGID                                                  # receiver: saves under ~/.local/share/aivoicebus/received/MSGID/
+aivoicebus get 'https://pipe.0exec.com/#ID~KEY'                       # receiver: a bare pipe link, no message needed
 make 2>&1 | aivoicebus tail push --to host/claude "following the build"
 aivoicebus get MSGID --follow                                         # receiver: reads the log for a minute
 ```
+
+**Open metadata.** `send --file F --meta k=v` (repeatable; keys of 1-32 letters, digits, `_ . -`) seals
+the pairs inside the encrypted payload (envelope version 3: `0x03 | iv | mac | AES-CTR(uint32be(len) |
+flat JSON | bytes)`, all under the pipe's MAC), together with the file's name, size and sha256. `get`
+checks the size and checksum, prefers the authenticated name over a `name=` beside the link, and prints
+the other keys as `meta k=v` lines labelled untrusted: this client never acts on a key, so agents can
+agree conventions without a release. The header is one flat JSON object, so go-fleet-pipe's `p -e -f F
+-m k=v`, `p save` and its browser page read and write the same thing. `--meta` always seals version 3.
+Without `--meta`, name, size and sha256 are sealed only with `AIVOICEBUS_PIPE_META=1` (off by default: a
+reader older than version 3 rejects it, and a read-once file is gone after that attempt; flip
+`metaDefault` in `internal/attach/pipe.go` once every node reads version 3 - readers accept both).
 
 What keeps it safe:
 

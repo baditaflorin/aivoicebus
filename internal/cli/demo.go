@@ -447,7 +447,7 @@ func (d *demo) script(ctx context.Context) error {
 		return err
 	}
 	log := []byte("FAIL TestLoginRedirect (0.42s): redirect went to /home, want /dashboard\nFAIL TestCookiePath (0.08s): cookie path /, want /app\nok   37 other tests\n")
-	l, _, err := (&attach.Node{URLs: []string{d.nodes[1].url}, Token: d.token}).Put(ctx, log, true)
+	l, _, err := (&attach.Node{URLs: []string{d.nodes[1].url}, Token: d.token}).Put(ctx, log, attach.Meta{}, true)
 	if err != nil {
 		return fmt.Errorf("bob's file: %w", err)
 	}

@@ -113,6 +113,8 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	openLink := fs.Bool("open-link", false, "with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once")
 	keep := fs.Bool("keep", false, "with --file: let several sessions read the file (it is not burned by the first read)")
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
+	var metas metaFlag
+	fs.Var(&metas, "meta", "with --file: seal a key=value inside the file's encrypted payload for the reader (repeatable; any keys: it is open data the reader may use or ignore; the file name, size and sha256 are sealed with it)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	private := fs.Bool("private", false, "seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)")
 	deadline := fs.Duration("deadline", 0, "start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes")
@@ -133,6 +135,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		return err
 	}
 	body := strings.Join(words, " ")
+	if len(metas.m) > 0 && *file == "" {
+		return outbox.Usagef("--meta goes with --file: it is sealed inside the file's payload")
+	}
 	if *end {
 		if *kind != "" && *kind != msg.KindEnd {
 			return outbox.Usagef("--end and --kind %s say different things; use one", *kind)
@@ -172,7 +177,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			return outbox.Usagef("reply with --file or --tail needs --re ID: nothing is inferred for an attachment")
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)
