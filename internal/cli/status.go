@@ -80,6 +80,7 @@ func homeStatus(budget time.Duration) status.Report {
 		Quiet:  config.LoadQuiet,
 		Held:   heldCount,
 		Worker: localWorker,
+		Deploy: deployTokens,
 	}
 	if c, err := sessionClient(); err == nil {
 		o.Client = c
