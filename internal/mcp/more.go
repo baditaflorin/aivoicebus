@@ -130,7 +130,7 @@ var statusTool = tool{
 		}
 		if a.ID == "" {
 			if s.Home == nil {
-				return "", errors.New("give the message's full 10-character id")
+				return "", errors.New("give the message's full 10-character id: call it again with one from aivoicebus_inbox")
 			}
 			return s.Home()
 		}
