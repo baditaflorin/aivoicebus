@@ -166,7 +166,7 @@ func TestEverySection(t *testing.T) {
 	if p := r.Pause; !p.Active || p.By != "far/codex.2" || p.Reason != "drill" || !p.Until.Equal(until.Truncate(time.Second)) {
 		t.Errorf("pause = %+v", p)
 	}
-	if fs := fixFor(r, "pause"); len(fs) != 1 || !strings.Contains(fs[0], "a person there, in a terminal: aivoicebus resume") {
+	if fs := fixFor(r, "pause"); len(fs) != 1 || !strings.Contains(fs[0], "a person on far, in a terminal: aivoicebus resume") {
 		t.Errorf("pause fix = %v", fs)
 	}
 	if !r.Worker.Running {

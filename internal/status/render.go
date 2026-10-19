@@ -69,7 +69,7 @@ func problems(r *Report) []Problem {
 		add("held", fmt.Sprintf("%d message(s) held back from agents", h.Count), "the person, in a terminal: aivoicebus held")
 	}
 	if p := r.Pause; p != nil && p.Active {
-		fix := "a person there, in a terminal: aivoicebus resume (or wait until " + view.When(*p.Until, time.Now()) + ")"
+		fix := "a person on " + msg.HostOf(p.By) + ", in a terminal: aivoicebus resume (or wait until " + view.When(*p.Until, time.Now()) + ")"
 		if msg.HostOf(p.By) == host {
 			fix = "a person here, in a terminal: aivoicebus resume"
 		}
