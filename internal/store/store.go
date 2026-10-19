@@ -1350,6 +1350,24 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
+	out := s.inboxLocked(me, all, labels, now)
+	if !all { // first: a reader that lists only the first few must not miss them
+		out = append(s.noticesLocked(me, now), out...)
+	}
+	return out
+}
+
+// Peek is what waits unread for me, read by someone else: an agent's standby looks at what waits
+// for its machine's person (<machine>/human) to tell them. It does not make me a session on the
+// roster (no person was there), and leaves my notices for me.
+func (s *Store) Peek(me string) []msg.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inboxLocked(me, false, nil, s.now().UTC())
+}
+
+// inboxLocked is what reaches me: unread unless all, never what I sent.
+func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, now time.Time) []msg.Message {
 	var out []msg.Message
 	for _, i := range s.candidatesLocked(me, labels) {
 		m := s.msgs[i]
@@ -1380,9 +1398,6 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 			m = tombstone(m, ret)
 		}
 		out = append(out, m)
-	}
-	if !all { // first: a reader that lists only the first few must not miss them
-		out = append(s.noticesLocked(me, now), out...)
 	}
 	return out
 }
