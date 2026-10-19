@@ -338,5 +338,25 @@ func tokenKindCheck() (agentcfg.Check, bool) {
 	case kind == "observer":
 		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the observer token: read-only, this machine cannot send"}, true
 	}
-	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply (from the root of an aivoicebus checkout), then aivoicebus token hand " + msg.HostOf(identity.Me())}, true
+	if n := deployTokens(); n > 0 {
+		// The machine you deploy from keeps the shared token (machine tokens cannot replicate or deploy);
+		// it is the one machine where that is right, and it is the one holding machine-tokens/.
+		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelOK, Detail: fmt.Sprintf("the mesh's shared token: right here, this machine deploys (it holds machine tokens for %d machine(s) in %s)", n, machineTokensDir())}, true
+	}
+	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. Unless this is the machine you deploy from (which keeps it), the operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply (from the root of an aivoicebus checkout), then aivoicebus token hand " + msg.HostOf(identity.Me())}, true
+}
+
+// deployTokens counts the machine tokens kept here, the mark of the machine you deploy from.
+func deployTokens() int {
+	entries, err := os.ReadDir(machineTokensDir())
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if e.Type().IsRegular() && !strings.HasPrefix(e.Name(), ".") {
+			n++
+		}
+	}
+	return n
 }

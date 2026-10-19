@@ -3,12 +3,15 @@ package cli
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/agentcfg"
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/server"
 	"github.com/baditaflorin/aivoicebus/internal/store"
@@ -119,5 +122,26 @@ func TestTokenReportBlocksOnWhatItCannotProve(t *testing.T) {
 	v, _ = buildTokenReport(&client.Client{URLs: []string{after.URL}, Token: thShared}, time.Now().Add(8*24*time.Hour), 7, "deploy", nil, t.TempDir())
 	if len(v.Machines) != 0 || !v.RotateSafe {
 		t.Fatalf("nothing heard in the window: %+v", v)
+	}
+}
+
+// The machine you deploy from keeps the shared token, and holds machine-tokens/: there the
+// token-kind line is OK, and nowhere does it tell anyone to give the deploy machine its own.
+func TestTokenKindIsRightOnTheDeployMachine(t *testing.T) {
+	mesh(t) // the shared token "tok"
+	c, ok := tokenKindCheck()
+	if !ok || c.Level != agentcfg.LevelWarn || !strings.Contains(c.Detail, "Unless this is the machine you deploy from") {
+		t.Fatalf("a client on the shared token is warned, with the deploy exception named: %+v", c)
+	}
+	dir := filepath.Join(config.Dir(), "machine-tokens")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "laptop-b"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, ok = tokenKindCheck()
+	if !ok || c.Level != agentcfg.LevelOK || !strings.Contains(c.Detail, "this machine deploys") || strings.Contains(c.Detail, "machine-token.sh add") {
+		t.Fatalf("the deploy machine's shared token is right: %+v", c)
 	}
 }
