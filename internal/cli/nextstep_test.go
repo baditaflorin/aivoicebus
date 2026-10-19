@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
@@ -34,5 +36,36 @@ func TestUsageErrorsSayWhereFlagsAre(t *testing.T) {
 	}
 	if _, _, e := run(t, "", "frobnicate"); !strings.Contains(e, "`aivoicebus help` lists the commands") {
 		t.Fatalf("%q", e)
+	}
+}
+
+// A withdrawn or expired task is not claimed: the session is told so, and to ask for a fresh one.
+func TestClaimOfAWithdrawnOrExpiredTaskAsksForAFreshOne(t *testing.T) {
+	s := meshStore(t)
+	gone := sendTask(t, "imac/claude.1", "air", "one to withdraw")
+	if code, _, e := run(t, "", "retract", gone); code != 0 {
+		t.Fatalf("retract: %d %q", code, e)
+	}
+	t.Setenv("AIVOICEBUS_ME", "air/claude.2")
+	code, out, e := run(t, "", "claim", gone)
+	if code == 0 || !strings.Contains(e, "withdrawn") || !strings.Contains(e, "ask the sender for a fresh one") || strings.Contains(out, "claimed") {
+		t.Errorf("a withdrawn task: %d %q %q", code, out, e)
+	}
+	s.SetClock(func() time.Time { return time.Now().Add(-2 * time.Hour) }) // the node thinks it is still alive
+	t.Setenv("AIVOICEBUS_ME", "imac/claude.1")
+	code, out, e = run(t, "", "task", "air", "one that runs out", "--ttl", "1m")
+	if code != 0 {
+		t.Fatalf("task: %d %q", code, e)
+	}
+	old, _ := sentID(t, out)
+	t.Setenv("AIVOICEBUS_ME", "air/claude.2")
+	code, out, e = run(t, "", "claim", old)
+	if code == 0 || !strings.Contains(e, "expired") || !strings.Contains(e, "ask the sender for a fresh one") {
+		t.Errorf("an expired task: %d %q %q", code, out, e)
+	}
+	for _, m := range s.Thread(old) {
+		if m.Kind == msg.KindClaim {
+			t.Errorf("a claim was sent for an expired task: %+v", m)
+		}
 	}
 }

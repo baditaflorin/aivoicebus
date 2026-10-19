@@ -853,7 +853,7 @@ func waitLink(c *client.Client, me string, task, ready msg.Message, wait time.Du
 	if ctx.Err() != nil {
 		return msg.Message{}, fmt.Errorf("%w (after ready %s, before the link came)", errStopped, ready.ID)
 	}
-	return msg.Message{}, fmt.Errorf("no link from %s within %s (after ready %s): ask the sender to run `aivoicebus token hand %s` again", task.From, wait, ready.ID, host)
+	return msg.Message{}, fmt.Errorf("no link from %s within %s (after ready %s): ask the sender to run `aivoicebus token hand %s` again", task.From, wait, ready.ID, msg.HostOf(me))
 }
 
 // fetchAndInstall fetches and decrypts the token, has the nodes confirm it is a machine token bound

@@ -66,6 +66,10 @@ func reasonOf(code int, header, text string) string {
 		return msg.RefusedBadRequest
 	case http.StatusRequestEntityTooLarge:
 		return msg.RefusedTooLarge
+	case http.StatusNotFound:
+		if strings.HasPrefix(text, "gone:") {
+			return msg.RefusedGone
+		}
 	}
 	return ""
 }
@@ -97,13 +101,14 @@ func later(d time.Duration) string {
 // this client does not know, which is then shown as the node said it.
 func (e *StatusError) explain(reason string) (string, bool) {
 	said := view.OneLine(e.Text, 300)
+	what, _, _ := strings.Cut(said, ": ") // the node's first clause, without what it says to do
 	switch reason {
 	case msg.RefusedToken:
 		return "the node does not accept this machine's token, so nothing was done. Ask the user to check it: `aivoicebus doctor` says which token is in use", true
 	case msg.RefusedDenied:
-		return "refused: this machine's own token may act only as this machine (" + said + "). Send as this machine, or ask the user to run it where the shared token is", true
+		return "refused: this machine's own token may act only as this machine (" + what + "). Send as this machine, or ask the user to run it where the shared token is", true
 	case msg.RefusedReadOnly:
-		return "refused: this token may not do this (" + said + "). Ask the user to run it where the shared token is", true
+		return "refused: this token may not do this (" + what + "). Ask the user to run it where the shared token is", true
 	case msg.RefusedUnsigned:
 		return "the node takes only signed messages, and this one was unsigned or did not verify, so it was not sent. Run `aivoicebus update`, then send it again", true
 	case msg.RefusedSecret:
