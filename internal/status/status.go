@@ -42,7 +42,7 @@ type Options struct {
 	// Start is when the command started (zero: now). The budget counts from it, so the time spent
 	// working out the identity before Gather is part of it.
 	Start time.Time
-	Now    func() time.Time
+	Now   func() time.Time
 
 	Quiet  func() config.Quiet
 	Held   func() int     // messages held back from agents and not released by the person
