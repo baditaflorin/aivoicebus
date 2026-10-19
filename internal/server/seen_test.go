@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +89,7 @@ func TestTheNodeSaysWhichKindOfTokenLastActedAsAMachine(t *testing.T) {
 }
 
 func TestTheSeenRecordIsBounded(t *testing.T) {
-	b := newSeenBoard()
+	b := newSeenBoard("")
 	clock := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 	b.now = func() time.Time { clock = clock.Add(time.Second); return clock }
 	who := Principal{Name: "shared"}
@@ -102,5 +104,45 @@ func TestTheSeenRecordIsBounded(t *testing.T) {
 	}
 	if e := b.get(fmt.Sprintf("h%d", maxSeenHosts+9)); e.Kind != "shared" {
 		t.Errorf("the newest stays: %+v", e)
+	}
+}
+
+// A restart (a rollout) used to forget which token each machine used, so the token report said
+// "unknown" until each machine sent again (seen live on 0.11.0 for the M4 Air). The record is
+// now kept in the data dir, mode 600, and read back at start.
+func TestTheSeenRecordSurvivesARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token-seen.json")
+	b := newSeenBoard(path)
+	b.note("laptop-b", Principal{Name: "laptop-b", Host: "laptop-b"}, "aaaaaaaaaa")
+	b.note("laptop-c", Principal{Name: "shared-00"}, "")
+	fi, err := os.Stat(path)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("the first change is written at once, mode 600: %v %v", fi, err)
+	}
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "tok") && !strings.Contains(string(raw), "laptop") {
+		t.Fatalf("unexpected content: %s", raw)
+	}
+	// the second change came within seenEvery: it is written once that has passed
+	deadline := time.Now().Add(seenEvery + 3*time.Second)
+	for {
+		r := newSeenBoard(path)
+		if r.get("laptop-c").Kind == "shared" {
+			if e := r.get("laptop-b"); e.Kind != "machine" || e.SendID != "aaaaaaaaaa" || e.SendKind != "machine" {
+				t.Fatalf("after a restart: %+v", e)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the trailing change was never written")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if e := newSeenBoard(filepath.Join(t.TempDir(), "missing.json")).get("laptop-b"); e.Kind != "" {
+		t.Fatalf("a missing file is an empty record: %+v", e)
+	}
+	os.WriteFile(path, []byte("{not json"), 0o600)
+	if e := newSeenBoard(path).get("laptop-b"); e.Kind != "" {
+		t.Fatalf("a broken file is an empty record, not a failed start: %+v", e)
 	}
 }

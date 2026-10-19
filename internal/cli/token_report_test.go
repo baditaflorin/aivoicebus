@@ -89,13 +89,15 @@ func TestTokenReportNamesSharedAndMachineTokenUsers(t *testing.T) {
 	}
 }
 
-// A machine the roster knows but no node has seen since it started is not proven: it blocks.
-// So does a node that does not answer.
+// A machine the roster knows but no node has a record of (a node upgraded from a release that kept
+// the record in memory only, or whose token-seen.json was lost) is not proven: it blocks. So does
+// a node that does not answer.
 func TestTokenReportBlocksOnWhatItCannotProve(t *testing.T) {
 	s, _ := store.Open(t.TempDir(), "n1")
 	before := httptest.NewServer(server.NewHandler(s, thShared, server.WithNode("n1"), server.WithTokenSet(tokenTokens(t))))
 	hear(t, before.URL, thShared, "old/claude")
 	before.Close()
+	os.Remove(filepath.Join(s.Dir(), "token-seen.json")) // the record is gone; the roster still knows the machine
 	after := httptest.NewServer(server.NewHandler(s, thShared, server.WithNode("n1"), server.WithTokenSet(tokenTokens(t))))
 	t.Cleanup(after.Close)
 

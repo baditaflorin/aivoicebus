@@ -103,7 +103,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}
 	cfg.metrics = newMetrics(cfg.tokens.Names())
 	leaks := cfg.tokens.Canaries()
-	seen := newSeenBoard()
+	seen := newSeenBoard(filepath.Join(s.Dir(), "token-seen.json"))
 	latest := &latestRelease{dir: cfg.releaseDir}
 	mux := http.NewServeMux()
 	// guardCap authenticates the request and, when observerOK, also lets a read-only
