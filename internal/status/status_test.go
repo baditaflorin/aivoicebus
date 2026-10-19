@@ -61,8 +61,9 @@ func fakeHealth(t *testing.T, h msg.Health, skew time.Duration) *httptest.Server
 			http.NotFound(w, r)
 			return
 		}
-		h.Now = time.Now().Add(skew)
-		_ = json.NewEncoder(w).Encode(h)
+		answer := h // each request its own copy: several parts ask at once
+		answer.Now = time.Now().Add(skew)
+		_ = json.NewEncoder(w).Encode(answer)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -110,6 +111,7 @@ func TestEverySection(t *testing.T) {
 		{From: "here/worker", To: msg.HumanOf(me), Body: "[approval needed] the worker would run x", Prio: msg.PrioUrgent},
 		{From: "far/codex.2", To: "all", Body: msg.PauseBody(until, "drill"), Prio: msg.PrioUrgent},
 		{From: "here/codex.s", To: msg.HumanOf(me), Body: msg.StuckPrefix + "need the user's yes", Prio: msg.PrioUrgent},
+		{From: "far/codex.2", To: "here", Body: msg.PersonTag + " rotate the key", Kind: msg.KindTask, Prio: msg.PrioAsk},
 	} {
 		if _, err := sa.Send(m); err != nil {
 			t.Fatal(err)
@@ -155,10 +157,11 @@ func TestEverySection(t *testing.T) {
 	if r.Tasks.Waiting != 1 || !slices.Contains(fixFor(r, "tasks"), "aivoicebus queue") {
 		t.Errorf("tasks = %+v", r.Tasks)
 	}
-	if len(r.Person.Questions) != 1 || len(r.Person.Approvals) != 1 || len(r.Person.Stuck) != 1 {
+	if len(r.Person.Questions) != 1 || len(r.Person.Approvals) != 1 || len(r.Person.Stuck) != 1 || len(r.Person.Tasks) != 1 || r.Person.NotChecked != "" {
 		t.Errorf("person = %+v", r.Person)
 	}
-	if fs := fixFor(r, "person"); len(fs) != 3 || fs[0] != "the person, in a terminal: aivoicebus approve "+r.Person.Approvals[0] || fs[2] != "the person, in a terminal: aivoicebus answer "+r.Person.Stuck[0] {
+	if fs := fixFor(r, "person"); len(fs) != 4 || fs[0] != "the person, in a terminal: aivoicebus approve "+r.Person.Approvals[0] ||
+		fs[2] != "the person, in a terminal: aivoicebus queue" || fs[3] != "the person, in a terminal: aivoicebus answer "+r.Person.Stuck[0] {
 		t.Errorf("person fixes = %v", fs)
 	}
 	if r.Held.Count != 2 || !slices.Contains(fixFor(r, "held"), "the person, in a terminal: aivoicebus held") {
@@ -169,6 +172,11 @@ func TestEverySection(t *testing.T) {
 	}
 	if fs := fixFor(r, "pause"); len(fs) != 1 || !strings.Contains(fs[0], "a person on far, in a terminal: aivoicebus resume") {
 		t.Errorf("pause fix = %v", fs)
+	}
+	for _, e := range sa.Roster() { // the person's inbox was looked at, not read as a session
+		if msg.IsHuman(e.Me) {
+			t.Errorf("status put the person on the roster: %+v", e)
+		}
 	}
 	if !r.Worker.Running {
 		t.Errorf("worker = %+v", r.Worker)
@@ -360,6 +368,9 @@ func TestNodeHealthProblems(t *testing.T) {
 	ok2 := fakeHealth(t, msg.Health{Node: "b", Version: "0.10.4"}, 0)
 	late := fakeHealth(t, msg.Health{Node: "c", Version: "0.10.3"}, 5*time.Second)
 	r := Gather(opts(ok.URL, ok2.URL, late.URL))
+	if p := r.Person; p == nil || p.NotChecked == "" { // nodes without inbox-peek are not asked
+		t.Errorf("person = %+v", p)
+	}
 	n := r.Nodes
 	if n.Up != 3 || n.Peers != 2 || n.PeersOK != 1 || n.SpreadMs < 4500 {
 		t.Fatalf("nodes = %+v", n)

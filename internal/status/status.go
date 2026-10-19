@@ -134,6 +134,9 @@ type Person struct {
 	Questions []string `json:"questions"` // message ids
 	Approvals []string `json:"approvals"`
 	Stuck     []string `json:"stuck"` // agents here that said they are blocked and need the person
+	Tasks     []string `json:"tasks"` // tasks meant for the person (token hand, task --person)
+	// NotChecked says why the person's inbox was not looked at ("" when it was).
+	NotChecked string `json:"not_checked,omitempty"`
 }
 
 // Held counts the messages kept from agents that the person has not released.
@@ -288,6 +291,9 @@ func Gather(o Options) Report {
 			}
 			in, ts := &Inbox{}, &Tasks{IDs: []string{}}
 			for _, m := range ms {
+				if m.Kind == msg.KindTask && msg.PersonOnly(m) {
+					continue // the person's to take, not this session's: the person part counts it
+				}
 				if m.Kind == msg.KindTask {
 					ts.Waiting++
 					ts.IDs = append(ts.IDs, m.ID)
@@ -319,19 +325,32 @@ func Gather(o Options) Report {
 			return func(r *Report) { r.Pause = p }
 		})
 		launch("person", func() func(*Report) {
-			ms, err := clone(urls).Inbox(msg.HumanOf(o.Me), false)
+			// A look on the person's behalf, which a node of inbox-peek or later does without making the
+			// person a session on its roster; an older node would, so it is not asked.
+			c := clone(urls)
+			h, err := c.Health()
 			if err != nil {
 				return nil
 			}
-			p := &Person{Questions: []string{}, Approvals: []string{}, Stuck: []string{}}
+			p := &Person{Questions: []string{}, Approvals: []string{}, Stuck: []string{}, Tasks: []string{}}
+			if !h.Has(msg.FeatureInboxPeek) {
+				p.NotChecked = "the nodes are too old to look without marking the person present"
+				return func(r *Report) { r.Person = p }
+			}
+			ms, err := c.Peek(msg.HumanOf(o.Me))
+			if err != nil {
+				return nil
+			}
 			for _, m := range ms {
 				switch {
 				case strings.HasPrefix(m.Body, msg.AskPrefix):
 					p.Questions = append(p.Questions, m.ID)
-				case strings.HasPrefix(m.Body, "[approval needed]"):
+				case strings.HasPrefix(m.Body, msg.ApprovalTag):
 					p.Approvals = append(p.Approvals, m.ID)
 				case msg.IsStuck(m.Body):
 					p.Stuck = append(p.Stuck, m.ID)
+				case m.Kind == msg.KindTask && msg.PersonOnly(m):
+					p.Tasks = append(p.Tasks, m.ID)
 				}
 			}
 			return func(r *Report) { r.Person = p }

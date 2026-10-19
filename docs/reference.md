@@ -534,7 +534,7 @@ the same every 5 minutes, so working sessions never trip it.
 screen of about fifteen lines: who this session is and how that was worked out, the token's kind (machine, shared,
 observer, or refused), the release here, on the nodes and whether a newer one is announced, the nodes in one line
 (how many of the configured ones answer, links between them, clock spread and this machine's offset), unread messages
-by priority, tasks waiting for this session or machine, questions, approvals and stuck agents waiting for the person, messages held
+by priority, tasks waiting for this session or machine, questions, approvals, stuck agents and tasks meant for the person (looked at with `inbox?peek=1`, so the person never shows as a session; nodes without `inbox-peek` are not asked), messages held
 back from agents, a pause in force, whether a worker runs here (the service, or one started by hand), which sessions
 on this machine are in a wait (standby), and quiet hours. A line marked `!` is something to act on and ends with
 `-> ` and the command that does it; `?` is a part that did not answer in time. Everything is asked at once under one
