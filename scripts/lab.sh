@@ -756,6 +756,23 @@ out=$(deploy/rollout.sh "$REL10" --unsigned --apply --soak 3 2>&1); rc=$?
 [ $rc = 0 ] && pass "a rollout after the quarantine succeeds: only an increase stops one" || { fail "rollout exit $rc"; echo "$out" | tail -12; }
 for i in 1 2 3 4 5; do [ "$(version_of $i)" = 6.1.0 ] && pass "node $i runs 6.1.0" || fail "node $i runs $(version_of $i)"; done
 
+section "signed messages only: is the mesh ready, and the switch"
+unsigned() { code "$TOKEN_FILE" "$(url "$1")/v1/send" -X POST -d "{\"from\":\"labold/agent\",\"to\":\"lab/reader\",\"body\":\"unsigned, like a client older than 0.7.0 ($2)\"}"; }
+[ "$(unsigned 2 one)" = 200 ] && pass "a node takes an unsigned message by default" || fail "unsigned send refused"
+out=$(AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh --signed-check 2>&1); rc=$?
+[ $rc = 1 ] && has "mesh --signed-check is NOT READY, naming the sender" "labold/agent" "$out" || fail "signed-check exit $rc: $out"
+has "and says why" "NOT READY: .* sender(s) sent messages without a valid signature" "$out"
+out=$(AIVOICEBUS_NODE_REQUIRE_SIGNED=yes deploy/install.sh --apply --peers-only n1 2>&1); [ $? = 2 ] && pass "install.sh refuses a value other than 1 or 0" || fail "install.sh took AIVOICEBUS_NODE_REQUIRE_SIGNED=yes: $out"
+out=$(AIVOICEBUS_NODE_REQUIRE_SIGNED=1 deploy/install.sh --apply --peers-only n1 2>&1); rc=$?
+[ $rc = 0 ] && grep -qx 'AIVOICEBUS_REQUIRE_SIGNED=1' "$LAB/nodes/lab_n1/etc/aivoicebus/node.env" && pass "the switch: AIVOICEBUS_NODE_REQUIRE_SIGNED=1 install.sh --peers-only writes it to node.env" || fail "switch exit $rc: $out"
+[ "$(unsigned 1 two)" = 403 ] && pass "the node then refuses an unsigned message" || fail "n1 still takes unsigned messages"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "signed, after the switch" 2>&1); has "and still takes a signed one" "^sent " "$M"
+deploy/install.sh --apply --peers-only n1 >/dev/null 2>&1
+[ "$(unsigned 1 three)" = 403 ] && pass "a later install without the variable keeps the switch" || fail "a re-install dropped --require-signed"
+has "mesh --signed-check says which node already refuses them" "already refuses unsigned ones" "$(AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh --signed-check 2>&1)"
+AIVOICEBUS_NODE_REQUIRE_SIGNED=0 deploy/install.sh --apply --peers-only n1 >/dev/null 2>&1
+[ "$(unsigned 1 four)" = 200 ] && pass "AIVOICEBUS_NODE_REQUIRE_SIGNED=0 switches it off again" || fail "n1 still refuses unsigned messages"
+
 echo
 if [ "$FAILED" = 0 ]; then echo "lab passed"; else echo "LAB FAILED"; fi
 exit "$FAILED"

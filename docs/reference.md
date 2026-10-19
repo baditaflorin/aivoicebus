@@ -1166,6 +1166,14 @@ no election, and losing nodes only delays delivery.
   How big it can get: [capacity.md](capacity.md).
 - `/v1/health` also lists the `features` a node has (`retract`, `quarantine`, ...; absent on a node that advertises none,
   where a client falls back to probing). `aivoicebus mesh` and `doctor` show them.
+- `/v1/unsigned?days=N` (1 to 30, default 7; feature `unsigned-report`) counts, per sender, the
+  messages a node holds from the last N days that carry no signature or one that does not verify:
+  what `serve --require-signed` refuses. A node keeps every message it took in (an expired one too),
+  so each answers for the mesh's traffic, and the answer survives a restart. `aivoicebus mesh
+  --signed-check [--days 7] [--json]` asks every node and says READY (exit 0) only when none holds
+  such a message and every node answered; otherwise NOT READY (exit 1), naming each sender, how many,
+  and its last message. (`/metrics`' `aivoicebus_refused_total{reason="unsigned"}` counts only what a
+  node already refuses, so it says nothing before the switch.)
 
 ## Client (each machine)
 
