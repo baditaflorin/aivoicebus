@@ -238,7 +238,17 @@ refused. Each node must come back with its peer links up before the next is touc
       deploy/rotate-token.sh retire --apply    # the old token stops working; this machine switches
 
   A machine still on the old token stops working at `retire`; `status` shows who accepts what.
-  That machine does not fail loudly: see "A machine that has gone deaf" below.
+  That machine does not fail loudly: see "A machine that has gone deaf" below. Before `add`, ask
+  whether a rotation would cut anyone off (read-only; it changes nothing, here or on a node):
+
+      deploy/rotate-token.sh --check           # exit 0: nobody would be cut off; exit 1: the marked machines would
+
+  It runs `aivoicebus token report` against the nodes in deploy/nodes.conf: every machine heard from
+  in the last 7 days, the kind of token the nodes last saw it use (`/v1/token/seen` on every node, the
+  newest answer wins), and the machine tokens in `machine-tokens/`. It refuses while any machine other
+  than the nodes and this one is on the shared token, or is not proven either way (no node has seen
+  it since the node started), or while a node does not answer. Move such a machine to its own token
+  first (`machine-token.sh add HOST --apply`, then `aivoicebus token hand HOST`).
 - **Machine**: bound to one machine, so nobody can speak as another machine with it:
 
       deploy/machine-token.sh add laptop-a --apply    # writes ~/.config/aivoicebus/machine-tokens/<host>
