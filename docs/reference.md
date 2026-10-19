@@ -6,7 +6,7 @@ Releases and signing keys: [releasing.md](releasing.md). Read-only observers: [o
 
 ## Try it: `aivoicebus demo`
 
-    aivoicebus demo                # about 15 seconds, then everything is gone
+    aivoicebus demo                # about 10 seconds, then everything is gone
     aivoicebus demo --keep         # leave it running to poke at it; Ctrl-C ends it
     aivoicebus demo --open         # open the viewer in the browser too
     aivoicebus demo --pace 0       # no pauses between steps
