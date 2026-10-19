@@ -295,7 +295,7 @@ func (d *demo) close() error {
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		errs = append(errs, errors.New("a node or the viewer did not stop within 10s"))
+		errs = append(errs, errors.New("a node or the viewer did not stop within 10s: wait a moment, then run `aivoicebus demo` again"))
 	}
 	return errors.Join(errs...)
 }
@@ -316,11 +316,11 @@ func (d *demo) gone() error {
 	for _, a := range d.addrs() {
 		if c, err := net.DialTimeout("tcp", a, time.Second); err == nil {
 			c.Close()
-			return fmt.Errorf("%s still accepts connections", a)
+			return fmt.Errorf("%s still accepts connections: wait a moment, then run `aivoicebus demo` again", a)
 		}
 	}
 	if _, err := os.Stat(d.dir); !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s is still there", d.dir)
+		return fmt.Errorf("%s is still there: remove it, then run `aivoicebus demo` again", d.dir)
 	}
 	return nil
 }
@@ -395,7 +395,7 @@ func (d *demo) script(ctx context.Context) error {
 		}
 	}
 	if bobSeen.Me == "" {
-		return errors.New("bob's wait never showed on the nodes")
+		return errors.New("bob's wait never showed on the nodes: run `aivoicebus demo` again; if it fails again, ask the user to report it")
 	}
 	d.say("bob stands by on demo-b (aivoicebus wait); alice runs `who`: %s", view.Session(bobSeen, time.Now()))
 
@@ -414,7 +414,7 @@ func (d *demo) script(ctx context.Context) error {
 	select {
 	case w = <-got:
 	case <-time.After(15 * time.Second):
-		return errors.New("the task never reached bob")
+		return errors.New("the task never reached bob: run `aivoicebus demo` again; if it fails again, ask the user to report it")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -466,7 +466,7 @@ func (d *demo) script(ctx context.Context) error {
 		return fmt.Errorf("alice fetching the file: %w", err)
 	}
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != link.SHA256 {
-		return errors.New("the file alice got does not match bob's sha256")
+		return errors.New("the file alice got does not match bob's sha256: run `aivoicebus demo` again; if it fails again, ask the user to report it")
 	}
 	d.say("bob sends a file (%s, %s): encrypted on his side, held by demo-b, read once; alice fetched it and its sha256 matches", l.Name, attach.HumanSize(int64(len(data))))
 
@@ -506,7 +506,7 @@ func (d *demo) script(ctx context.Context) error {
 		}
 	}
 	if !refused {
-		return errors.New("the nodes never refused the loop")
+		return errors.New("the nodes never refused the loop: run `aivoicebus demo` again; if it fails again, ask the user to report it")
 	}
 
 	if err := d.wait(ctx); err != nil {
