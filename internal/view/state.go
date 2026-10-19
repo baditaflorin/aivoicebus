@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
@@ -14,7 +15,7 @@ func StateLine(v msg.StateView) string {
 		return "state: none (nobody offered or took anything in this conversation)"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "state: %s (said by %s at %s", v.State, Name(v.By, msg.MaxIdentity), v.At.Local().Format("15:04:05"))
+	fmt.Fprintf(&b, "state: %s (said by %s at %s", v.State, Name(v.By, msg.MaxIdentity), WhenSec(v.At, time.Now()))
 	if v.Note != "" {
 		fmt.Fprintf(&b, `: "%s"`, OneLine(Sanitise(v.Note), msg.MaxStateNote))
 	}

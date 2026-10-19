@@ -145,7 +145,7 @@ func TestWaitStateUnblocksOnReady(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.out), &sr); r.code != 0 || err != nil || sr.Reached == nil || !*sr.Reached || sr.State.State != msg.StateReady || sr.Waited != msg.StateReady || sr.ID != task.ID {
 		t.Fatalf("wait: %d %v\n%s\n%s", r.code, err, r.out, r.e)
 	}
-	if !strings.Contains(r.e, sb+" took it") || !strings.Contains(r.e, "sent "+task.ID) {
+	if !strings.Contains(r.e, sb+` took it: "on it"; still waiting for ready...`) || !strings.Contains(r.e, "sent "+task.ID) {
 		t.Errorf("stderr does not show the send and the claim:\n%s", r.e)
 	}
 	if r.elapsed > 15*time.Second {
@@ -214,6 +214,9 @@ func TestWaitStateEndsOnStuckAndOnAMessage(t *testing.T) {
 	other.state(task, msg.StateDone, "migrated")
 	if code, out, e := get(ch, "done"); code != 0 || !strings.Contains(out, "state: done") || !strings.Contains(out, "stuck -> doing -> done") {
 		t.Fatalf("done: %d %q %q", code, out, e)
+	}
+	if _, out, _ := run(t, "", "thread", id, "--digest"); !strings.Contains(out, "  closed: done by "+sb) || strings.Contains(out, "open: the last word") {
+		t.Errorf("a done conversation is not open:\n%s", out)
 	}
 	// a final state that is not the one waited for ends the wait at once
 	if code, _, e := run(t, "", "state", id, "--wait-state", "declined", "10s"); code != exitFailure || !strings.Contains(e, "it ended done and will not get to declined") {

@@ -189,7 +189,11 @@ func waitForState(c *client.Client, me, id string, ws *waitState, asJSON bool, m
 			fmt.Fprintf(s.Err, "[aivoicebus] %s says %s%s\n", view.Name(m.From, msg.MaxIdentity), st, notePart(note))
 			return
 		}
-		claimProgress(s)(m)
+		said := "took it"
+		if m.Kind == msg.KindProgress {
+			said = "says"
+		}
+		fmt.Fprintf(s.Err, "[aivoicebus] %s %s: %q; still waiting for %s...\n", view.Name(m.From, msg.MaxIdentity), said, view.OneLine(m.Body, 120), ws.state)
 	}
 	r, err := tasks.WaitState(ctx, c, me, id, ws.state, ws.d, 3*time.Second, progress)
 	res := stateResult{ID: id, Moved: moved, State: r.View, Waited: ws.state, Reached: &r.Reached,

@@ -70,7 +70,8 @@ func Digest(w io.Writer, ms []msg.Message) {
 			fmt.Fprintln(w, "  nobody has taken it")
 		}
 	}
-	if v := msg.ThreadState(ms); v.State != "" {
+	v := msg.ThreadState(ms)
+	if v.State != "" {
 		fmt.Fprintf(w, "  %s\n", StateLine(v))
 		if n := len(v.Ignored); n > 0 {
 			fmt.Fprintf(w, "  %d state message(s) the rules ignored (aivoicebus state %s lists them)\n", n, first.ID)
@@ -87,6 +88,8 @@ func Digest(w io.Writer, ms []msg.Message) {
 	case first.Retracted != nil && len(ms) == 1:
 	case end != nil:
 		fmt.Fprintf(w, "  ended by %s at %s\n", Name(end.From, msg.MaxIdentity), WhenSec(end.At, time.Now()))
+	case v.Final():
+		fmt.Fprintf(w, "  closed: %s by %s at %s\n", v.State, Name(v.By, msg.MaxIdentity), WhenSec(v.At, time.Now()))
 	default:
 		fmt.Fprintf(w, "  open: the last word is %s's\n", Name(last.From, msg.MaxIdentity))
 	}
