@@ -47,6 +47,7 @@ func init() {
 		"setup":   setup,
 		"doctor":  doctor,
 		"join":    join,
+		"start":   startCmd,
 		"mesh":    meshCmd,
 		"nodes":   nodesCmd,
 		"quiet":   quietCmd,

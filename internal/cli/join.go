@@ -44,6 +44,22 @@ func join(args []string, s Streams) error {
 	if fs.NArg() > 0 {
 		return errors.New("usage: aivoicebus join [--url URLS] [--trust-url] [--tools LIST] [--replace-token] [--dry-run]  (the token is asked for, or piped in: pbpaste | aivoicebus join --trust-url --url ...; a node this machine has no signed list for is confirmed by typing its host:port at a terminal)")
 	}
+	return joinRun(joinOpts{urls: *urls, tools: *tools, replace: *replace, trust: *trust, dry: *dry}, s)
+}
+
+// joinOpts is what join does; start fills it from what the person typed at its prompts.
+type joinOpts struct {
+	urls, tools         string
+	replace, trust, dry bool
+	// token is a token already in hand (start took it from a join link or a pipe); empty asks for
+	// it. tokenFrom says where it came from.
+	token, tokenFrom string
+	// typed says the person typed or pasted the URLs at this terminal a moment ago (start's prompt):
+	// that is the confirmation join otherwise asks for, so it is not asked twice.
+	typed bool
+}
+
+func joinRun(o joinOpts, s Streams) error {
 	line := func(status, name, detail string) { fmt.Fprintf(s.Out, "%-12s %-22s %s\n", status, name, detail) }
 	fail := func(stage string, err error) error {
 		fmt.Fprintf(s.Out, "\njoin FAILED at %s: %v\n", stage, err)
@@ -51,7 +67,7 @@ func join(args []string, s Streams) error {
 	}
 
 	old := configuredURLs()
-	nodeURLs := splitURLs(*urls)
+	nodeURLs := splitURLs(o.urls)
 	if len(nodeURLs) == 0 {
 		nodeURLs = old
 	}
@@ -61,16 +77,21 @@ func join(args []string, s Streams) error {
 	if err := checkNodeURLs(nodeURLs); err != nil {
 		return err
 	}
-	confirm, err := needConfirmation(nodeURLs, old, *trust, s.Err)
+	confirm, err := needConfirmation(nodeURLs, old, o.trust || o.typed, s.Err)
 	if err != nil {
 		return err
+	}
+	if o.typed {
+		confirm = nil
 	}
 
 	// 1. who gets the token: confirmed by typing, before the token is even asked for
 	switch {
+	case len(confirm) == 0 && o.typed:
+		line("ok", "nodes", strings.Join(nodeURLs, ",")+" (as you gave them)")
 	case len(confirm) == 0:
 		line("ok", "nodes", strings.Join(nodeURLs, ","))
-	case *dry:
+	case o.dry:
 		line("would ask", "nodes", "you to type "+strings.Join(confirm, ", ")+" to confirm the token may be sent there")
 	default:
 		for _, h := range confirm {
@@ -90,10 +111,13 @@ func join(args []string, s Streams) error {
 	saved, haveSaved := readSavedToken(tokenPath)
 	var tok string
 	switch {
-	case haveSaved && !*replace:
+	case o.token != "":
+		tok = o.token
+		line("ok", "token", o.tokenFrom+" (shown nowhere)")
+	case haveSaved && !o.replace:
 		tok = saved
 		line("ok", "token", tokenPath+" (kept; --replace-token asks again)")
-	case *dry:
+	case o.dry:
 		line("would ask", "token", "from a pipe or a prompt, saved to "+tokenPath+" (mode 600) once the mesh accepts it")
 	default:
 		raw, err := readSecret(s, "Mesh token (paste it; nothing is shown): ", "pbpaste | aivoicebus join --trust-url --url "+strings.Join(nodeURLs, ","))
@@ -109,7 +133,7 @@ func join(args []string, s Streams) error {
 	}
 
 	// 3. prove it against the nodes before anything is written
-	if !*dry {
+	if !o.dry {
 		c := &client.Client{URLs: nodeURLs, Token: tok}
 		if _, err := meshProbeWith(c); err != nil {
 			if errors.Is(err, agentcfg.ErrTokenRejected) {
@@ -132,7 +156,7 @@ func join(args []string, s Streams) error {
 		if res.clean() {
 			line("ok", "probe cleanup", "acknowledged and retracted")
 		}
-		if !(haveSaved && !*replace) { // a kept token is already on disk
+		if o.token != "" || !(haveSaved && !o.replace) { // a kept token is already on disk
 			if err := writeTokenFile(tokenPath, tok); err != nil {
 				return fail("token", err)
 			}
@@ -145,18 +169,18 @@ func join(args []string, s Streams) error {
 
 	// 4. install + env + hooks + instruction blocks: the same path `setup` and `doctor --fix` use
 	var list []string
-	for _, t := range strings.Split(*tools, ",") {
+	for _, t := range strings.Split(o.tools, ",") {
 		if t = strings.TrimSpace(t); t != "" {
 			list = append(list, t)
 		}
 	}
 	exe, exeErr := executable()
-	steps, err := agentcfg.Setup(agentcfg.Options{URL: strings.Join(nodeURLs, ","), Tools: list, DryRun: *dry, InstallExe: exe, InstallExeErr: exeErr, ClaudeMCP: claudeMCP})
-	printSteps(s.Out, steps, *dry)
+	steps, err := agentcfg.Setup(agentcfg.Options{URL: strings.Join(nodeURLs, ","), Tools: list, DryRun: o.dry, InstallExe: exe, InstallExeErr: exeErr, ClaudeMCP: claudeMCP})
+	printSteps(s.Out, steps, o.dry)
 	if err != nil {
 		return fail("setup", err)
 	}
-	if *dry {
+	if o.dry {
 		line("would", "probe", "send a short-lived note to a throwaway identity on this machine, read it back, and retract it")
 		fmt.Fprintln(s.Out, "\njoin dry run: nothing was written or sent")
 		return nil
