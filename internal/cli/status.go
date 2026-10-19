@@ -60,6 +60,11 @@ func statusCmd(args []string, s Streams) error {
 		return writeJSON(s.Out, r)
 	}
 	view.Receipts(s.Out, r)
+	if ms, err := c.Thread(fs.Arg(0)); err == nil { // the conversation's state, under who took it
+		if v := msg.ThreadState(ms); v.State != "" {
+			fmt.Fprintln(s.Out, "  "+view.StateLine(v))
+		}
+	}
 	return nil
 }
 

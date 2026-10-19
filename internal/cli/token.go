@@ -57,6 +57,24 @@ const (
 	tokenOpensSealed  = "(opens sealed keys)"          // in a ready message: install opens a key sealed for its machine
 )
 
+// The exchange runs on conversation states (msg/state.go) when both sides know them: hand marks its
+// task with tokenStatesMark, and an install that sees the mark answers with states (taken by its
+// claim, then ready, and done, stuck or declined) instead of the [token ready], [token installed] and
+// [token install failed] tags. An install from 0.10.x ignores the mark and answers with the tags,
+// and hand takes either; an install facing a hand from 0.10.x finds no mark and answers with the tags.
+const tokenStatesMark = "; states)"
+
+// speaksStates reports whether the hand-over task asks for states.
+func speaksStates(task msg.Message) bool { return strings.Contains(task.Body, tokenStatesMark) }
+
+// deniedErr is a person's no: install answers declined, not stuck.
+type deniedErr string
+
+func (e deniedErr) Error() string        { return string(e) }
+func (e deniedErr) Is(target error) bool { return target == errDenied }
+
+var errDenied = errors.New("the person denied it")
+
 const tokenUsage = `usage: aivoicebus token hand HOST [--to SESSION] [--via node|pipe] [--wait 30m] [--json]
        aivoicebus token install ID|LINK [--wait 30m] [--json]
        aivoicebus token report [--days 7] [--deploy HOST] [--nodes NAME,...] [--check] [--json]
@@ -284,7 +302,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		body += "An agent runs it as a background command: it waits for the person's approval (up to 30 minutes), longer than a tool call lasts. " +
 			"Tell your user it asks for their approval, which is theirs to give, not yours.\n"
 	}
-	body += "(hand-over " + handOverID() + ")"
+	body += "(hand-over " + handOverID() + tokenStatesMark
 	plan, err := outbox.Prepare(c, outbox.Request{To: target, Body: body, Kind: msg.KindTask, Prio: msg.PrioUrgent, TTL: "1h", Queue: true, TargetSaid: true}, s.Err)
 	if err != nil {
 		return err
@@ -343,7 +361,7 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 	// ready, from a session on HOST
 	var ready msg.Message
 	for ready.ID == "" {
-		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: task.Thread, Progress: progress}, time.Until(deadline), 3*time.Second)
+		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: task.Thread, Progress: progress, Stop: handStops}, time.Until(deadline), 3*time.Second)
 		if err != nil {
 			switch {
 			case taker == "":
@@ -361,6 +379,21 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		}
 		for _, m := range got {
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
+			if st, _, ok := msg.StateOf(m); ok {
+				switch {
+				case !from(m):
+					fmt.Fprintf(s.Err, "ignored a %s from %s: not a session on %s signed with its machine key\n", st, view.Name(m.From, msg.MaxIdentity), host)
+				case st == msg.StateReady:
+					ready = m
+				case st == msg.StateStuck, st == msg.StateDeclined:
+					res.Session, res.Said = m.From, view.OneLine(m.Body, 400)
+					return fmt.Errorf("%s did not install it: %s", m.From, view.OneLine(m.Body, 400))
+				}
+				if ready.ID != "" {
+					break
+				}
+				continue
+			}
 			if _, ok := tagged(m.Body, tokenFailedTag); ok && from(m) {
 				res.Session, res.Said = m.From, view.OneLine(m.Body, 400)
 				return fmt.Errorf("%s did not install it: %s", m.From, view.OneLine(m.Body, 400)) // nextstep: the installing side says why and what to do
@@ -421,6 +454,18 @@ func handOver(c *client.Client, me, host, to, via string, wait time.Duration, re
 		for _, m := range got {
 			_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
 			if m.From != ready.From || m.Verified != msg.VerifiedSigned {
+				continue
+			}
+			if st, _, ok := msg.StateOf(m); ok {
+				switch st {
+				case msg.StateDone:
+					answer, installed = m, true
+				case msg.StateStuck, msg.StateDeclined:
+					answer = m
+				}
+				if answer.ID != "" {
+					break
+				}
 				continue
 			}
 			if h, ok := tagged(m.Body, tokenInstalledTag); ok && h == host {
@@ -549,7 +594,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 	case err == nil && yes:
 		return "terminal", nil
 	case err == nil:
-		return "", errors.New("the person said no; nothing was changed. Ask the user before trying again")
+		return "", deniedErr("the person said no; nothing was changed. Ask the user before trying again")
 	case !errors.Is(err, errNoTerminal):
 		return "", err
 	}
@@ -607,7 +652,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 				if say == "approve" {
 					return "phone", nil
 				}
-				return "", errors.New("denied on the phone; nothing was changed. Ask the user before trying again")
+				return "", deniedErr("denied on the phone; nothing was changed. Ask the user before trying again")
 			}
 			if kerr != nil || msg.HostOf(a.From) != msg.HostOf(me) || a.Verified != msg.VerifiedSigned {
 				continue // only a decision made on this machine, signed with its machine key...
@@ -619,7 +664,7 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 			if word == "approve" {
 				return "approver key", nil
 			}
-			return "", errors.New("the person denied it; nothing was changed. Ask the user before trying again")
+			return "", deniedErr("the person denied it; nothing was changed. Ask the user before trying again")
 		}
 	}
 	if ctx.Err() != nil {
@@ -790,7 +835,7 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 	}
 	if err != nil {
 		if task.ID != "" {
-			tokenAnswer(c, me, task, task.ID, tokenFailedTag+" "+host+"\n"+err.Error(), s)
+			tokenFailed(c, me, task, task.ID, host, err, s)
 		}
 		return err
 	}
@@ -798,15 +843,20 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 
 	answerTo := from.ID
 	if task.ID != "" {
-		ready := fmt.Sprintf("%s %s\napproved by the person (%s); waiting for the link, up to %s %s", tokenReadyTag, host, how, wait, tokenOpensSealed)
-		readyMsg, err := tokenSay(c, me, task, task.ID, ready, s)
+		var readyMsg msg.Message
+		var err error
+		if speaksStates(task) {
+			readyMsg, err = tasks.MoveState(c, me, task.ID, msg.StateReady, peerSafe(fmt.Sprintf("token for %s approved by the person (%s); waiting for the link, up to %s %s", host, how, wait, tokenOpensSealed)), s.Err)
+		} else {
+			readyMsg, err = tokenSay(c, me, task, task.ID, fmt.Sprintf("%s %s\napproved by the person (%s); waiting for the link, up to %s %s", tokenReadyTag, host, how, wait, tokenOpensSealed), s)
+		}
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(s.Err, "approved (%s); told %s, waiting for the link\n", how, task.From)
 		link, err := waitLink(c, me, task, readyMsg, wait)
 		if err != nil {
-			tokenAnswer(c, me, task, readyMsg.ID, tokenFailedTag+" "+host+"\n"+err.Error(), s)
+			tokenFailed(c, me, task, readyMsg.ID, host, err, s)
 			return err
 		}
 		body, answerTo = link.Body, link.ID
@@ -814,7 +864,10 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 
 	name, err := fetchAndInstall(c, body, host, path, res)
 	if err != nil {
-		if task.ID != "" || from.ID != "" {
+		switch {
+		case task.ID != "":
+			tokenFailed(c, me, task, answerTo, host, err, s)
+		case from.ID != "":
 			tokenAnswer(c, me, from, answerTo, tokenFailedTag+" "+host+"\n"+err.Error(), s)
 		}
 		return err
@@ -827,8 +880,13 @@ func installExchange(ref, me string, wait time.Duration, res *installResult, s S
 		if err != nil {
 			return err
 		}
-		said := fmt.Sprintf("%s %s\nthis machine now uses its own machine token (%s), checked with the nodes; this answer is sent with it. worker: %s", tokenInstalledTag, host, name, res.Worker)
-		out, err := tokenSay(nc, me, from, answerTo, said, s)
+		said := fmt.Sprintf("this machine now uses its own machine token (%s), checked with the nodes; this answer is sent with it. worker: %s", name, res.Worker)
+		var out msg.Message
+		if task.ID != "" && speaksStates(task) {
+			out, err = tasks.MoveState(nc, me, task.ID, msg.StateDone, peerSafe("token installed on "+host+": "+said), s.Err)
+		} else {
+			out, err = tokenSay(nc, me, from, answerTo, tokenInstalledTag+" "+host+"\n"+said, s)
+		}
 		if err != nil {
 			return fmt.Errorf("installed, but could not tell %s: %v", from.From, err)
 		}
@@ -994,6 +1052,30 @@ func tokenSay(c *client.Client, me string, to msg.Message, re, body string, s St
 		return msg.Message{}, err
 	}
 	return plan.Send(c)
+}
+
+// handStops picks the state messages that end hand's wait for ready: ready itself, and the states
+// that say it will not come.
+func handStops(m msg.Message) bool {
+	st, _, ok := msg.StateOf(m)
+	return ok && (st == msg.StateReady || st == msg.StateStuck || st == msg.StateDeclined)
+}
+
+// tokenFailed tells hand that install failed: declined when the person said no, stuck otherwise,
+// or the [token install failed] tag for a hand that does not speak states. re is what the tag
+// answers. A failure to tell them is only said here.
+func tokenFailed(c *client.Client, me string, task msg.Message, re, host string, err error, s Streams) {
+	if !speaksStates(task) {
+		tokenAnswer(c, me, task, re, tokenFailedTag+" "+host+"\n"+err.Error(), s)
+		return
+	}
+	st := msg.StateStuck
+	if errors.Is(err, errDenied) {
+		st = msg.StateDeclined
+	}
+	if _, serr := tasks.MoveState(c, me, task.ID, st, peerSafe("token install failed on "+host+": "+err.Error()), s.Err); serr != nil {
+		fmt.Fprintf(s.Err, "could not tell %s: %v\n", task.From, serr)
+	}
 }
 
 // tokenAnswer tells the sender how it failed; a failure to tell them is only said here.

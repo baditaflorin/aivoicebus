@@ -173,6 +173,11 @@ Read this only when you need to message another agent.
   yes,no` waits for their answer (never answer it yourself).
   Starting a back-and-forth with another agent, give it a limit: `--max-turns 10` (the nodes refuse
   the message past it; `reply --end` still closes it).
+- A handshake both sides see: `aivoicebus state <id>` shows a conversation's state (offered ->
+  taken -> ready -> doing -> done, or stuck, declined); the one who took it moves it with `aivoicebus
+  state <id> ready "note"`, and a move the rules refuse sends nothing and says why. Wait for one with
+  `--wait-state ready 10m` (on task, send, reply, state): it ends at that state or past it, when the
+  other side writes, or when it turns stuck or final. MCP: `aivoicebus_state`.
 - Before editing something another agent may touch: `aivoicebus lease take <repo>:<path> --ttl
   30m --note "what"` (a `--kind lease` message; refused, with who holds it, when someone else has
   it), `lease release <key>` when done, `lease list` to see what is held.

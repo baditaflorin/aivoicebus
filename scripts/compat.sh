@@ -57,6 +57,8 @@ feature_since() {
     quarantine) echo 0.1.0 ;; # Merge and replay replace an invalid replicated record by a placeholder
     features) echo 0.1.0 ;;   # /v1/health lists the node's features
     retract) echo 0.1.0 ;;    # a retraction ack hides its message (inbox) and tombstones it (thread)
+    progress) echo 0.10.0 ;;  # holds a --kind progress message (an older node quarantines it)
+    states) echo 0.11.0 ;;    # a conversation state passes a used-up turn limit when it closes the conversation
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -341,6 +343,53 @@ for ((i = 1; i < N; i++)); do
   done
   stop "$i"; start "$i"
 done
+
+scenario "conversation states"
+# A state is a progress message whose first line starts with [state NAME] (msg/state.go): written by
+# this tree's CLI through an old node, every node that holds progress keeps it unchanged, an old CLI
+# shows it as the ordinary message it is, and this tree's CLI folds the same state from any node.
+# Last of the data scenarios: a node from before progress quarantines it, as documented.
+sent_id() { awk '$1=="sent"{print $2; exit}' "$1"; }
+via=0; for ((i = N - 1; i >= 1; i--)); do has "$i" progress && { via=$i; break; }; done # the oldest node that holds progress
+echo "  the taker writes through ${NAME[$via]}"
+cli 0 "$NEW" cs-boss/claude.b1 task cs-lap "states MARK-CS-task" --ttl 2h >"$W/cs.out" 2>"$W/cs.err"
+check "$?" 0 "new CLI sends a task on new"
+T=$(sent_id "$W/cs.out")
+converge
+cli "$via" "$NEW" cs-lap/codex.t1 claim "$T" --settle 0s >/dev/null 2>&1; check "$?" 0 "new CLI claims it through ${NAME[$via]}"
+cli "$via" "$NEW" cs-lap/codex.t1 state "$T" ready "MARK-CS-ready" >/dev/null 2>"$W/cs.err"; check "$?" 0 "new CLI says ready through ${NAME[$via]}"
+cli "$via" "$NEW" cs-lap/codex.t1 state "$T" taken "MARK-CS-back" >/dev/null 2>&1; check "$?" 1 "new CLI refuses ready -> taken, sending nothing"
+cli "$via" "$NEW" cs-lap/codex.t1 state "$T" done "MARK-CS-done" >/dev/null 2>&1; check "$?" 0 "new CLI says done through ${NAME[$via]}"
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  got=$(feed "${PORT[$k]}" | py 'import json,sys
+m=[r["msg"] for r in json.load(sys.stdin) or [] if r.get("msg") and "MARK-CS-" in r["msg"]["body"] and r["msg"].get("kind")=="progress"]
+print(" ".join(sorted("%s:%s" % (x["kind"], x["body"]) for x in m)) or "none")')
+  want="none"; has "$k" progress && want="progress:[state done] MARK-CS-done progress:[state ready] MARK-CS-ready"
+  check "$got" "$want" "${NAME[$k]} holds the two state messages as progress, bodies unchanged"
+  if has "$k" progress; then
+    got=$(cli "$k" "$NEW" cs-boss/claude.b1 state "$T" --json | py 'import json,sys; s=json.load(sys.stdin)["state"]; print(s["state"], s["taker"], "->".join(h["state"] for h in s["history"]), len(s.get("ignored") or []))')
+    check "$got" "done cs-lap/codex.t1 offered->taken->ready->done 0" "new CLI folds the same state from ${NAME[$k]}"
+    if [ "${VER[$k]}" != new ]; then
+      out=$(cli "$k" "${BIN[$k]}" cs-boss/claude.b1 thread "$T" 2>&1); rc=$?
+      check "$rc $(grep -c -F '[state ready] MARK-CS-ready' <<<"$out")" "0 1" "the ${VER[$k]} CLI shows the state as an ordinary message"
+    fi
+  fi
+done
+# a used-up turn limit: a closing state passes on nodes that know states, and counts as the
+# progress message it is (refused) on older ones
+for k in "${!NAME[@]}"; do
+  has "$k" progress || continue
+  cli "$k" "$NEW" cs-boss/claude.b1 task cs-lap "turns MARK-CS-turns-${NAME[$k]}" --ttl 2h --max-turns 2 >"$W/cs.out" 2>/dev/null
+  t=$(sent_id "$W/cs.out")
+  cli "$k" "$NEW" cs-lap/codex.t1 claim "$t" --settle 0s >/dev/null 2>&1
+  cli "$k" "$NEW" cs-lap/codex.t1 reply --re "$t" "the second turn MARK-CS-r-${NAME[$k]}" >/dev/null 2>&1
+  cli "$k" "$NEW" cs-lap/codex.t1 state "$t" done "closing MARK-CS-close-${NAME[$k]}" >/dev/null 2>&1; rc=$?
+  [ "$rc" = 0 ] || rc=refused
+  want=refused; has "$k" states && want=0
+  check "$rc" "$want" "${NAME[$k]} (${VER[$k]}): done after the turn limit $([ $want = 0 ] && echo passes || echo is refused)"
+done
+check_converged "version vectors equal"
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done
