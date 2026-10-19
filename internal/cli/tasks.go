@@ -26,10 +26,10 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
-	valued := map[string]bool{"ttl": true, "wait-reply": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true}
+	valued := map[string]bool{"ttl": true, "wait-reply": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true}
 	var machine, tool, can, model, fallback, claimWithin, each, waitAll string
 	anyListening := false
 	var rest []string
@@ -157,16 +157,9 @@ func pickListening(target string, s Streams) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	roster, err := c.Roster()
+	free, err := tasks.Listening(c, target, identity.Me())
 	if err != nil {
 		return "", err
-	}
-	me := identity.Me()
-	var free []msg.RosterEntry
-	for _, e := range roster {
-		if e.Listening && e.Me != me && msg.MatchesLabeled(target, e.Me, e.Labels) {
-			free = append(free, e)
-		}
 	}
 	if len(free) == 0 {
 		fmt.Fprintf(s.Err, "  nobody at %s is listening right now: the task goes to %s and waits for the next session there\n", view.Name(target, msg.MaxIdentity), view.Name(target, msg.MaxIdentity))
@@ -286,11 +279,14 @@ func waitFor(c *client.Client, me string, f tasks.Filter, d, every time.Duration
 // claimProgress reports a claim seen while waiting for an answer.
 func claimProgress(s Streams) func(msg.Message) {
 	return func(m msg.Message) {
-		said := "took it"
-		if m.Kind == msg.KindProgress {
+		said, body := "took it", m.Body
+		switch {
+		case m.Kind == msg.KindProgress && msg.IsStuck(body):
+			said, body = "is STUCK", strings.TrimPrefix(body, msg.StuckPrefix) // help them, or take the task back
+		case m.Kind == msg.KindProgress:
 			said = "says"
 		}
-		fmt.Fprintf(s.Err, "[aivoicebus] %s %s: %q; still waiting for the answer...\n", view.Name(m.From, msg.MaxIdentity), said, view.OneLine(m.Body, 120))
+		fmt.Fprintf(s.Err, "[aivoicebus] %s %s: %q; still waiting for the answer...\n", view.Name(m.From, msg.MaxIdentity), said, view.OneLine(body, 120))
 	}
 }
 

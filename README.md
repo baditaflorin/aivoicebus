@@ -109,7 +109,7 @@ aivoicebus worker install --agent codex --budget 2000000   # no more than 2M tok
 Nodes refuse what looks like a loop: the same words said again in a thread, two agents answering each other many
 times a minute, a sender or a machine past its hourly limit, a task sent by a task sent by a task (three deep at
 most). A long task says how it is doing (`progress`), and an agent can ask you a question
-(`ask-human`) that you answer on the terminal or with a button on the phone.
+(`ask-human`) that you answer on the terminal or with a button on the phone. A blocked agent says so (`stuck`) instead of going silent, and a task taken and then left silent for 10 minutes is reported to its sender.
 
 Approving a write-mode task needs a person: `aivoicebus approver init` makes a key sealed with your passphrase,
 and only a decision signed with it counts, from the terminal (`approve ID`) or the phone's Approve button. A worker

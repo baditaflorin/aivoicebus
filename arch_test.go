@@ -35,7 +35,7 @@ var allowed = map[string][]string{
 	"discovery": {"client", "config", "release"},
 	"updater":   {"client", "release"},
 	"mcp":       {"assets", "attach", "client", "config", "identity", "msg", "outbox", "tasks", "view"},
-	"tasks":     {"client", "msg", "outbox"},
+	"tasks":     {"client", "msg", "outbox", "view"}, // view: alert times as a person reads them
 	"worker":    {"client", "config", "msg", "outbox", "tasks", "view"},
 	"outbox":    {"client", "config", "identity", "msg", "release", "secrets", "view"},
 	"cli":       {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "store", "tasks", "updater", "version", "view", "worker"},

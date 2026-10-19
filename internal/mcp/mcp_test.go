@@ -129,7 +129,7 @@ func TestHandshakeListsTheTools(t *testing.T) {
 			t.Errorf("%v", tl)
 		}
 	}
-	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
+	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_stuck,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
 		t.Errorf("%v", names)
 	}
 	for _, x := range list {
@@ -783,5 +783,35 @@ func TestWhoIsCompactByDefault(t *testing.T) {
 	}
 	if full, _ := s.call("aivoicebus_who", map[string]any{"labels": true}); !strings.Contains(full, "a-very-long-host-name-here") {
 		t.Error("labels: true shows every label")
+	}
+}
+
+// aivoicebus_stuck tells the task's sender (as progress) and the person's inbox.
+func TestStuckTool(t *testing.T) {
+	s, st := start(t)
+	task, err := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "resize the image"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, isErr := s.call("aivoicebus_claim", map[string]any{"id": task.ID}); isErr {
+		t.Fatal("claim")
+	}
+	if text, isErr := s.call("aivoicebus_stuck", map[string]any{"reason": "x", "re": "abc"}); !isErr || !strings.Contains(text, "10-character") {
+		t.Errorf("short id: %v %q", isErr, text)
+	}
+	text, isErr := s.call("aivoicebus_stuck", map[string]any{"reason": "need the user's yes to overwrite the file", "re": task.ID})
+	if isErr || !strings.Contains(text, "told desk/claude.z9") || !strings.Contains(text, "told the person") || !strings.Contains(text, "aivoicebus_wait") {
+		t.Fatalf("stuck: %v %q", isErr, text)
+	}
+	in := st.Inbox("desk/claude.z9", false)
+	found := false
+	for _, m := range in {
+		found = found || (m.Kind == msg.KindProgress && msg.IsStuck(m.Body) && m.Re == task.ID)
+	}
+	if !found {
+		t.Errorf("the sender's inbox: %+v", in)
+	}
+	if h := st.Inbox(msg.HumanOf("me/mcp.test"), false); len(h) != 1 || !msg.IsStuck(h[0].Body) {
+		t.Errorf("the person's inbox: %+v", h)
 	}
 }

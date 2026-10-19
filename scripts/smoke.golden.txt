@@ -34,6 +34,8 @@ Usage of send:
     	seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)
   -queue
     	send a selector message even if no session seen in the last 24h matches it (it waits for one that starts later)
+  -quiet-after duration
+    	with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never (default 10m0s)
   -re string
     	reply to message id (or its first characters, if they name one message)
   -tail string
@@ -81,6 +83,8 @@ Usage of send:
     	seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)
   -queue
     	send a selector message even if no session seen in the last 24h matches it (it waits for one that starts later)
+  -quiet-after duration
+    	with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never (default 10m0s)
   -re string
     	reply to message id (or its first characters, if they name one message)
   -tail string
@@ -335,7 +339,7 @@ skipped      codex mcp              no ~/.codex (tool not installed)
 skipped      gemini mcp             no ~/.gemini (tool not installed)
 skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
 skipped      claude standby         no ~/.claude (Claude Code not installed)
-would change state                  release <VER>, hook dd5d1a1e, snippet bc1ad3c6
+would change state                  release <VER>, hook dd5d1a1e, snippet 8d440751
 [exit 0]
 $ aivoicebus setup --yes --url http://127.0.0.1:<PORT>
 changed      install                copy of <BIN> -> <TMP>/home/.local/bin/aivoicebus
@@ -353,7 +357,7 @@ skipped      codex mcp              no ~/.codex (tool not installed)
 skipped      gemini mcp             no ~/.gemini (tool not installed)
 skipped      claude mcp             no claude command on PATH (Grok Build reads Claude Code's MCP servers, so it has none either)
 changed      claude standby         /aivoicebus-standby in <TMP>/home/.claude/commands/aivoicebus-standby.md (tell a session to stand by for messages)
-changed      state                  release <VER>, hook dd5d1a1e, snippet bc1ad3c6
+changed      state                  release <VER>, hook dd5d1a1e, snippet 8d440751
 [exit 0]
 $ aivoicebus doctor --offline
 ok    binary                 aivoicebus <VER> (commit <C>, <PLATFORM>)
@@ -364,7 +368,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  from AIVOICEBUS_TOKEN
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet bc1ad3c6
+ok    claude instructions    snippet 8d440751
 ok    state                  applied by release <VER>
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)
 [exit 0]
@@ -377,7 +381,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet bc1ad3c6
+ok    claude instructions    snippet 8d440751
 ok    state                  applied by release <VER>
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)
 [exit 0]
@@ -408,7 +412,7 @@ ok    shell                  <TMP>/home/.zshrc
 ok    token                  <TMP>/home/.config/aivoicebus/token (mode 0600)
 ok    claude hook            session-start and per-prompt hooks dd5d1a1e
 ok    hook runs              last run ok
-ok    claude instructions    snippet bc1ad3c6
+ok    claude instructions    snippet 8d440751
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)

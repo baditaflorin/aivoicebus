@@ -21,32 +21,27 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
 )
 
-// watch tells you when a task this machine sent has sat untaken: once per task, as a line and,
+// watch tells you when a task this machine sent has sat untaken, or was taken and then went silent
+// (no progress, answer or end for --quiet-after): once per task and kind of alert, as a line and,
 // when a notify URL is set, as a POST to it (ntfy and most webhook relays take that), so nobody
-// has to keep asking "did anyone get it?".
+// has to keep asking "did anyone get it?" or "is anyone still on it?".
 
 const (
-	notifyFile  = "notify-url" // ~/.config/aivoicebus/notify-url, mode 0600: the URL may be a secret
-	alertedFile = "alerted"    // the tasks already alerted on, one id per line
+	notifyFile  = config.NotifyFile
+	alertedFile = "alerted" // the tasks already alerted on, one id per line ("quiet:ID" for a silent one)
+	quietKey    = "quiet:"
 	alertedKeep = 200
 )
 
-func notifyURL() string {
-	if v := strings.TrimSpace(os.Getenv("AIVOICEBUS_NOTIFY_URL")); v != "" {
-		return v
-	}
-	if b, err := os.ReadFile(filepath.Join(config.Dir(), notifyFile)); err == nil {
-		return strings.TrimSpace(string(b))
-	}
-	return ""
-}
+func notifyURL() string { return config.NotifyURL() }
 
 func loadAlerted() map[string]bool {
 	out := map[string]bool{}
 	b, _ := os.ReadFile(filepath.Join(config.Dir(), alertedFile))
 	for _, l := range strings.Split(string(b), "\n") {
-		if msg.ValidID(strings.TrimSpace(l)) {
-			out[strings.TrimSpace(l)] = true
+		l = strings.TrimSpace(l)
+		if msg.ValidID(strings.TrimPrefix(l, quietKey)) {
+			out[l] = true
 		}
 	}
 	return out
@@ -63,28 +58,40 @@ func noteAlerted(id string) {
 	_ = os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 }
 
-// watchOnce alerts on every task stuck longer than after that it has not alerted on before, and
-// says how many it found.
-func watchOnce(c *client.Client, after time.Duration, out io.Writer) (int, error) {
+// watchOnce alerts on every task stuck longer than after (untaken) or silent for quiet (taken,
+// then nothing; 0: not looked for) that it has not alerted on before, and says how many it found.
+func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int, error) {
 	now := time.Now()
-	stuck, err := tasks.Unanswered(c, msg.HostOf(identity.Me()), after, now)
+	host := msg.HostOf(identity.Me())
+	type alert struct{ key, title, line string }
+	var alerts []alert
+	stuck, err := tasks.Unanswered(c, host, after, now)
+	for _, st := range stuck {
+		alerts = append(alerts, alert{st.ID, "aivoicebus: a task is waiting", tasks.AlertText(st, now)})
+	}
+	if quiet > 0 && err == nil {
+		var silent []tasks.Silent
+		silent, err = tasks.SilentTasks(c, host, quiet, now)
+		for _, si := range silent {
+			alerts = append(alerts, alert{quietKey + si.ID, "aivoicebus: a task went silent", tasks.SilentText(si, now)})
+		}
+	}
 	seen := loadAlerted()
 	nu := notifyURL()
 	n := 0
-	for _, st := range stuck {
-		if seen[st.ID] {
+	for _, a := range alerts {
+		if seen[a.key] {
 			continue
 		}
 		n++
-		line := tasks.AlertText(st, now)
-		fmt.Fprintln(out, line)
+		fmt.Fprintln(out, a.line)
 		if nu != "" {
-			if err := tasks.Notify(nu, line); err != nil {
+			if err := tasks.NotifyActions(nu, a.title, a.line, ""); err != nil {
 				fmt.Fprintln(out, "  not notified: "+err.Error())
 				continue // tried again next time
 			}
 		}
-		noteAlerted(st.ID)
+		noteAlerted(a.key)
 	}
 	return n, err
 }
@@ -96,33 +103,34 @@ func watchCmd(args []string, s Streams) error {
 	fs := newFlagSet("watch")
 	after := fs.Duration("after", 15*time.Minute, "alert on a task this machine sent that nobody took after this long")
 	every := fs.Duration("every", time.Minute, "how often to look")
+	quiet := fs.Duration("quiet-after", tasks.QuietAfter, "alert on a task this machine sent that someone took and then said nothing about (no progress, answer or end) this long; 0: never")
 	once := fs.Bool("once", false, "look once and exit (exit 1 when a task is stuck)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *after < time.Minute || *every < 10*time.Second {
-		return outbox.Usagef("usage: watch [--after 15m] [--every 1m] [--once]   |   watch notify set URL | clear | test   (--after at least 1m, --every at least 10s)")
+	if fs.NArg() != 0 || *after < time.Minute || *every < 10*time.Second || (*quiet != 0 && *quiet < time.Minute) {
+		return outbox.Usagef("usage: watch [--after 15m] [--quiet-after 10m] [--every 1m] [--once]   |   watch notify set URL | clear | test   (--after and --quiet-after at least 1m, --every at least 10s)")
 	}
 	c, err := client.FromEnv()
 	if err != nil {
 		return err
 	}
 	if *once {
-		n, err := watchOnce(c, *after, s.Out)
+		n, err := watchOnce(c, *after, *quiet, s.Out)
 		if err != nil {
 			return err
 		}
 		if n > 0 {
 			return exitError{exitFailure}
 		}
-		fmt.Fprintf(s.Out, "nothing new: no task sent from this machine waits untaken past %s, other than any already alerted on\n", after.String())
+		fmt.Fprintf(s.Out, "nothing new: no task sent from this machine waits untaken past %s or taken and silent past %s, other than any already alerted on\n", after.String(), quiet.String())
 		return nil
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintf(s.Err, "watching the tasks this machine sends: an alert when one waits %s untaken%s\n", after.String(), map[bool]string{true: ", posted to the notify URL", false: ""}[notifyURL() != ""])
+	fmt.Fprintf(s.Err, "watching the tasks this machine sends: an alert when one waits %s untaken or %s silent after it was taken%s\n", after.String(), quiet.String(), map[bool]string{true: ", posted to the notify URL", false: ""}[notifyURL() != ""])
 	for {
-		if _, err := watchOnce(c, *after, s.Out); err != nil && !client.IsUnreachable(err) {
+		if _, err := watchOnce(c, *after, *quiet, s.Out); err != nil && !client.IsUnreachable(err) {
 			return err
 		}
 		select {

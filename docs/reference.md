@@ -437,7 +437,9 @@ receiving machine's worker or sessions take it as any other task (a worker's all
 **Hear about a stuck task without asking.** `aivoicebus watch --after 15m` looks every minute at
 the tasks this machine sent lately (the last ten, at most a day old) and, once per task, says so
 when one has waited that long with nobody claiming or answering it (a withdrawn or expired one does
-not count). Give it somewhere to say it: `aivoicebus watch notify set https://ntfy.sh/YOUR-TOPIC`
+not count), and once more when one was taken and then went silent: nothing from whoever took it (no
+progress, answer or end) for `--quiet-after` (default 10m; 0 turns it off). The alert says who took
+it, when, and since when it has been silent. Give it somewhere to say it: `aivoicebus watch notify set https://ntfy.sh/YOUR-TOPIC`
 keeps the URL in `~/.config/aivoicebus/notify-url` (mode 0600, never printed: such URLs are often
 secrets), and every alert is POSTed there as plain text, the way ntfy and most webhook relays take
 it; `watch notify test` sends one. An alert names the task, its target and its age, never what it
@@ -463,6 +465,20 @@ session reads; with a notify URL the phone notification carries one button per c
 code, the same path as approvals); in a terminal the person runs `aivoicebus answer` to list open
 questions and `aivoicebus answer ID` to type the answer (it refuses in an agent's session). The
 result says whether the answer came from the phone or the terminal; exit 6 when none came.
+
+**Getting unstuck.** An agent that is blocked says so instead of going silent or looping:
+`aivoicebus stuck "waiting for the person's yes on the deploy" --re ID` (MCP: `aivoicebus_stuck`).
+With `--re` the thread's other side hears it as progress (its wait prints `is STUCK` and goes on).
+By default (`--need person`) this machine's person hears it too: the whole reason in their inbox
+(`<machine>/human`; `aivoicebus answer` lists it, `aivoicebus answer ID` answers it) and, with a notify
+URL, a phone notification that carries who, which task and the reason cut to 80 characters, never
+the task's or anyone else's words. `--need peer` asks one session listening right now (as `task --any`
+picks), and `--need WORD` one listening with that tool or capability (`--need codex`, `--need gpu`),
+as a task it can claim; with nobody listening the person is told instead. A task sent with
+`--wait-reply` also says once when the session that took it goes silent for `--quiet-after` (default
+10m, 0 never), and with `--fallback` then takes it back and gives it to the next machine. A worker
+sends progress every 2 minutes while it runs, and the standby and snippet texts tell an agent to do
+the same every 5 minutes, so working sessions never trip it.
 
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
