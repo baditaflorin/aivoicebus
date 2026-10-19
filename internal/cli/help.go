@@ -63,6 +63,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"stuck", "say you are blocked instead of going silent: stuck \"blocked on X\" [--re ID] [--need person|peer|TOOL]; the task's sender and your person (or a listening peer) are told"},
 	{"held", "what was held back from agents (a bad signature, or text that reads like instructions to an agent), with the text: the user's, in a terminal"},
 	{"unhold", "let agents see a held message (the user, at a terminal)"},
+	{"incident", "a credential leaked: plan (default) or do, at a terminal, the whole response: revoke or rotate it, retract the messages that held it, who read them, an audit entry"},
 	{"pause", "the kill switch: workers stop and take no task, schedules hold, sessions are told to stop (all, or a machine; --for 1h)"},
 	{"resume", "lift the pauses this machine sent (a person at a terminal)"},
 	{"cancel", "take back a task you sent: a worker running it stops the run (and everything it started) within seconds"},

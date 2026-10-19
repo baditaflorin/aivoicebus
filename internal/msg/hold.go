@@ -35,7 +35,7 @@ var injections = []struct {
 }{
 	{"ignore previous instructions", regexp.MustCompile(`\b(ignore|disregard|forget)\b[^.\n]{0,30}\b(previous|prior|above|earlier|all|your|system)\b[^.\n]{0,20}\b(instructions|prompts?|rules|guidelines)\b`)},
 	{"a new role or system prompt", regexp.MustCompile(`\b(you are now|new instructions:|system prompt:|<\s*system\s*>)`)},
-	{"the user's own aivoicebus commands", regexp.MustCompile(`\baivoicebus\s+(approve|deny|approver|resume|unhold|worker\s+allow)\b`)},
+	{"the user's own aivoicebus commands", regexp.MustCompile(`\baivoicebus\s+(approve|deny|approver|resume|unhold|worker\s+allow|incident\b[^\n]*\s--apply)\b`)},
 	{"a download piped into a shell", regexp.MustCompile(`\b(curl|wget)\b[^|\n]{0,200}\|\s*(sudo\s+)?(ba|z)?sh\b`)},
 	{"deleting a home or root directory", regexp.MustCompile(`\brm\s+-[a-z]*r[a-z]*f?\s+(/|~|\$home)(\s|$)`)},
 	{"skipping the agent's permissions", regexp.MustCompile(`dangerously-skip-permissions|dangerously-bypass|bypasspermissions`)},

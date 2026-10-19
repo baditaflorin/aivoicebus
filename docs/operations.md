@@ -19,6 +19,50 @@ clocks), nodes on different releases, and a node approaching its memory limit
 apart by fingerprint (`shared-ab12cd`), so before retiring a token you can see whether anything
 still uses it.
 
+## If something leaked
+
+A token, key or secret was in a message, a log or a screenshot. Run one command, on the machine
+you deploy from, in your own terminal:
+
+    aivoicebus incident shared              # the mesh's shared token
+    aivoicebus incident machine laptop-a    # the machine token of laptop-a
+    aivoicebus incident observer            # the dashboard's read-only token
+    aivoicebus incident secret github       # a credential saved with `aivoicebus secret save github`
+    aivoicebus incident message 3fa9c0e1d2  # a message held one, and it is none of these
+    #   add --msg ID (repeatable) for messages you know held it
+
+By default it only **plans**, and changes nothing: it shows
+
+1. how the credential is revoked or rotated, the deploy script it runs and that script's dry run
+   (`deploy/rotate-token.sh add` then `promote` for the shared token, `deploy/machine-token.sh
+   revoke HOST` for a machine token), or, marked `[you]`, what only you can do (revoke a saved
+   secret where it was issued; the observer token is re-made with `deploy/install.sh
+   --gen-observer-token` and a full install);
+2. the messages that held it: those you named, and every message on the nodes whose text holds
+   the credential's value (searched with the shared token, never printed);
+3. who read them and when (the nodes' receipts: reader, time, how it reached them; who took it as
+   a task; replies) and what this machine's audit log says about them;
+4. that the incident is written to the audit log.
+
+`aivoicebus incident ... --apply` does it, after you type `incident` at the prompt: the credential
+**first** (it stops at the first script that fails, and then retracts nothing: a retraction
+notice about a credential that still works only points at it), then each message is retracted as
+a leak (as its sender, with the shared token, when another machine sent it; the nodes tell every
+session that read it at its next inbox read), then the audit entry (`aivoicebus audit`:
+`incident-start` and `incident`, with what was done and what was not). A saved secret's copy on
+this machine is removed. `--apply` refuses in an agent's session (`AIVOICEBUS_AGENT`, or an agent
+tool above the process) and without a terminal, like `approve`; the plan itself is safe for anyone
+to read. No secret is printed: everything it shows, the deploy scripts' output included, passes
+through a mask of every credential this machine holds.
+
+What it leaves to you, and says so: the shared token keeps working until every machine has moved
+to the new one and you run `deploy/rotate-token.sh retire --apply` (or pass `--retire` to retire it
+at once, cutting off machines not moved yet; `deploy/rotate-token.sh --check` names them); a revoked machine cannot reach the mesh until it gets
+a new token (`deploy/machine-token.sh add HOST --apply`, installed by hand or with a client bundle,
+since `token hand` needs that machine to read its mail). The text stays in node logs, exports and
+the dashboard archive (see "Retracting a message" below): treat it as exposed. The scripts are
+found in `./deploy`, `$AIVOICEBUS_DEPLOY_DIR` or `--deploy DIR`.
+
 ## Malformed input and floods
 
 A node has to stay up whatever reaches it. Opening a connection needs no token, so the HTTP
@@ -162,7 +206,8 @@ which change nothing: it should be 0. A non-zero value means someone tried to ta
 machine's message by declaring an identity, or a client with a wrong identity; the records are in
 the log (`origin` says which node wrote each), so look there.
 
-**A leaked secret.** (1) Rotate the credential now: retraction cannot unsend it. (2)
+**A leaked secret.** `aivoicebus incident` does all of this in order (see "If something leaked"
+above); by hand: (1) Rotate the credential now: retraction cannot unsend it. (2)
 `aivoicebus retract --leak <id>` from the sender's machine (or the operator's shell on it): the
 tombstone says it may have held a credential, and the CLI prints how many other sessions had read it. (3) Check `aivoicebus thread <id>` on two nodes shows the tombstone; a node that
 still shows the text is on a release that predates retraction (`aivoicebus mesh`). (4) Remember the text is
