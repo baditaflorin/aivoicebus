@@ -44,7 +44,7 @@ var askTool = tool{
 			return "", err
 		}
 		if strings.TrimSpace(a.Body) == "" {
-			return "", errors.New("body is the question")
+			return "", errors.New("body is the question: call it again with the question in body")
 		}
 		target, err := askTarget(a.Target, a.Tool, a.Any)
 		if err != nil {
@@ -127,17 +127,17 @@ var askTool = tool{
 func askTarget(target, tool string, anyOne bool) (string, error) {
 	switch {
 	case strings.ContainsAny(tool, ",= /*@"):
-		return "", fmt.Errorf("tool %q: one name, such as codex", tool)
+		return "", fmt.Errorf("tool %q: one name, such as codex: call it again with one", tool)
 	case target == "" && !anyOne:
-		return "", errors.New("give a target, or any: true")
+		return "", errors.New("give a target, or any: true: call it again with one of them")
 	case target == "" && tool == "":
 		return "all", nil
 	case target == "":
 		return "*/" + tool, nil
 	case msg.IsSelector(target) || target == "all" || strings.ContainsAny(target, ", "):
-		return "", fmt.Errorf("an ask goes to one session: name a machine, host/tool or a session, or set any (not %s)", target)
+		return "", fmt.Errorf("an ask goes to one session: name a machine, host/tool or a session, or set any (not %s): call it again with one", target)
 	case strings.Contains(target, "/") && tool != "":
-		return "", fmt.Errorf("%s already names the tool; leave out tool", target)
+		return "", fmt.Errorf("%s already names the tool: call it again without tool", target)
 	case tool != "":
 		return target + "/" + tool, nil
 	}
