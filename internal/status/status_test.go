@@ -109,6 +109,7 @@ func TestEverySection(t *testing.T) {
 		{From: me, To: msg.HumanOf(me), Body: msg.AskBody("ok to deploy?", []string{"yes", "no"}, ""), Prio: msg.PrioUrgent},
 		{From: "here/worker", To: msg.HumanOf(me), Body: "[approval needed] the worker would run x", Prio: msg.PrioUrgent},
 		{From: "far/codex.2", To: "all", Body: msg.PauseBody(until, "drill"), Prio: msg.PrioUrgent},
+		{From: "here/codex.s", To: msg.HumanOf(me), Body: msg.StuckPrefix + "need the user's yes", Prio: msg.PrioUrgent},
 	} {
 		if _, err := sa.Send(m); err != nil {
 			t.Fatal(err)
@@ -154,10 +155,10 @@ func TestEverySection(t *testing.T) {
 	if r.Tasks.Waiting != 1 || !slices.Contains(fixFor(r, "tasks"), "aivoicebus queue") {
 		t.Errorf("tasks = %+v", r.Tasks)
 	}
-	if len(r.Person.Questions) != 1 || len(r.Person.Approvals) != 1 {
+	if len(r.Person.Questions) != 1 || len(r.Person.Approvals) != 1 || len(r.Person.Stuck) != 1 {
 		t.Errorf("person = %+v", r.Person)
 	}
-	if fs := fixFor(r, "person"); len(fs) != 2 || fs[0] != "the person, in a terminal: aivoicebus approve "+r.Person.Approvals[0] {
+	if fs := fixFor(r, "person"); len(fs) != 3 || fs[0] != "the person, in a terminal: aivoicebus approve "+r.Person.Approvals[0] || fs[2] != "the person, in a terminal: aivoicebus answer "+r.Person.Stuck[0] {
 		t.Errorf("person fixes = %v", fs)
 	}
 	if r.Held.Count != 2 || !slices.Contains(fixFor(r, "held"), "the person, in a terminal: aivoicebus held") {

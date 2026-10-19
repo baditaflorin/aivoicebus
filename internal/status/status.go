@@ -128,10 +128,12 @@ type Tasks struct {
 	IDs     []string `json:"ids"`
 }
 
-// Person is what waits for this machine's person: questions (ask-human) and approvals.
+// Person is what waits for this machine's person: questions (ask-human), approvals, and agents
+// that are stuck and asked for the person (aivoicebus stuck).
 type Person struct {
 	Questions []string `json:"questions"` // message ids
 	Approvals []string `json:"approvals"`
+	Stuck     []string `json:"stuck"` // agents here that said they are blocked and need the person
 }
 
 // Held counts the messages kept from agents that the person has not released.
@@ -321,13 +323,15 @@ func Gather(o Options) Report {
 			if err != nil {
 				return nil
 			}
-			p := &Person{Questions: []string{}, Approvals: []string{}}
+			p := &Person{Questions: []string{}, Approvals: []string{}, Stuck: []string{}}
 			for _, m := range ms {
 				switch {
 				case strings.HasPrefix(m.Body, msg.AskPrefix):
 					p.Questions = append(p.Questions, m.ID)
 				case strings.HasPrefix(m.Body, "[approval needed]"):
 					p.Approvals = append(p.Approvals, m.ID)
+				case msg.IsStuck(m.Body):
+					p.Stuck = append(p.Stuck, m.ID)
 				}
 			}
 			return func(r *Report) { r.Person = p }

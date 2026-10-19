@@ -64,6 +64,9 @@ func problems(r *Report) []Problem {
 		if len(p.Questions) > 0 {
 			add("person", fmt.Sprintf("%d question(s) wait for the person", len(p.Questions)), "the person, in a terminal: aivoicebus answer")
 		}
+		if len(p.Stuck) > 0 {
+			add("person", fmt.Sprintf("%d agent(s) here are stuck and need the person", len(p.Stuck)), "the person, in a terminal: aivoicebus answer "+p.Stuck[0])
+		}
 	}
 	if h := r.Held; h != nil && h.Count > 0 {
 		add("held", fmt.Sprintf("%d message(s) held back from agents", h.Count), "the person, in a terminal: aivoicebus held")
@@ -207,7 +210,7 @@ func line(r Report, section string) string {
 		}
 		return "none waiting for this session or machine"
 	case "person":
-		if p := r.Person; len(p.Questions)+len(p.Approvals) > 0 {
+		if p := r.Person; len(p.Questions)+len(p.Approvals)+len(p.Stuck) > 0 {
 			return ""
 		}
 		return "no question or approval waits for the person"
