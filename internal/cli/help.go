@@ -10,6 +10,7 @@ import (
 // helpTopics is the one-line summary of every command, in the order `help` lists them. A test
 // holds it to the command table, so a command cannot be added without a line here.
 var helpTopics = []struct{ name, summary string }{
+	{"start", "the guided first run: reach the mesh, set up the tools, Codex trust, approver key, phone alerts, doctor, and a hello"},
 	{"send", "send a message to a session, a machine or everyone"},
 	{"reply", "answer the last message you read, to the right session"},
 	{"inbox", "read your messages (--ack marks them read)"},
