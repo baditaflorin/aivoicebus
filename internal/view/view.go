@@ -45,6 +45,9 @@ func Thread(w io.Writer, all, ms []msg.Message, maxBody int) {
 	if s := Subject(all); s != "" {
 		fmt.Fprintf(w, "[aivoicebus] Thread subject (peer text): %q\n", s)
 	}
+	if v := msg.ThreadState(all); v.State != "" {
+		fmt.Fprintf(w, "[aivoicebus] Conversation %s\n", StateLine(v))
+	}
 	if maxBody > 0 {
 		Brief(w, ms, maxBody)
 		return

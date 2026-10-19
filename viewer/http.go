@@ -89,8 +89,13 @@ func (v *Viewer) Handler(o HTTPOptions) http.Handler {
 		}
 		var out []ThreadMessage
 		for _, t := range threads {
-			for _, m := range view.SanitiseMessages(v.st.Thread(t)) {
+			ms := v.st.Thread(t)
+			st := msg.ThreadState(ms)
+			for _, m := range view.SanitiseMessages(ms) {
 				tm := ThreadMessage{Message: m, ReadBy: v.st.Readers(m.ID)}
+				if m.ID == st.Root && st.State != "" {
+					tm.State, tm.StateBy = st.State, view.Name(st.By, maxName)
+				}
 				if rc, ok := v.st.Receipts(m.ID); ok {
 					for _, r := range rc.Reads {
 						tm.Readers = append(tm.Readers, view.Name(r.By, maxName))

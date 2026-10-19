@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
@@ -26,6 +27,19 @@ type resultView struct {
 	// Outcome and Why are `ask`'s: answered | nobody | timeout, and who the question went to and why.
 	Outcome string `json:"outcome,omitempty"`
 	Why     string `json:"why,omitempty"`
+	// State is the conversation's state (msg/state.go) when the wait ended; absent when nobody
+	// offered or took anything in it.
+	State *msg.StateView `json:"state,omitempty"`
+}
+
+// withState adds the thread's conversation state to r, when it has one and the nodes say.
+func withState(c *client.Client, r resultView) resultView {
+	if ms, err := c.Thread(r.Thread); err == nil {
+		if v := msg.ThreadState(ms); v.State != "" {
+			r.State = &v
+		}
+	}
+	return r
 }
 
 type answerView struct {

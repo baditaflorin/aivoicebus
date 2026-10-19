@@ -59,6 +59,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"audit", "what was approved, run, stopped, released or allowed on this machine; --verify checks the chain and signatures"},
 	{"ask-human", "ask this machine's person a question and wait: they answer on the phone (choice buttons) or with `aivoicebus answer`"},
 	{"answer", "the person's side of ask-human and stuck: list the open questions and blocked agents, or answer one (in a terminal)"},
+	{"state", "a conversation's handshake, seen by both sides: state ID ready \"note\" moves it (offered, taken, ready, doing, done, stuck, declined), --wait-state ready 10m waits for it"},
 	{"progress", "say how a task goes, to whoever waits on it: progress --re ID \"step 3/5\" (waits show it and go on)"},
 	{"stuck", "say you are blocked instead of going silent: stuck \"blocked on X\" [--re ID] [--need person|peer|TOOL]; the task's sender and your person (or a listening peer) are told"},
 	{"held", "what was held back from agents (a bad signature, or text that reads like instructions to an agent), with the text: the user's, in a terminal"},

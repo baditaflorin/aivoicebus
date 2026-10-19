@@ -70,6 +70,12 @@ func Digest(w io.Writer, ms []msg.Message) {
 			fmt.Fprintln(w, "  nobody has taken it")
 		}
 	}
+	if v := msg.ThreadState(ms); v.State != "" {
+		fmt.Fprintf(w, "  %s\n", StateLine(v))
+		if n := len(v.Ignored); n > 0 {
+			fmt.Fprintf(w, "  %d state message(s) the rules ignored (aivoicebus state %s lists them)\n", n, first.ID)
+		}
+	}
 	for _, who := range order {
 		sd := sides[who]
 		if sd.last.ID == "" || sd.last.ID == first.ID {

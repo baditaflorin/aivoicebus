@@ -100,6 +100,7 @@ func init() {
 		"approver":    approverCmd,
 		"deny":        denyCmd,
 		"incident":    incidentCmd,
+		"state":       stateCmd,
 	}
 }
 
