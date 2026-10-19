@@ -288,6 +288,25 @@ func TestEveryNodeFrozenIsUnknownNotAHang(t *testing.T) {
 	checkScreen(t, out)
 }
 
+// The budget counts from the command's start: time spent before Gather (the identity) is part of it.
+func TestBudgetCountsFromTheStart(t *testing.T) {
+	good, _ := node(t, "good", "0.10.4", "")
+	o := opts(frozen(t).URL, good.URL)
+	o.Budget = 1500 * time.Millisecond
+	o.Start = time.Now().Add(-time.Second)
+	r := Gather(o)
+	if took := time.Since(o.Start); took > 2*time.Second || r.TookMs < 1000 {
+		t.Errorf("took %s from the start (took_ms %d)", took, r.TookMs)
+	}
+	if r.Inbox == nil {
+		t.Errorf("what was left of the budget was enough for a hedged read: %v", r.Unknown)
+	}
+	o.Start = time.Now().Add(-time.Hour) // never less than minLeft
+	if r = Gather(o); r.Inbox == nil {
+		t.Errorf("no time left at all: %v", r.Unknown)
+	}
+}
+
 // A slow local probe (a home on a stalled disk) is bounded too.
 func TestSlowLocalProbeIsBounded(t *testing.T) {
 	a, _ := node(t, "na", "0.10.4", "")

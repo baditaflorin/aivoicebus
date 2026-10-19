@@ -65,7 +65,9 @@ func statusCmd(args []string, s Streams) error {
 
 // homeStatus gathers the home screen for this session.
 func homeStatus(budget time.Duration) status.Report {
+	start := time.Now() // working out the identity (the process chain) is part of the budget
 	o := status.Options{
+		Start:  start,
 		Me:     identity.Me(),
 		Why:    func() string { return identity.Printable(identity.Explain().Why()) },
 		Here:   version.Release,

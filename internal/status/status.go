@@ -25,6 +25,9 @@ import (
 // in a quarter of a second, so a healthy mesh answers well inside it.
 const DefaultBudget = 1500 * time.Millisecond
 
+// minLeft is the least time the parts get, however long the caller took before Gather.
+const minLeft = 500 * time.Millisecond
+
 // maxSkew is the clock difference that counts as a problem (as `aivoicebus mesh` uses).
 const maxSkew = 2 * time.Second
 
@@ -36,6 +39,9 @@ type Options struct {
 	Why    func() string // how the identity was worked out
 	Here   string        // the release this binary is
 	Budget time.Duration // 0 means DefaultBudget
+	// Start is when the command started (zero: now). The budget counts from it, so the time spent
+	// working out the identity before Gather is part of it.
+	Start time.Time
 	Now    func() time.Time
 
 	Quiet  func() config.Quiet
@@ -186,11 +192,19 @@ func Gather(o Options) Report {
 	if budget <= 0 {
 		budget = DefaultBudget
 	}
-	start := time.Now()
+	start := o.Start
+	if start.IsZero() {
+		start = time.Now()
+	}
+	// What is left of the budget, but never less than minLeft: a slow identity probe must not
+	// leave the nodes no time at all.
 	deadline := start.Add(budget)
+	if floor := time.Now().Add(minLeft); deadline.Before(floor) {
+		deadline = floor
+	}
 	// The nodes are asked to answer a little before the screen is drawn, so a part that waited out
 	// a hung node still arrives in time to be shown.
-	netDeadline := deadline.Add(-min(200*time.Millisecond, budget/5))
+	netDeadline := deadline.Add(-min(200*time.Millisecond, time.Until(deadline)/5))
 	r := Report{Me: Me{ID: o.Me}, BudgetMs: budget.Milliseconds(), NoNodes: o.Client == nil}
 
 	var latestMu sync.Mutex
