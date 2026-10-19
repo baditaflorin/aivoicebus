@@ -814,6 +814,8 @@ func TestStuckTool(t *testing.T) {
 	}
 	if h := st.Inbox(msg.HumanOf("me/mcp.test"), false); len(h) != 1 || !msg.IsStuck(h[0].Body) {
 		t.Errorf("the person's inbox: %+v", h)
+	}
+}
 
 // aivoicebus_ask picks one session, asks it with the conversation limits and returns its answer;
 // it refuses look-alikes, and says when nobody took it (taking the question back).
