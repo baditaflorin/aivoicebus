@@ -57,6 +57,7 @@ feature_since() {
     quarantine) echo 0.1.0 ;; # Merge and replay replace an invalid replicated record by a placeholder
     features) echo 0.1.0 ;;   # /v1/health lists the node's features
     retract) echo 0.1.0 ;;    # a retraction ack hides its message (inbox) and tombstones it (thread)
+    tasks) echo 0.2.0 ;;      # holds a task (msg.TaskSince); the CLI refuses to send one to an older mesh
     progress) echo 0.10.0 ;;  # holds a --kind progress message (an older node quarantines it)
     states) echo 0.11.0 ;;    # a conversation state passes a used-up turn limit when it closes the conversation
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
@@ -353,8 +354,15 @@ sent_id() { awk '$1=="sent"{print $2; exit}' "$1"; }
 allprog=1; for k in "${!NAME[@]}"; do has "$k" progress || allprog=; done
 via=$((N - 1)) # the oldest node
 echo "  the taker writes through ${NAME[$via]}"
-cli 0 "$NEW" cs-boss/claude.b1 task cs-lap "states MARK-CS-task" --ttl 2h >"$W/cs.out" 2>"$W/cs.err"
-check "$?" 0 "new CLI sends a task on new"
+alltasks=1; for k in "${!NAME[@]}"; do has "$k" tasks || alltasks=; done
+cli 0 "$NEW" cs-boss/claude.b1 task cs-lap "states MARK-CS-task" --ttl 2h >"$W/cs.out" 2>"$W/cs.err"; rc=$?
+if [ -z "$alltasks" ]; then
+  # A node from before tasks is in the mesh: the CLI refuses the task (as it has since 0.2.0), so there
+  # is no conversation to give a state to, and nothing is written.
+  check "$rc $(grep -c 'cannot hold a task' "$W/cs.err")" "1 1" "new CLI refuses a task to a mesh with a node before 0.2.0 (so no states either)"
+  check_converged "version vectors equal"
+else
+check "$rc" 0 "new CLI sends a task on new"
 T=$(sent_id "$W/cs.out")
 converge
 cli "$via" "$NEW" cs-lap/codex.t1 claim "$T" --settle 0s >/dev/null 2>&1; check "$?" 0 "new CLI claims it through ${NAME[$via]}"
@@ -399,6 +407,7 @@ print(" ".join(sorted("%s:%s" % (x["kind"], x["body"]) for x in m)) or "none")')
   done
   check_converged "version vectors equal"
 fi
+fi # alltasks
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done
