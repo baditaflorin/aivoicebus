@@ -46,10 +46,12 @@ trap cleanup EXIT
 pass() { echo "  PASS: $*"; }
 fail() { echo "  FAIL: $*"; FAILED=1; }
 ok() { if "${@:2}" >/dev/null 2>&1; then pass "$1"; else fail "$1"; fi; }
+# grep reads a here-string, never a pipe: with pipefail, `printf | grep -q` fails when grep quits at
+# its first match and printf dies of SIGPIPE, so a check that matched was reported as failed.
 has() { # has <what> <pattern> <text>
-  if printf '%s' "$3" | grep -q -- "$2"; then pass "$1"; else fail "$1 (wanted /$2/ in: $(printf '%s' "$3" | head -c 600 | tr '\n' '|'))"; fi
+  if grep -q -- "$2" <<<"$3"; then pass "$1"; else fail "$1 (wanted /$2/ in: $(printf '%s' "$3" | head -c 600 | tr '\n' '|'))"; fi
 }
-lacks() { if printf '%s' "$3" | grep -q -- "$2"; then fail "$1 (found /$2/)"; else pass "$1"; fi; }
+lacks() { if grep -q -- "$2" <<<"$3"; then fail "$1 (found /$2/)"; else pass "$1"; fi; }
 eventually() { # eventually <what> <seconds> <command...>
   local what="$1" n="$2"; shift 2
   for _ in $(seq 1 "$((n * 4))"); do "$@" >/dev/null 2>&1 && { pass "$what"; return 0; }; sleep 0.25; done
@@ -131,7 +133,7 @@ section "a sender takes a message back (retraction)"
 M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "to be taken back" 2>&1)
 RID=$(printf '%s\n' "$M" | awk '/^sent /{print $2; exit}')
 has "the message is sent" "^sent " "$M"
-shows() { AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url "$1")" AIVOICEBUS_TOKEN="$(tok)" "$NEW" inbox 2>&1 | grep -q 'to be taken back'; }
+shows() { grep -q 'to be taken back' <<<"$(AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url "$1")" AIVOICEBUS_TOKEN="$(tok)" "$NEW" inbox 2>&1)"; }
 eventually "node 3 delivers it before the retraction" 20 shows 3
 acks_before=$(health_field 1 acks)
 out=$(http "$TOKEN_FILE" "$(url 1)/v1/retract" -X POST -d '{"id":"'"$RID"'","by":"lab/other"}')
@@ -389,7 +391,7 @@ out=$(deploy/machine-token.sh revoke mx --apply 2>&1); rc=$?
 [ $rc != 0 ] && has "revoke reports that it did not finish" "revoke did not finish" "$out" || fail "revoke claimed success with a broken node"
 lacks "and does not claim the token is gone" "revoked: no node accepts" "$out"
 # shellcheck disable=SC2010 # the test is about a hidden marker name, which a glob would not list
-ls "$HOME/.config/aivoicebus/machine-tokens/" -A | grep -q '^\.revoke-pending-mx$' && pass "the token is kept, hidden, until it is finished" || fail "no revoke-pending file"
+grep -q '^\.revoke-pending-mx$' <<<"$(ls -A "$HOME/.config/aivoicebus/machine-tokens/")" && pass "the token is kept, hidden, until it is finished" || fail "no revoke-pending file"
 [ "$(code "$LAB/mx.token" "$(url 1)/v1/who")" != 200 ] && pass "node 1 (done before the failure) refuses it" || fail "node 1 still accepts it"
 out=$(deploy/machine-token.sh list 2>&1); has "list says a revoke is unfinished" "revoke unfinished" "$out"
 state_before=$(ls -A "$HOME/.config/aivoicebus/machine-tokens/")
@@ -399,7 +401,7 @@ out=$(deploy/machine-token.sh revoke mx --apply 2>&1); rc=$?
 [ $rc = 0 ] && has "running it again finishes the job" "revoked: no node accepts mx's token any more" "$out" || { fail "revoke did not resume (exit $rc)"; echo "$out" | tail -8; }
 for i in 1 2 3 4 5; do [ "$(code "$LAB/mx.token" "$(url $i)/v1/who")" != 200 ] && pass "node $i refuses the revoked token" || fail "node $i still accepts it"; done
 # shellcheck disable=SC2010 # as above: hidden marker names
-ls "$HOME/.config/aivoicebus/machine-tokens/" -A | grep -q revoke && fail "revoke leftovers" || pass "no leftovers"
+grep -q revoke <<<"$(ls -A "$HOME/.config/aivoicebus/machine-tokens/")" && fail "revoke leftovers" || pass "no leftovers"
 
 section "a canary's earlier restart does not fail a good release"
 kill -KILL "$(serve_pid 1)"

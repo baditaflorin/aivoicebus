@@ -97,7 +97,7 @@ for v in "${OLDV[@]}"; do
   [ "$mv" = "$v" ] || die "$rd holds release $mv, not $v"
   i=$((i + 1))
   cp "$rd/aivoicebus-linux-amd64" "$W/aivoicebus-$v" && chmod 755 "$W/aivoicebus-$v"
-  "$W/aivoicebus-$v" version 2>&1 | grep -qF "$v" || die "the $v binary does not say it is $v"
+  grep -qF "$v" <<<"$("$W/aivoicebus-$v" version 2>&1)" || die "the $v binary does not say it is $v"
   NAME[$i]=o${v//./}; BIN[$i]=$W/aivoicebus-$v; VER[$i]=$v
 done
 N=${#NAME[@]}
