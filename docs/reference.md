@@ -320,7 +320,7 @@ before doing it.
 commands an agent runs in its session), each message passes a screen: one whose signature does not
 verify or whose machine key changed, or whose text reads like instructions to an agent ("ignore
 previous instructions", "you are now", a user-only aivoicebus command such as `approve` or
-`resume`, a download piped into a shell, deleting a home or root directory, flags that skip an
+`resume` (or `incident --apply`), a download piped into a shell, deleting a home or root directory, flags that skip an
 agent's permissions), is shown only as "[held for the user: why]". A worker does not take such a
 task. You see them, with the text, with `aivoicebus held` in your own terminal, and let agents read
 one with `aivoicebus unhold ID` (asked at the terminal). Both refuse in an agent's session. The list
@@ -328,7 +328,7 @@ is short on purpose: it catches the common injections, not every one, so peer te
 
 **An audit log.** `~/.config/aivoicebus/audit.jsonl` (mode 0600) records what was approved or denied,
 every worker decision (ran, not approved, cancelled, held, over budget...), cancels, pauses and
-resumes, unholds, allowlist changes, `worker install` and `approver init`, with who and when.
+resumes, unholds, allowlist changes, `worker install`, `approver init` and `incident --apply`, with who and when.
 `aivoicebus audit` lists it; `aivoicebus audit --verify` checks every line is in order, carries the
 SHA-256 of the line before it and is signed by this machine's key, so an edited, reordered, inserted
 or forged line shows (exit 1). Lines cut off the end do not: a file cannot prove its own length, so
@@ -861,6 +861,10 @@ Adding another service means one adapter in `internal/attach` that implements `P
     aivoicebus retract --last          # the latest message this MACHINE sent, whichever session sent it
     aivoicebus retract --dry-run       # say what would happen and how many sessions had read it; write nothing
     aivoicebus retract --leak          # it held a credential: the tombstone and the dashboard say so
+
+A credential that leaked is more than one retraction: `aivoicebus incident` plans the whole response
+(revoke or rotate it, retract every message that held it, who read them) and does it at a terminal
+with `--apply` ([operations.md](operations.md), "If something leaked").
 
 **It hides, it does not erase.** On nodes that apply retractions the text stops being delivered and
 shown: unread inboxes (the session-start and per-prompt hooks, `aivoicebus_inbox`), `inbox --all` and

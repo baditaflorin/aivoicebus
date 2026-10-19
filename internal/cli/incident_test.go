@@ -183,7 +183,7 @@ func TestIncidentApplyRefusesAnAgentAndNoTerminal(t *testing.T) {
 	asked := typed(t, "incident")
 
 	t.Setenv("AIVOICEBUS_AGENT", "codex.x1")
-	code, out, e := run(t, "incident", "machine", "lap", "--apply")
+	code, out, e := run(t, "", "incident", "machine", "lap", "--apply")
 	if code == 0 || !strings.Contains(e, "not for an agent's session") || out != "" {
 		t.Errorf("an agent ran it: %d %q %q", code, out, e)
 	}
@@ -191,7 +191,7 @@ func TestIncidentApplyRefusesAnAgentAndNoTerminal(t *testing.T) {
 
 	t.Setenv("AIVOICEBUS_DETECT", "")
 	t.Setenv("CODEX_THREAD_ID", "0199-abc")
-	if code, _, e := run(t, "incident", "machine", "lap", "--apply"); code == 0 || !strings.Contains(e, "inside codex") {
+	if code, _, e := run(t, "", "incident", "machine", "lap", "--apply"); code == 0 || !strings.Contains(e, "inside codex") {
 		t.Errorf("an agent tool above it, not saying so: %d %q", code, e)
 	}
 	t.Setenv("CODEX_THREAD_ID", "")

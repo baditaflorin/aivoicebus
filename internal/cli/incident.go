@@ -479,7 +479,9 @@ func runScript(w io.Writer, script string, args ...string) error {
 }
 
 // indent prefixes every line written to w.
-func indent(w io.Writer, prefix string) io.Writer { return &indentWriter{w: w, prefix: prefix, bol: true} }
+func indent(w io.Writer, prefix string) io.Writer {
+	return &indentWriter{w: w, prefix: prefix, bol: true}
+}
 
 type indentWriter struct {
 	w      io.Writer
