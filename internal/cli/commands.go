@@ -342,6 +342,11 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			case takenBy != "" && quiet > 0 && !quietSaid:
 				window = min(window, max(time.Until(lastHeard.Add(quiet)), 0))
 			}
+			if quiet > 0 && !quietSaid {
+				// A claim does not end a wait, so a wait that starts untaken looks again within
+				// quiet: the timer then runs from the claim, not from the end of a long window.
+				window = min(window, quiet)
+			}
 			progress := claimProgress(s)
 			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) {
 				if takenBy == "" {

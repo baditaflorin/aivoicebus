@@ -63,17 +63,17 @@ func noteAlerted(id string) {
 func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int, error) {
 	now := time.Now()
 	host := msg.HostOf(identity.Me())
-	type alert struct{ key, line string }
+	type alert struct{ key, title, line string }
 	var alerts []alert
 	stuck, err := tasks.Unanswered(c, host, after, now)
 	for _, st := range stuck {
-		alerts = append(alerts, alert{st.ID, tasks.AlertText(st, now)})
+		alerts = append(alerts, alert{st.ID, "aivoicebus: a task is waiting", tasks.AlertText(st, now)})
 	}
 	if quiet > 0 && err == nil {
 		var silent []tasks.Silent
 		silent, err = tasks.SilentTasks(c, host, quiet, now)
 		for _, si := range silent {
-			alerts = append(alerts, alert{quietKey + si.ID, tasks.SilentText(si, now)})
+			alerts = append(alerts, alert{quietKey + si.ID, "aivoicebus: a task went silent", tasks.SilentText(si, now)})
 		}
 	}
 	seen := loadAlerted()
@@ -86,7 +86,7 @@ func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int
 		n++
 		fmt.Fprintln(out, a.line)
 		if nu != "" {
-			if err := tasks.Notify(nu, a.line); err != nil {
+			if err := tasks.NotifyActions(nu, a.title, a.line, ""); err != nil {
 				fmt.Fprintln(out, "  not notified: "+err.Error())
 				continue // tried again next time
 			}

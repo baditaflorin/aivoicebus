@@ -200,7 +200,7 @@ func SendStuck(c *client.Client, r StuckReq, warn io.Writer) (StuckResult, error
 		if thread.ID != "" {
 			on = " on " + KindWord(thread.Kind) + " " + thread.ID
 		}
-		text := fmt.Sprintf("%s is stuck%s: %s. Answer: aivoicebus answer %s", msg.SafeName(r.Me), on, Summary(reason, msg.StuckSummaryRunes), out.ID)
+		text := fmt.Sprintf("%s is stuck%s: %s (answer: aivoicebus answer %s)", msg.SafeName(r.Me), on, Summary(reason, msg.StuckSummaryRunes), out.ID)
 		if err := NotifyActions(r.NotifyURL, "aivoicebus: an agent is stuck", text, ""); err != nil {
 			res.PhoneUnreachable = err.Error()
 		} else {

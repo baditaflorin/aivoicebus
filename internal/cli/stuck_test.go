@@ -154,6 +154,7 @@ func claimAs(c *client.Client, who string, d time.Duration) string {
 		for _, m := range ms {
 			if m.Kind == msg.KindTask {
 				if _, err := c.Send(msg.Message{ID: msg.NewID(), From: who, To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindClaim, Body: "on it"}); err == nil {
+					_ = c.Ack(m.ID, who) // handled: the next call takes the next task
 					return m.ID
 				}
 			}
@@ -162,15 +163,31 @@ func claimAs(c *client.Client, who string, d time.Duration) string {
 	return ""
 }
 
-// A task taken and then silent for --quiet-after is reported once to the waiting sender.
+// A task taken and then silent for --quiet-after is reported once to the waiting sender, at that
+// time and not when a long wait ends: here the answer comes 5s after the claim, long before the
+// 30s wait would end, and the alert (due 2s after the claim) is already out.
 func TestAWaitSaysOnceWhenATakenTaskGoesSilent(t *testing.T) {
 	mesh(t)
 	present(t, sa)
 	c, _ := client.FromEnv()
-	go claimAs(c, sa, 5*time.Second)
+	go func() {
+		id := claimAs(c, sa, 5*time.Second)
+		if id == "" {
+			return
+		}
+		time.Sleep(5 * time.Second)
+		ms, _ := c.Thread(id)
+		c.Send(msg.Message{ID: msg.NewID(), From: sa, To: boss, Re: id, Thread: ms[0].Thread, Kind: msg.KindAnswer, Body: "late but done"})
+	}()
 	t.Setenv("AIVOICEBUS_ME", boss)
-	code, _, e := run(t, "", "task", "lap", "silent one", "--wait-reply", "6s", "--quiet-after", "2s")
-	if code != exitTimeout || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "was taken by "+sa) {
+	code, out, e := run(t, "", "task", "lap", "silent one", "--wait-reply", "30s", "--quiet-after", "2s")
+	if code != 0 || !strings.Contains(out, "late but done") || strings.Count(e, "has been silent since") != 1 || !strings.Contains(e, "was taken by "+sa) {
+		t.Fatalf("%d\n%s\n%s", code, out, e)
+	}
+	// Without an answer the one alert is all: the wait runs out (exit 6) with no second one.
+	go claimAs(c, sa, 5*time.Second)
+	code, _, e = run(t, "", "task", "lap", "silent two", "--wait-reply", "7s", "--quiet-after", "2s")
+	if code != exitTimeout || strings.Count(e, "has been silent since") != 1 {
 		t.Fatalf("%d\n%s", code, e)
 	}
 }
@@ -260,7 +277,7 @@ func TestWatchAlertsOnceOnATakenSilentTask(t *testing.T) {
 		t.Fatalf("%d %v\n%s", n, err, out.String())
 	}
 	p := posts()
-	if len(p) != 1 || !strings.Contains(p[0], silent) || strings.Contains(p[0], "zebra") {
+	if len(p) != 1 || !strings.Contains(p[0], silent) || !strings.Contains(p[0], "a task went silent") || strings.Contains(p[0], "zebra") {
 		t.Errorf("notify: %q", p)
 	}
 	if n, _ := watchOnce(c, time.Hour, 2*time.Second, io.Discard); n != 0 {
