@@ -47,6 +47,9 @@ type Options struct {
 	Quiet  func() config.Quiet
 	Held   func() int     // messages held back from agents and not released by the person
 	Worker func() *Worker // this machine's worker, from the service manager and the worker's lock
+	// Deploy counts the machine tokens kept here: the machine you deploy from, which keeps the
+	// shared token (machine tokens cannot replicate or deploy). nil or 0: not the deploy machine.
+	Deploy func() int
 }
 
 // Report is the whole screen. A part that did not answer within the budget is nil, and named in Unknown.
@@ -79,8 +82,9 @@ type Me struct {
 // Token is what the nodes say this machine's token is: machine, shared, observer, rejected, or
 // "" from nodes too old to say.
 type Token struct {
-	Kind string `json:"kind"`
-	Host string `json:"host,omitempty"`
+	Kind   string `json:"kind"`
+	Host   string `json:"host,omitempty"`
+	Deploy int    `json:"deploy,omitempty"` // machine tokens kept here: the shared token is right on this machine
 }
 
 // Release compares the release here with what the nodes run and announce.
@@ -267,6 +271,10 @@ func Gather(o Options) Report {
 	if o.Client != nil {
 		urls := o.Client.URLs
 		launch("token", func() func(*Report) {
+			deploy := 0
+			if o.Deploy != nil {
+				deploy = o.Deploy()
+			}
 			c := clone(urls)
 			kind, host, err := c.TokenKind()
 			noteLatest(c.Latest)
@@ -278,7 +286,7 @@ func Gather(o Options) Report {
 			case err != nil:
 				return nil
 			}
-			return func(r *Report) { r.Token = &Token{Kind: kind, Host: host} }
+			return func(r *Report) { r.Token = &Token{Kind: kind, Host: host, Deploy: deploy} }
 		})
 		launch("nodes", func() func(*Report) {
 			n := nodes(urls, o.Client.Token, netDeadline, budget, noteLatest)

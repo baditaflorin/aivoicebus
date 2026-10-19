@@ -23,7 +23,9 @@ func problems(r *Report) []Problem {
 		case "rejected":
 			add("token", "the nodes refuse this machine's token: no message reaches it", "aivoicebus doctor")
 		case "shared":
-			add("token", "the mesh's shared token: whoever holds it can send as this machine", "the operator: deploy/machine-token.sh add "+host+" --apply")
+			if t.Deploy == 0 { // on the machine you deploy from the shared token is right
+				add("token", "the mesh's shared token: whoever holds it can send as this machine", "the operator: deploy/machine-token.sh add "+host+" --apply (not on the machine you deploy from, which keeps it)")
+			}
 		}
 	}
 	if rel := r.Release; rel != nil {
@@ -175,7 +177,12 @@ func line(r Report, section string) string {
 			return "a machine token, bound to " + t.Host
 		case "observer":
 			return "the observer token: read-only, this machine cannot send"
-		case "shared", "rejected":
+		case "shared":
+			if t.Deploy > 0 {
+				return fmt.Sprintf("the mesh's shared token: right here, this machine deploys (it keeps machine tokens for %d machine(s))", t.Deploy)
+			}
+			return ""
+		case "rejected":
 			return ""
 		}
 		return "kind unknown (the nodes are too old to say)"

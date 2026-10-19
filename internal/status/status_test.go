@@ -138,7 +138,7 @@ func TestEverySection(t *testing.T) {
 	if r.Me.ID != me || r.Me.Why != "AIVOICEBUS_ME" {
 		t.Errorf("me = %+v", r.Me)
 	}
-	if r.Token.Kind != "shared" || !slices.Contains(fixFor(r, "token"), "the operator: deploy/machine-token.sh add here --apply") {
+	if r.Token.Kind != "shared" || !slices.Contains(fixFor(r, "token"), "the operator: deploy/machine-token.sh add here --apply (not on the machine you deploy from, which keeps it)") {
 		t.Errorf("token = %+v, fixes %v", r.Token, fixFor(r, "token"))
 	}
 	if r.Release.Here != "0.10.4" || r.Release.Latest != "0.10.9" || !r.Release.Update || r.Release.Nodes["0.10.4"] != 2 {
@@ -475,5 +475,24 @@ func TestJSONShape(t *testing.T) {
 	}
 	if full.Unknown == nil || full.Prob == nil {
 		t.Errorf("unknown and problems are lists, never null: %s", b)
+	}
+}
+
+// The machine you deploy from keeps the shared token: status says so and lists no problem, as
+// doctor does (found live on 0.11.2: doctor was OK there, status still warned).
+func TestTheDeployMachinesSharedTokenIsNoProblem(t *testing.T) {
+	a, _ := node(t, "na", "0.10.4", "0.10.4")
+	o := opts(a.URL) // the shared token
+	r := Gather(o)
+	if len(r.Problems) != 1 || r.Problems[0].Section != "token" || !strings.Contains(r.Problems[0].Fix, "not on the machine you deploy from") {
+		t.Fatalf("a client on the shared token has one problem, naming the deploy exception: %+v", r.Problems)
+	}
+	o.Deploy = func() int { return 3 }
+	r = Gather(o)
+	if len(r.Problems) != 0 || r.Token.Deploy != 3 {
+		t.Fatalf("on the deploy machine: problems %+v, token %+v", r.Problems, r.Token)
+	}
+	if out := render(r); !strings.Contains(out, "right here, this machine deploys (it keeps machine tokens for 3 machine(s))") {
+		t.Errorf("screen:\n%s", out)
 	}
 }
