@@ -69,6 +69,7 @@ func init() {
 		"view":      viewCmd,
 		"demo":      demoCmd,
 		"task":      taskCmd,
+		"ask":       askCmd,
 		"claim":     claimCmd,
 		"queue":     queueCmd,
 		"wait":      waitCmd,
@@ -167,7 +168,7 @@ func screenForAgent(m msg.Message) string {
 }
 
 // agentReads are the commands whose output an agent reads into its context.
-var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true}
+var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true, "ask": true}
 
 type countingWriter struct {
 	w io.Writer

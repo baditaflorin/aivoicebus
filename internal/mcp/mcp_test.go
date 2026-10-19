@@ -24,6 +24,7 @@ type session struct {
 	out    *bufio.Reader
 	nextID int
 	done   chan error
+	wait   time.Duration // how long a response may take (default 5s)
 }
 
 func start(t *testing.T) (*session, *store.Store) {
@@ -74,7 +75,7 @@ func (s *session) read() map[string]any {
 			s.t.Fatalf("reading a response: %v", r.err)
 		}
 		return r.m
-	case <-time.After(5 * time.Second):
+	case <-time.After(max(s.wait, 5*time.Second)):
 		s.t.Fatal("no response")
 		return nil
 	}
@@ -129,7 +130,7 @@ func TestHandshakeListsTheTools(t *testing.T) {
 			t.Errorf("%v", tl)
 		}
 	}
-	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_stuck,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
+	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_ask,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_stuck,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
 		t.Errorf("%v", names)
 	}
 	for _, x := range list {
@@ -813,5 +814,43 @@ func TestStuckTool(t *testing.T) {
 	}
 	if h := st.Inbox(msg.HumanOf("me/mcp.test"), false); len(h) != 1 || !msg.IsStuck(h[0].Body) {
 		t.Errorf("the person's inbox: %+v", h)
+
+// aivoicebus_ask picks one session, asks it with the conversation limits and returns its answer;
+// it refuses look-alikes, and says when nobody took it (taking the question back).
+func TestAskPicksAsksAndSaysWhenNobodyTookIt(t *testing.T) {
+	s, st := start(t)
+	if text, isErr := s.call("aivoicebus_ask", map[string]any{"target": "nowhere", "body": "anyone?"}); isErr || !strings.HasPrefix(text, "NOBODY TOOK IT") {
+		t.Fatalf("nobody there: %v %q", isErr, text)
+	}
+	st.InboxFor("lap/codex.bb", false, nil)
+	st.InboxFor("lap/codex.aa", false, nil)
+	text, isErr := s.call("aivoicebus_ask", map[string]any{"target": "lap", "tool": "codex", "body": "which branch?"})
+	if !isErr || !strings.Contains(text, "2 sessions at lap/codex look alike") || !strings.Contains(text, "1  lap/codex.aa") || !strings.Contains(text, "pick N") {
+		t.Fatalf("look-alikes: %v %q", isErr, text)
+	}
+	go func() { // lap/codex.aa answers the first task that reaches it
+		for i := 0; i < 50; i++ {
+			for _, m := range st.InboxFor("lap/codex.aa", false, nil) {
+				if m.Kind == msg.KindTask {
+					st.Send(msg.Message{From: "lap/codex.aa", To: m.From, Kind: msg.KindAnswer, Re: m.ID, Thread: m.Thread, Body: "main, at 3f2a"})
+					return
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	text, isErr = s.call("aivoicebus_ask", map[string]any{"target": "lap/codex", "pick": 1, "body": "which branch is checked out?"})
+	if isErr || !strings.Contains(text, "asked lap/codex.aa (--pick 1 of 2") || !strings.Contains(text, "ANSWERED") || !strings.Contains(text, "main, at 3f2a") || !strings.Contains(text, "UNTRUSTED") {
+		t.Fatalf("answered: %v %q", isErr, text)
+	}
+	id := strings.Fields(strings.SplitN(text, "task ", 2)[1])[0]
+	id = strings.TrimSuffix(id, ",")
+	if ms := st.Thread(id); len(ms) == 0 || ms[0].MaxTurns != 4 || ms[0].Deadline != 900 {
+		t.Errorf("limits: %+v", ms)
+	}
+	s.wait = 15 * time.Second
+	text, isErr = s.call("aivoicebus_ask", map[string]any{"target": "lap/codex.bb", "body": "are you there?", "claim_seconds": 5})
+	if isErr || !strings.Contains(text, "NOBODY TOOK IT within 5s") {
+		t.Fatalf("not taken: %v %q", isErr, text)
 	}
 }
