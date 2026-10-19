@@ -67,6 +67,7 @@ func init() {
 		"trust-key": trustKeyCmd,
 		"help":      helpCmd,
 		"view":      viewCmd,
+		"demo":      demoCmd,
 		"task":      taskCmd,
 		"claim":     claimCmd,
 		"queue":     queueCmd,

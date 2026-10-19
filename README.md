@@ -137,6 +137,7 @@ what (`aivoicebus view --demo` for an invented board).
 ```
 go install github.com/baditaflorin/aivoicebus@latest     # or download a release asset and put it on PATH
 aivoicebus version
+aivoicebus demo        # try it: two throwaway nodes and two invented agents talk, narrated; offline, nothing of yours touched
 ```
 
 `go install ...@v0.1.0` reports that release in `aivoicebus version`; a build from a checkout reports `dev`. Release binaries are signed and ship with `SHA256SUMS`; `aivoicebus update` verifies the
