@@ -24,6 +24,8 @@ Usage of send:
     	question | answer | task | claim | end | lease | progress: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -max-turns int
     	start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever
+  -open-link
+    	with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once
   -prio string
     	fyi | ask | urgent (default ask): fyi is only counted at session start, urgent is shown first
   -private
@@ -67,6 +69,8 @@ Usage of send:
     	question | answer | task | claim | end | lease | progress: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -max-turns int
     	start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever
+  -open-link
+    	with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once
   -prio string
     	fyi | ask | urgent (default ask): fyi is only counted at session start, urgent is shown first
   -private

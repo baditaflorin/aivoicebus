@@ -31,6 +31,10 @@ type Link struct {
 	Name   string // the sender's file name; display only, never a path
 	Size   int64  // plaintext bytes, when known
 	SHA256 string // of the plaintext, when known: 64 hex chars
+	// Sealed is the whole link sealed for one machine (see seal.go), and URL then the link without
+	// its key; For names that machine, for display only.
+	Sealed string
+	For    string
 }
 
 // Line is the one body line that carries l.
@@ -45,7 +49,26 @@ func (l Link) Line() string {
 	if l.SHA256 != "" {
 		s += " sha256=" + l.SHA256
 	}
+	if l.Sealed != "" {
+		if l.For != "" {
+			s += " for=" + l.For
+		}
+		s += " sealed=" + l.Sealed
+	}
 	return s
+}
+
+// Lines are the body lines that carry l: its [attach] line, after a sealed one a note for a reader
+// whose release cannot open the seal (which shows that reader only "not set up to use").
+func (l Link) Lines() string {
+	if l.Sealed == "" {
+		return l.Line()
+	}
+	who := "one machine"
+	if l.For != "" {
+		who = l.For
+	}
+	return fmt.Sprintf("%s the key to this file is sealed for %s's machine key: only aivoicebus newer than 0.10.4 on %s opens it (`aivoicebus update`)\n%s", SealedNote, who, who, l.Line())
 }
 
 // Provider is a service a message can point at. Handles says whether a link is one of this
@@ -77,7 +100,11 @@ func Providers() []Provider {
 // ProviderFor returns the provider that handles l, or nil. A link to a host that is not a
 // configured service has no provider and is never fetched.
 func ProviderFor(l Link) Provider {
-	u, err := url.Parse(l.URL)
+	raw := l.URL
+	if l.Sealed != "" {
+		raw = keyShaped(raw)
+	}
+	u, err := url.Parse(raw)
 	if err != nil {
 		return nil
 	}
@@ -113,6 +140,15 @@ func Find(body string) (Link, bool, error) {
 				if len(v) == 64 && isHex(v) {
 					l.SHA256 = strings.ToLower(v)
 				}
+			case "for":
+				if reForHost.MatchString(v) {
+					l.For = v
+				}
+			case "sealed":
+				if !reSeal.MatchString(v) {
+					return l, true, fmt.Errorf("the attachment's key is sealed in a way this release cannot read")
+				}
+				l.Sealed = v
 			}
 		}
 		if l.Size < 0 || l.Size > MaxFile {
@@ -152,9 +188,19 @@ func Render(id, body string) string {
 	default:
 		summary = p.Describe(l, id)
 	}
+	if err == nil && l.Sealed != "" {
+		who := "one machine"
+		if l.For != "" {
+			who = DisplayName(l.For)
+		}
+		summary += "; its key is sealed for " + who + ": only that machine opens it"
+	}
 	var out []string
 	replaced := false
 	for _, line := range strings.Split(body, "\n") {
+		if l.Sealed != "" && strings.HasPrefix(strings.TrimSpace(line), SealedNote+" ") {
+			continue
+		}
 		if strings.HasPrefix(strings.TrimSpace(line), linePrefix+" ") {
 			if !replaced {
 				out = append(out, summary)
