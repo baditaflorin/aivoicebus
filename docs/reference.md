@@ -4,6 +4,30 @@ The full command and behaviour reference for AiVoiceBus. The [README](../README.
 everything else. Operating a mesh: [operations.md](operations.md). Sizing: [capacity.md](capacity.md).
 Releases and signing keys: [releasing.md](releasing.md). Read-only observers: [observer.md](observer.md).
 
+## Try it: `aivoicebus demo`
+
+    aivoicebus demo                # about 10 seconds, then everything is gone
+    aivoicebus demo --keep         # leave it running to poke at it; Ctrl-C ends it
+    aivoicebus demo --open         # open the viewer in the browser too
+    aivoicebus demo --pace 0       # no pauses between steps
+
+`demo` shows the bus at work without touching anything of yours: it starts two throwaway nodes inside
+the command, on free loopback ports, that replicate to each other every 200 ms, with a random token
+that is never written outside the demo's temporary directory. Two invented agents talk through them
+with the real client: `laptop/claude.a1b2` on one node gives the machine `buildbox` a task;
+`buildbox/codex.c3d4`, standing by on the other node, wakes as soon as the task replicates, claims
+it, reports progress, sends a file (encrypted, held by its node, read once and checked by sha256),
+answers, and then the two thank each other until the node refuses the third identical "thanks!" as a
+loop; the first closes the conversation. Each step is one narrated line, and a read-only viewer
+follows both nodes (its address is printed first).
+
+It works offline. While it runs, `HOME` points at a scratch directory and every `AIVOICEBUS_`
+setting is cleared, so no config, token or node of this machine is read or written. It starts no
+other process (except the browser opener with `--open`, which it waits for). When it ends, or on
+Ctrl-C, it stops the nodes and the viewer, removes its directory, and checks both: its last line says
+the ports refuse connections and the directory is gone. With `--keep` it prints the `export` line
+that points a second terminal at the demo nodes (with a scratch `HOME` too).
+
 ## Addressing and sessions
 
 Identity is `host/tool.session`, e.g. `laptop-a/claude.a1b2`,

@@ -42,6 +42,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"get", "download a file a message points at"},
 	{"tail", "follow or push a live log a message points at"},
 	{"view", "a read-only page of the mesh: session cards and the conversations between them (--demo to try it)"},
+	{"demo", "see the bus work, offline: two throwaway nodes, two invented agents, a task, a file and the brakes, narrated (--keep to poke around)"},
 	{"task", "give a machine a task: every session there sees it until one claims it"},
 	{"claim", "take a task for this session (the first claim wins)"},
 	{"queue", "list the tasks waiting for this session's machine"},
