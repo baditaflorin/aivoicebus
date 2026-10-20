@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -85,6 +86,9 @@ func (e *StatusError) Refused() string {
 	return reasonOf(e.Code, "", e.Text)
 }
 
+// budgetLeft reads a node's --budget-chars refusal: the message's size, what is left, the budget.
+var budgetLeft = regexp.MustCompile(`message is (\d+) characters and the conversation has (\d+) left of its character budget of (\d+)`)
+
 // later is when to try again after a rate limit: the node's Retry-After, or "later".
 func later(d time.Duration) string {
 	if d <= 0 {
@@ -120,7 +124,11 @@ func (e *StatusError) explain(reason string) (string, bool) {
 	case msg.RefusedDeadline:
 		return "this conversation's deadline (--deadline) passed, so the message was not sent. Close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
 	case msg.RefusedBudget:
-		return "the message was not sent: it would take this conversation past its character budget (--budget-chars; " + what + "). Say it in fewer words, close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
+		left := ""
+		if g := budgetLeft.FindStringSubmatch(said); g != nil {
+			left = fmt.Sprintf(": this message is %s characters, and %s of its %s are left", g[1], g[2], g[3])
+		}
+		return "the message was not sent: it would take this conversation past its character budget (--budget-chars" + left + "). Say it in fewer words, close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
 	case msg.RefusedLoop:
 		return "the message was not sent (the loop check): this sender's last messages in this thread say mostly the same thing as ones before them, which looks like a loop. Say what is new, send status updates with `--kind progress`, stop and ask the user whether to go on, or close it with `aivoicebus reply --end --re ID`", true
 	case msg.RefusedRateSender:
