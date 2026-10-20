@@ -15,6 +15,11 @@ func TestABudgetGoesOnlyToNodesThatEnforceIt(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "does not enforce --budget-chars") || !strings.Contains(err.Error(), "0.11.5") {
 		t.Fatalf("an old node: %v", err)
 	}
+	c, _ = retractNode(t, meID, &msg.Health{Node: "n1", Version: msg.BudgetSince, Peers: []msg.PeerHealth{{URL: "http://p.test", OK: true, Version: "0.9.0"}}})
+	_, err = Prepare(c, Request{To: reader1, Body: "a short talk", BudgetChars: 500}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "does not enforce --budget-chars") || !strings.Contains(err.Error(), "0.9.0") {
+		t.Fatalf("a new node with a peer from before --max-turns: the refusal names the flag given: %v", err)
+	}
 	c, _ = retractNode(t, meID, &msg.Health{Node: "n1", Version: msg.BudgetSince, Peers: []msg.PeerHealth{{URL: "http://p.test", OK: true, Version: msg.BudgetSince}}})
 	p, err := Prepare(c, Request{To: reader1, Body: "a short talk", BudgetChars: 500}, io.Discard)
 	if err != nil || p.Msg.BudgetChars != 500 {

@@ -441,8 +441,9 @@ would take the characters of all its message bodies past N; one that fits still 
 used: the size line of `thread`, `thread --digest` and `status ID` reads "M of its N characters",
 and the `size` object carries `budget_chars`. Set by the first message only, 1 to 10,000,000, it
 combines with `--max-turns` and `--deadline`, a copy moved on by `--fallback` keeps it, and like them
-it is a brake, not signed. The CLI sends it only when every node it knows enforces it: through an
-older node it refuses, sending nothing ("does not enforce --budget-chars").
+it is a brake, not signed. The CLI sends it only when every node it knows enforces it, the node it
+asks and that node's peers: in a mesh with an older node it refuses, sending nothing ("does not
+enforce --budget-chars"), since an older node would let the conversation pass its budget.
 
 **Ask and get the answer, in one command.** `aivoicebus ask laptop-b "which branch is deployed?"`
 (MCP: `aivoicebus_ask`) picks one session to ask, sends the question, waits, and prints the answer.

@@ -191,10 +191,10 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			return p, fmt.Errorf("refused: this would be a task %d tasks deep (a task sent from the run of a task sent from ...); more than %d is a chain reaction, not work: ask the user instead", d, msg.MaxTaskDepth)
 		}
 	}
-	if r.MaxTurns != 0 || r.Deadline != 0 || r.BudgetChars != 0 {
-		if r.Re != "" || r.Thread != "" {
-			return p, Usagef("--max-turns, --deadline and --budget-chars go on the message that starts a conversation, not on a reply: run it again without them")
-		}
+	if (r.MaxTurns != 0 || r.Deadline != 0 || r.BudgetChars != 0) && (r.Re != "" || r.Thread != "") {
+		return p, Usagef("--max-turns, --deadline and --budget-chars go on the message that starts a conversation, not on a reply: run it again without them")
+	}
+	if r.MaxTurns != 0 || r.Deadline != 0 {
 		if old := nodeTooOldFor(c, msg.TurnsSince); old != "" {
 			return p, fmt.Errorf("refused: %s runs a release older than %s, which does not enforce --max-turns or --deadline: ask the user to update the nodes first", old, msg.TurnsSince)
 		}
