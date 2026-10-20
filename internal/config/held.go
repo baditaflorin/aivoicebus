@@ -21,10 +21,23 @@ type Held struct {
 	ID     string    `json:"id"`
 	Reason string    `json:"reason"`
 	At     time.Time `json:"at"`
+	// A version in a thread's shared space (Kind "share"): its thread and name. ID is then the
+	// first ten hex digits of the version's id.
+	Kind   string `json:"kind,omitempty"`
+	Thread string `json:"thread,omitempty"`
+	Name   string `json:"name,omitempty"`
 }
 
-// NoteHeld records that id was held back, once.
-func NoteHeld(id, reason string) {
+// NoteHeld records that message id was held back, once.
+func NoteHeld(id, reason string) { noteHeld(Held{ID: id, Reason: reason}) }
+
+// NoteHeldShare records that a version of name in thread's shared space was held back, once.
+func NoteHeldShare(id, reason, thread, name string) {
+	noteHeld(Held{ID: id, Reason: reason, Kind: "share", Thread: thread, Name: name})
+}
+
+func noteHeld(h Held) {
+	id := h.ID
 	for _, h := range ReadHeld() {
 		if h.ID == id {
 			return
@@ -38,7 +51,8 @@ func NoteHeld(id, reason string) {
 		return
 	}
 	defer f.Close()
-	b, _ := json.Marshal(Held{ID: id, Reason: reason, At: time.Now().UTC()})
+	h.At = time.Now().UTC()
+	b, _ := json.Marshal(h)
 	_, _ = f.Write(append(b, '\n'))
 }
 

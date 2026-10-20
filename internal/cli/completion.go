@@ -22,6 +22,7 @@ var completionSubs = map[string][]string{
 	"room":      {"join", "leave", "invite", "say", "wait", "who"},
 	"approver":  {"init", "show"},
 	"trust-key": {"add", "list", "rm"},
+	"share":     {"put", "get", "ls", "notes", "add"},
 }
 
 // completionSubSubs are the words after a subcommand, where there are fixed ones.

@@ -79,8 +79,67 @@ func keyShaped(keyless string) string {
 	return keyless
 }
 
-func sealKey(shared, eph, to []byte) ([]byte, error) {
-	return hkdf.Key(sha256.New, shared, append(append([]byte{}, eph...), to...), sealInfo, 32)
+// SealBytes seals pt for the machine whose X25519 box key is to, under the label info and bound to
+// aad: the construction sealed file keys use, for any short secret. The result is the ephemeral
+// public key (32), the nonce (12) and the AES-256-GCM ciphertext.
+func SealBytes(pt, aad, to []byte, info string) ([]byte, error) {
+	pub, err := ecdh.X25519().NewPublicKey(to)
+	if err != nil {
+		return nil, errors.New("not an X25519 public key")
+	}
+	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := eph.ECDH(pub)
+	if err != nil {
+		return nil, err
+	}
+	k, err := hkdf.Key(sha256.New, shared, append(append([]byte{}, eph.PublicKey().Bytes()...), to...), info, 32)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := aes.NewCipher(k)
+	gcm, _ := cipher.NewGCM(block)
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return append(append(eph.PublicKey().Bytes(), nonce...), gcm.Seal(nil, nonce, pt, aad)...), nil
+}
+
+// ErrNotSealedHere is sealed bytes this machine's key does not open: sealed for another machine,
+// under another label or other data, or altered.
+var ErrNotSealedHere = errors.New("sealed for another machine, or altered")
+
+// OpenBytes opens what SealBytes sealed, with the X25519 private key priv and the same info and aad.
+func OpenBytes(sealed, aad, priv []byte, info string) ([]byte, error) {
+	if len(sealed) < 32+12+16 {
+		return nil, ErrNotSealedHere
+	}
+	key, err := ecdh.X25519().NewPrivateKey(priv)
+	if err != nil {
+		return nil, errors.New("not an X25519 private key")
+	}
+	ephPub, err := ecdh.X25519().NewPublicKey(sealed[:32])
+	if err != nil {
+		return nil, ErrNotSealedHere
+	}
+	shared, err := key.ECDH(ephPub)
+	if err != nil {
+		return nil, ErrNotSealedHere
+	}
+	k, err := hkdf.Key(sha256.New, shared, append(append([]byte{}, sealed[:32]...), key.PublicKey().Bytes()...), info, 32)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := aes.NewCipher(k)
+	gcm, _ := cipher.NewGCM(block)
+	pt, err := gcm.Open(nil, sealed[32:44], sealed[44:], aad)
+	if err != nil {
+		return nil, ErrNotSealedHere
+	}
+	return pt, nil
 }
 
 // SealFor returns l with its key sealed for the machine whose X25519 box key is to; host names
@@ -93,29 +152,10 @@ func SealFor(l Link, to []byte, host string) (Link, error) {
 	if host != "" && !reForHost.MatchString(host) {
 		return Link{}, fmt.Errorf("%q is not a machine name", host)
 	}
-	pub, err := ecdh.X25519().NewPublicKey(to)
-	if err != nil {
-		return Link{}, errors.New("not an X25519 public key")
-	}
-	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
+	raw, err := SealBytes([]byte(l.URL), []byte(keyless), to, sealInfo)
 	if err != nil {
 		return Link{}, err
 	}
-	shared, err := eph.ECDH(pub)
-	if err != nil {
-		return Link{}, err
-	}
-	k, err := sealKey(shared, eph.PublicKey().Bytes(), to)
-	if err != nil {
-		return Link{}, err
-	}
-	block, _ := aes.NewCipher(k)
-	gcm, _ := cipher.NewGCM(block)
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return Link{}, err
-	}
-	raw := append(append(eph.PublicKey().Bytes(), nonce...), gcm.Seal(nil, nonce, []byte(l.URL), []byte(keyless))...)
 	l.URL, l.Sealed, l.For = keyless, sealPrefix+base64.RawURLEncoding.EncodeToString(raw), host
 	return l, nil
 }
@@ -130,27 +170,12 @@ func OpenWith(l Link, priv []byte) (Link, error) {
 	if !reSeal.MatchString(l.Sealed) || err != nil || len(raw) < 32+12+16 {
 		return Link{}, errors.New("the sealed key is not one this release can read")
 	}
-	key, err := ecdh.X25519().NewPrivateKey(priv)
-	if err != nil {
-		return Link{}, errors.New("not an X25519 private key")
-	}
-	ephPub, err := ecdh.X25519().NewPublicKey(raw[:32])
-	if err != nil {
+	pt, err := OpenBytes(raw, []byte(l.URL), priv, sealInfo)
+	switch {
+	case errors.Is(err, ErrNotSealedHere):
 		return Link{}, ErrSealedElsewhere
-	}
-	shared, err := key.ECDH(ephPub)
-	if err != nil {
-		return Link{}, ErrSealedElsewhere
-	}
-	k, err := sealKey(shared, raw[:32], key.PublicKey().Bytes())
-	if err != nil {
+	case err != nil:
 		return Link{}, err
-	}
-	block, _ := aes.NewCipher(k)
-	gcm, _ := cipher.NewGCM(block)
-	pt, err := gcm.Open(nil, raw[32:44], raw[44:], []byte(l.URL))
-	if err != nil {
-		return Link{}, ErrSealedElsewhere
 	}
 	if kl, ok := Keyless(string(pt)); !ok || kl != l.URL {
 		return Link{}, ErrSealedElsewhere

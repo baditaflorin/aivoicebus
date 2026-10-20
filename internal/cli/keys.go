@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/share"
 )
 
 // fingerprint is a short, comparable form of a base64 public key.
@@ -68,35 +68,6 @@ func keysCmd(args []string, s Streams) error {
 	return usage
 }
 
-// boxKeyFor is the X25519 key messages to host are sealed to: the pinned one, else the one in the
-// most recent message host signed (read from the log, which needs the shared or observer token).
-func boxKeyFor(c *client.Client, host string) ([]byte, error) {
-	if _, box, ok := config.KnownMachine(host); ok && box != "" {
-		return base64.StdEncoding.DecodeString(box)
-	}
-	recs, err := c.SyncAll(map[string]uint64{})
-	if err != nil {
-		return nil, fmt.Errorf("no key is known for %s and the log cannot be read with this token (%v): ask it to send this session any message first, then run it again", host, err)
-	}
-	var found *msg.Message
-	for i := range recs {
-		m := recs[i].Msg
-		if m == nil || msg.HostOf(m.From) != host || m.Box == "" {
-			continue
-		}
-		if _, valid := m.VerifySig(); !valid {
-			continue
-		}
-		if found == nil || m.At.After(found.At) {
-			found = m
-		}
-	}
-	if found == nil {
-		return nil, fmt.Errorf("no key is known for %s: it has not sent a signed message yet (aivoicebus 0.7.0 or later signs every message): ask it to send this session a message, then run it again", host)
-	}
-	if key, _, ok := config.KnownMachine(host); ok && key != found.Key {
-		return nil, errors.New("the key " + host + " signs with now is not the one pinned here (KEY CHANGED): not sealing to it; check with its owner, then `aivoicebus keys forget " + host + "`")
-	}
-	_ = config.PinMachine(host, found.Key, found.Box)
-	return base64.StdEncoding.DecodeString(found.Box)
-}
+// boxKeyFor is the X25519 key messages to host are sealed to (share.BoxKey: the pinned one, else
+// the one in the most recent message host signed).
+func boxKeyFor(c *client.Client, host string) ([]byte, error) { return share.BoxKey(c, host) }

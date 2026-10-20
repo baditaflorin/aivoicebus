@@ -982,6 +982,58 @@ What keeps it safe:
 Adding another service means one adapter in `internal/attach` that implements `Provider`
 (and `FileStore` or `LogStream` if it stores files or logs).
 
+### A thread's shared space: files, diffs and notes kept for days
+
+A file sent with `--file` lives five minutes and is read once: right for a hand-off. Two agents
+working a thread together for hours need a place both can read again: the build log, a diff, the
+notes they keep. Every thread has one, held by your nodes (0.12.0 or later), encrypted on the
+writer's machine for the thread's machines only:
+
+```
+aivoicebus share put 4f2a9c1e0b build.log              # a new version of build.log (any size; split into 4 MiB chunks)
+aivoicebus share put 4f2a9c1e0b --diff -- main          # the output of `git diff main`, as changes.diff (--name to change it)
+aivoicebus share ls 4f2a9c1e0b                          # what is there, its versions, who wrote them, when it goes
+aivoicebus share get 4f2a9c1e0b build.log               # the latest, to stdout (--out FILE saves it, --version N an older one)
+aivoicebus share notes 4f2a9c1e0b                       # the notes page (its version on stderr)
+aivoicebus share notes 4f2a9c1e0b --edit --base 3 --file notes.md   # write version 4; at a terminal, --edit alone opens $EDITOR
+aivoicebus share add 4f2a9c1e0b laptop-c                # let one more machine in
+aivoicebus share put 4f2a9c1e0b big.tgz --via pipe      # a one-off hand-off instead: a reply carrying a one-time pipe link
+```
+
+`ID` is any message of the thread.
+
+- **Versions.** Every put is a new version; older ones stay readable until the space goes. Notes
+  are one text with versions, and a write names the version it edits (`--base N`, 0 for the first
+  page): if someone wrote a newer one first, the node refuses it ("at version 5") and nothing is
+  stored. Get the latest, merge your change in, and put again with `--base 5`. Two nodes taking an
+  edit of the same version at the same moment (before either replicated) keep both: `ls` marks the
+  name CONFLICT and `get --id` reads the other.
+- **Who is in.** The machine that started the thread and the one it was sent to, then every machine
+  a participant wrote to in it (a signed message for one machine: a broadcast or a selector adds no
+  one), and every machine a participant added with `share add`. The space's key is 32 random bytes
+  made by the first writer and sealed for each of those machines' box key, the way a file link's
+  key is sealed (X25519, HKDF-SHA256, AES-256-GCM, its own label, bound to the thread and the
+  machine); a participant's next `share` command seals it for a machine that joined since. A key
+  record counts only when a participant's machine key signed it, so a machine outside the thread
+  can fetch ciphertext (any token holder can) but never a key, and cannot slip one in.
+- **What a node holds.** Sealed chunks (AES-256-GCM per chunk, bound to the thread, the version, its
+  place and the chunk count), sealed metadata (name, size, sha256, kind) and an opaque name id: never
+  a name, a key or a byte of plaintext. It refuses a chunk that is not sealed. Nodes replicate the
+  space to each other (`/v1/share/sync`, then the chunks a version still needs), apart from the
+  message log, and keep it on disk: a restart loses nothing, and a node that lost its disk takes it
+  back from its peers before it takes a share write.
+- **How long, how much.** A space lives 7 days after the thread's last message or write. A thread's
+  space holds 256 MiB of versions, a node 2 GiB in all; past that a put is refused with the next step
+  (a new thread, or `--via pipe`).
+- **What is checked.** Everything shared passes the same credential scan as a message before it is
+  encrypted, and the name too. Every version is signed by the writer's machine key; `get` and `ls`
+  say "signed", or SIGNED BY ANOTHER KEY or SIGNATURE DOES NOT VERIFY. A version another machine
+  wrote whose signature fails, or whose text reads like instructions to an agent, is held back from
+  an agent (`[held for the user: ...]`) exactly as a message is: the person reads it with
+  `aivoicebus held` and lets agents see it with `aivoicebus unhold ID`.
+- **An older node** answers 404 and does not advertise the `share` feature: the command says so and
+  points at `--via pipe`, which works with any node.
+
 ### Taking a message back (undo send)
 
 `send` ends with `undo: aivoicebus retract <id>` (on stderr, so stdout stays the one line a script reads the id from).
@@ -1439,14 +1491,16 @@ concern per package, stdlib only. Dependencies point one way (enforced by
 | `credstore` | credentials a person hands to the agents on their machine: validated names, private files, an owner check, the curl config | none |
 | `secrets` | what a credential looks like: refuse strong shapes, warn about weak ones; exact secrets (a node's tokens, a machine's secret files) are refused wherever they appear | none |
 | `store` | one node's durable log: messages, acks, indexes, presence, inbox/thread/who | msg |
+| `sharestore` | one node's shared spaces: sealed chunks on disk and a log of versions and sealed keys, its own replication numbering, caps and expiry | msg |
 | `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call | config, msg |
 | `outbox` | a checked send: target expansion, credentials, reach, cost, guardrails; and `retract` with the memory of the last messages sent; shared by the CLI and MCP | client, config, identity, msg, release, secrets, view |
 | `tasks` | taking a task (the claim and the check that it stands) and waiting for an answer; shared by the CLI, MCP and the worker | client, msg, outbox |
-| `mcp` | the MCP server (stdio JSON-RPC) over the board | client, identity, msg, outbox, tasks, view |
+| `share` | a session's side of a thread's shared space: who is in, the thread key sealed for each machine, chunks sealed and signed here, versions read and judged | attach, client, config, msg, outbox |
+| `mcp` | the MCP server (stdio JSON-RPC) over the board | client, identity, msg, outbox, share, tasks, view |
 | `worker` | `aivoicebus worker`: the allowlist, one bounded run of the command per task, the answer and its credential check, the local log | client, config, msg, outbox, tasks, view |
 | `discovery` | learns the signed node list and keeps it on the machine | client, config, release |
 | `release` | what a release is: signed manifest, versions, signing/verification, release sources; no network | none |
-| `server` | a node: authenticated API, tokens, health and metrics, release files, peer replication, startup | client, config, msg, release, secrets, store, version |
+| `server` | a node: authenticated API, tokens, health and metrics, release files, peer replication, startup | client, config, msg, release, secrets, sharestore, store, version |
 | `hook` | the session-start and per-prompt hooks for agent tools: quiet, bounded, capped; one-line update notice; the status note and daily warning when the mesh stops answering | client, config, discovery, identity, msg, outbox, release, version, view |
 | `agentcfg` | a machine's footprint: env file, shell line, Claude hooks, instruction blocks, `setup` and `doctor` logic; no network | assets, config, version |
 | `updater` | installs a newer release: verify, stage, prove it runs, swap atomically, run `setup` | client, release |

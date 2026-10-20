@@ -41,6 +41,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"fleet", "every machine heard from lately: its release, last heard and token, as the nodes saw them; `fleet update` asks the person on each machine that is behind to run aivoicebus update"},
 	{"token", "hand a machine its own machine token (`token hand HOST`, where it was made) and install it there (`token install ID`, a person approves); the nodes confirm the switch; `token report`: which machines still use the shared token"},
 	{"get", "download a file a message points at"},
+	{"share", "a thread's shared space, kept for days and encrypted for its machines: put ID FILE (--diff: git diff), get ID NAME [--version N], ls ID, notes ID [--edit --base N], add ID HOST; put --via pipe hands a file over once"},
 	{"tail", "follow or push a live log a message points at"},
 	{"view", "a read-only page of the mesh: session cards and the conversations between them (--demo to try it)"},
 	{"demo", "see the bus work, offline: two throwaway nodes, two invented agents, a task, a file and the brakes, narrated (--keep to poke around)"},
@@ -130,6 +131,10 @@ func helpCmd(args []string, s Streams) error {
 // helpExamples are real command lines for the commands people reach for first (`help COMMAND`).
 // A test runs each one's flags through the command's own parser, so an example cannot rot.
 var helpExamples = map[string][]string{
+	"share": {"aivoicebus share put 4f2a9c1e0b build.log         # a new version of build.log in that thread's space",
+		"aivoicebus share put 4f2a9c1e0b --diff              # your uncommitted changes, as changes.diff",
+		"aivoicebus share get 4f2a9c1e0b build.log --version 1 --out old.log",
+		"aivoicebus share notes 4f2a9c1e0b --edit --base 3 --file notes.md   # refused if someone wrote version 4 first"},
 	"start":      {"aivoicebus start                 # the guided first run on a new machine"},
 	"send":       {`aivoicebus send --to laptop-b "the build is green"          # every session on a machine`, `aivoicebus send --to laptop-b/codex.k3 "look at PR 12" --prio urgent`},
 	"reply":      {`aivoicebus reply --re 4f2a "done, see 9c1e" --end`, `aivoicebus reply --re 4f2a --wait-reply 10m "which branch?"   # answer and wait for the next turn`},

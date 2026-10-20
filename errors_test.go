@@ -18,7 +18,7 @@ import (
 // userFacing are the packages whose errors a person or an agent reads as they are made: the
 // commands (cli, outbox, tasks), the MCP tools, the hooks, and what nodes answer (server, store,
 // client). Other packages' errors reach a reader only wrapped by one of these.
-var userFacing = []string{"cli", "client", "hook", "mcp", "outbox", "server", "store", "tasks"}
+var userFacing = []string{"cli", "client", "hook", "mcp", "outbox", "server", "share", "store", "tasks"}
 
 // errorMakers are the calls that make an error a reader sees, and which argument holds its text.
 var errorMakers = map[string]int{
