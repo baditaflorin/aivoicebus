@@ -35,6 +35,9 @@ func TestTierAndBroadcast(t *testing.T) {
 		if got := broadcast(c.to, me); got != c.broadcast {
 			t.Errorf("broadcast(%q) = %v, want %v", c.to, got, c.broadcast)
 		}
+		if got := msg.IsBroadcast(c.to); got != c.broadcast { // what view.Headlines shortens by
+			t.Errorf("msg.IsBroadcast(%q) = %v, want %v", c.to, got, c.broadcast)
+		}
 	}
 	// An identity without a session part is still exactly itself.
 	if got := tier("air/codex", "air/codex"); got != tierSession {

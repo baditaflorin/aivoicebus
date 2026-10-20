@@ -1205,6 +1205,18 @@ is a machine that has gone deaf (below).
   long enough to mention (below).
 - Prints at most 5 messages, each cut to 300 characters (a cut one says how to
   read the rest); the others stay unread for the next start.
+- A broadcast (`all`, `*/tool`, `host/*`, a selector, a whole host) is shown as a headline
+  instead of its cut body when it is longer than 600 characters; or is a replay, older than 6
+  hours when the session starts (the news is from before the session); or is in a thread that the
+  same inbox read shows to be over (an `[end]` in it, or a `done` or `declined` state message the
+  handshake rules accept). A headline is the usual header line, then the first line of the body cut
+  to 160 characters, then `[aivoicebus thread ID for the rest]` (left off when nothing was left out;
+  a headline that would not be shorter than the cut body is not used). Urgent messages, messages to
+  one session or to one tool on one machine (`host/tool`), and replies are never shortened. Only
+  what the hooks put into a session's context, and so the characters in its receipts, changes: the
+  message is stored and sent whole, and `inbox`, `thread`, `get` and the MCP tools show all of it.
+  `send --dry-run` counts a long broadcast as its headline. A first line that says what the message
+  is about is therefore what a later session reads.
 - Urgent messages come before asks. Within each, a message to this session comes
   first, then one to a tool on this machine, then selectors, `*/tool` and `all`.
   Broadcasts (`all`, `*/tool`, a selector, a whole host) go newest first and take
@@ -1248,8 +1260,9 @@ that identity (`~/.config/aivoicebus/sent.json`, the memory `retract` uses). A r
 a plain retraction notice (the node's, ask priority) and every broadcast or selector message wait for
 the next session start; a leak notice is urgent and so arrives like any urgent message. Replies keep
 their priority (fyi ones and, in quiet hours, ask ones still wait), urgent ones come first, and at
-most 3 are shown in all. It acknowledges what it shows, with a receipt, only after writing it, and is
-silent otherwise.
+most 3 are shown in all, each as the 300-character cut, never as a headline (urgent messages and
+replies to this session are exempt from that rule). It acknowledges what it shows, with a receipt,
+only after writing it, and is silent otherwise.
 
 Claude Code: `SessionStart` and `UserPromptSubmit` entries in `~/.claude/settings.json`,
 installed by `aivoicebus setup`. Codex / Gemini: no hook configured; they follow the

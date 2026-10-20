@@ -289,13 +289,16 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	// rank and choose), so a message to this session is not buried under greetings to all.
 	listed := append(rank(urgent, me), rank(ask, me)...)
 	shown, more, waiting := choose(listed, me)
+	// A long or old broadcast costs one line, not a body (view.Headlines). The whole read decides:
+	// a message left out of shown can still be the one that shows another is over.
+	headline := view.Headlines(ms, clock())
 	if len(shown) > 0 {
 		advice := "Give the user a one-line summary, then carry on with your current task."
 		if n := countUrgent(shown); n > 0 { // the ones the agent can see, not the ones left waiting
 			advice = fmt.Sprintf("%d marked urgent: tell the user now, then carry on.", n)
 		}
 		fmt.Fprintf(out, "[aivoicebus] You are %s. %d unread message(s) from other agents. %s\n", me, len(listed), advice)
-		view.ForAgent(out, shown, maxBody)
+		view.ForAgentWith(out, shown, maxBody, headline)
 		if more > 0 {
 			fmt.Fprintf(out, "[aivoicebus] +%d more unread; `aivoicebus inbox` shows them when the user asks.\n", more)
 		}
@@ -312,7 +315,7 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	// The receipts say what each message cost: the characters shown at session
 	// start, or none for fyi, which is only counted.
 	for _, m := range shown {
-		acks.add(m.ID, msg.ViaHook, injectedChars(m))
+		acks.add(m.ID, msg.ViaHook, injectedChars(m, headline))
 	}
 	for _, m := range fyi {
 		acks.add(m.ID, msg.ViaHookCount, 0)
@@ -321,10 +324,10 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 }
 
 // injectedChars is how many characters showing m at session start puts into the
-// agent's context: its header line and its body, cut as Brief cuts it.
-func injectedChars(m msg.Message) int {
+// agent's context: its header line and its body, cut as BriefWith cuts it.
+func injectedChars(m msg.Message, headline view.Headliner) int {
 	var b strings.Builder
-	view.Brief(&b, []msg.Message{m}, maxBody)
+	view.BriefWith(&b, []msg.Message{m}, maxBody, headline)
 	return utf8.RuneCountInString(b.String())
 }
 

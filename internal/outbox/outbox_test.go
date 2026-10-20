@@ -88,6 +88,23 @@ func TestDryRunReportsReachExpiryAndCostAndSendsNothing(t *testing.T) {
 	}
 }
 
+func TestDryRunCountsALongBroadcastAsOneLineButALongDirectMessageAsItsCut(t *testing.T) {
+	c, _ := meshWith(t, "me/claude.0001", many(2, "repo=alpha"))
+	body := "deploy window moved to 5pm\n" + strings.Repeat("the calendar has the details, ", 40)
+	cost := func(to string) int {
+		t.Helper()
+		p, err := Prepare(c, Request{To: to, Body: body, Prio: "ask"}, os.Stderr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Context
+	}
+	broadcast, direct := cost("@repo=alpha"), cost("me/claude.0002")
+	if direct-broadcast < 150 { // the headers differ by a few characters; the body is cut at 300 or kept to one line
+		t.Errorf("a long broadcast shows as one line at session start (%d characters), a long direct message as the 300-character cut (%d)", broadcast, direct)
+	}
+}
+
 func TestFYICostsNothingAtSessionStart(t *testing.T) {
 	c, _ := meshWith(t, "me/claude.0001", many(2, "repo=alpha"))
 	p, err := Prepare(c, Request{To: "@repo=alpha", Body: "low value", Prio: "fyi"}, os.Stderr)

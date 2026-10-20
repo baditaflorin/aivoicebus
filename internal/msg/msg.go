@@ -167,6 +167,24 @@ func IsBulletin(to string) bool {
 	return !strings.Contains(agent, ".") // host/tool, not host/tool.session
 }
 
+// IsBroadcast reports whether address to names an audience, not one session or one tool on one
+// machine: everyone, a selector, a whole host, host/* or */tool. It is narrower than IsBulletin,
+// which also counts host/tool (every session of that tool is handed it, so it expires), and is the
+// test the hooks rank and shorten by.
+func IsBroadcast(to string) bool {
+	if to == "all" || IsSelector(to) {
+		return true
+	}
+	host, agent, hasAgent := strings.Cut(to, "/")
+	switch {
+	case !hasAgent, agent == "*": // a whole host, host/* and */*
+		return true
+	case strings.Contains(agent, "."): // host/tool.session
+		return false
+	}
+	return host == "*" // */tool
+}
+
 // DefaultLife is how long a bulletin of priority prio stays deliverable when its
 // sender gave no TTL: a day for fyi, three days otherwise.
 func DefaultLife(prio string) time.Duration {

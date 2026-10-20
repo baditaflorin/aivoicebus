@@ -470,14 +470,15 @@ func (p Plan) Describe(w io.Writer) {
 }
 
 // contextChars is how many characters showing m puts into a reader's context at
-// session start: its header line and its body, cut as the hooks cut it.
+// session start: its header line and its body, cut as the hooks cut it (a long broadcast as its
+// headline, view.Headlines; it is new, so the age and thread rules do not apply yet).
 func contextChars(m msg.Message) int {
 	if m.Priority() == msg.PrioFYI {
 		return 0 // only counted, never shown
 	}
 	var b strings.Builder
 	m.At = time.Now()
-	view.Brief(&b, []msg.Message{m}, view.SessionStartBody)
+	view.BriefWith(&b, []msg.Message{m}, view.SessionStartBody, view.Headlines(nil, m.At))
 	return utf8.RuneCountInString(b.String())
 }
 
