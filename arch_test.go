@@ -17,29 +17,30 @@ const internalPrefix = "github.com/baditaflorin/aivoicebus/internal/"
 // bottom, transport and storage in the middle, commands on top. A new package
 // must be added here, with the smallest set it needs.
 var allowed = map[string][]string{
-	"msg":       {},
-	"attach":    {"config"}, // config: the node list, so a link to a node is recognised
-	"secrets":   {},
-	"credstore": {},
-	"config":    {},
-	"assets":    {},
-	"version":   {},
-	"release":   {"config"},
-	"identity":  {"config", "msg"},
-	"view":      {"attach", "msg"},
-	"store":     {"msg"},
-	"client":    {"config", "msg", "view"}, // view: a node's words reach callers only as safe lines
-	"server":    {"client", "config", "msg", "release", "secrets", "store", "version"},
-	"hook":      {"client", "config", "discovery", "identity", "msg", "outbox", "release", "version", "view"},
-	"agentcfg":  {"assets", "config", "version"},
-	"discovery": {"client", "config", "release"},
-	"updater":   {"client", "release"},
-	"mcp":       {"assets", "attach", "client", "config", "identity", "msg", "outbox", "tasks", "view"},
-	"tasks":     {"client", "msg", "outbox", "view"}, // view: alert times as a person reads them
-	"status":    {"client", "config", "msg", "release", "view"},
-	"worker":    {"client", "config", "msg", "outbox", "tasks", "view"},
-	"outbox":    {"client", "config", "identity", "msg", "release", "secrets", "view"},
-	"cli":       {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "status", "store", "tasks", "updater", "version", "view", "worker"},
+	"msg":        {},
+	"attach":     {"config"}, // config: the node list, so a link to a node is recognised
+	"secrets":    {},
+	"credstore":  {},
+	"config":     {},
+	"assets":     {},
+	"version":    {},
+	"release":    {"config"},
+	"identity":   {"config", "msg"},
+	"view":       {"attach", "msg"},
+	"store":      {"msg"},
+	"sharestore": {"msg"},
+	"client":     {"config", "msg", "view"}, // view: a node's words reach callers only as safe lines
+	"server":     {"client", "config", "msg", "release", "secrets", "sharestore", "store", "version"},
+	"hook":       {"client", "config", "discovery", "identity", "msg", "outbox", "release", "version", "view"},
+	"agentcfg":   {"assets", "config", "version"},
+	"discovery":  {"client", "config", "release"},
+	"updater":    {"client", "release"},
+	"mcp":        {"assets", "attach", "client", "config", "identity", "msg", "outbox", "tasks", "view"},
+	"tasks":      {"client", "msg", "outbox", "view"}, // view: alert times as a person reads them
+	"status":     {"client", "config", "msg", "release", "view"},
+	"worker":     {"client", "config", "msg", "outbox", "tasks", "view"},
+	"outbox":     {"client", "config", "identity", "msg", "release", "secrets", "view"},
+	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "status", "store", "tasks", "updater", "version", "view", "worker"},
 }
 
 func TestPackageDependenciesPointOneWay(t *testing.T) {

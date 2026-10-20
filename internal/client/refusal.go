@@ -146,6 +146,15 @@ func (e *StatusError) explain(reason string) (string, bool) {
 		return "the file is gone: it expired or was already read. Ask its sender to send it again", true
 	case msg.RefusedRecovering:
 		return "the node is catching up with its peers. Try again in a minute", true
+	case msg.RefusedShareFull:
+		return "the node refused it: " + said + ". Nothing was stored: share it in a new thread, send it once through the pipe (`--via pipe`), or ask the user", true
+	case msg.RefusedConflict:
+		if view.HasNextStep(said) {
+			return "someone else wrote first: " + said, true
+		}
+		return "someone else wrote a newer version first, so nothing was stored. Get the latest (`aivoicebus share get`), merge your change into it, and put again", true
+	case msg.RefusedShareMissing:
+		return "the node lacks part of the upload (it may have restarted, or another node took the first part). Run `aivoicebus share put` again", true
 	}
 	return "", false
 }

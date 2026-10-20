@@ -60,6 +60,7 @@ feature_since() {
     tasks) echo 0.2.0 ;;      # holds a task (msg.TaskSince); the CLI refuses to send one to an older mesh
     progress) echo 0.10.0 ;;  # holds a --kind progress message (an older node quarantines it)
     states) echo 0.11.0 ;;    # a conversation state passes a used-up turn limit when it closes the conversation
+    share) echo 0.12.0 ;;     # /v1/share/...: a thread's shared space (versions of sealed files, notes)
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -408,6 +409,28 @@ print(" ".join(sorted("%s:%s" % (x["kind"], x["body"]) for x in m)) or "none")')
   check_converged "version vectors equal"
 fi
 fi # alltasks
+
+scenario "shared spaces"
+# A thread's shared space is a node's own log, apart from the message log: a node from before it
+# answers 404 under /v1/share/ and its message log is untouched. Only this tree's node holds one here
+# (its replication between nodes is the lab's and the unit tests'). Raw calls: the share CLI seals
+# with keys a scratch HOME has none of, and what is checked is the node.
+ST=$(id_of "${PORT[0]}" MARK-S1-new)
+for i in "${!NAME[@]}"; do
+  got=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "http://127.0.0.1:${PORT[$i]}/v1/share/index?thread=$ST")
+  feat=$(get "${PORT[$i]}" /v1/health | py 'import json,sys; print("yes" if "share" in (json.load(sys.stdin).get("features") or []) else "no")')
+  want="404 no"; has "$i" share && want="200 yes"
+  check "$got $feat" "$want" "${NAME[$i]} (${VER[$i]}) holds shared spaces iff it has them, and says so"
+done
+chunk=$(py 'import base64,os,json; print(json.dumps({"data": base64.b64encode(b"AVBS1"+os.urandom(4096)).decode()}))')
+check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" "$chunk")" 200 "new takes a sealed chunk"
+SHA=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$W/last.out")
+ver=$(py 'import json,os,sys; print(json.dumps({"thread":sys.argv[1],"ver":{"id":os.urandom(16).hex(),"name":os.urandom(16).hex(),"kid":os.urandom(8).hex(),"chunks":[sys.argv[2]],"meta":"bWV0YQ==","by":"h0/compat.sh1"}}))' "$ST" "$SHA")
+check "$(post "${PORT[0]}" /v1/share/put "$ver")" 200 "new takes a version of it"
+check "$(py 'import json,sys; print(json.load(open(sys.argv[1]))["ver"]["num"])' "$W/last.out")" 1 "  numbered 1"
+check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" '{"data":"cGxhaW4gdGV4dCBwbGFpbiB0ZXh0IHBsYWluIHRleHQ="}')" 400 "new refuses a plaintext chunk"
+check_converged "message logs stay equal on all $N nodes"
+check_quarantined 1 "quarantined nothing more"
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done
