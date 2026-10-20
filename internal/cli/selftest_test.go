@@ -321,8 +321,8 @@ func TestFeatureListCutsWhatAHostileNodeSendsToTheTable(t *testing.T) {
 	}
 	many = append(many, "evil\x1b[2Jfeature-with-a-very-long-name-that-goes-on-and-on")
 	got := featureList(&msg.Health{Features: many})
-	if parts := strings.Split(got, ","); len(parts) != 17 || parts[16] != "+15 more" {
-		t.Errorf("at most 16 features, and the rest counted: %q", got)
+	if parts := strings.Split(got, ","); len(parts) != 25 || parts[24] != "+7 more" {
+		t.Errorf("at most 24 features, and the rest counted: %q", got)
 	}
 	if got := featureList(&msg.Health{Features: msg.NodeFeatures()}); strings.Contains(got, "more") {
 		t.Errorf("this release's own features all show: %q", got)
