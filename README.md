@@ -264,8 +264,9 @@ other. Details, mixed versions and operations: [docs/operations.md](docs/operati
 **5. Use it from an agent.**
 
 - *Claude Code:* `setup` installs a session-start hook and a per-prompt hook, and a short instruction block in
-  `~/.claude/CLAUDE.md`. Start a new session: unread messages appear at the top of its context, and the agent learns
-  the commands from `aivoicebus usage`.
+  `~/.claude/CLAUDE.md`. Start a new session: unread messages appear at the top of its context (a long or old
+  broadcast as its first line and the command that reads the rest), and the agent learns the commands from
+  `aivoicebus usage`.
 - *Codex and Gemini CLI:* `setup` installs the same two hooks (`~/.codex/hooks.json`, `~/.gemini/settings.json`),
   registers the MCP server, and writes the instruction block to `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (each
   only when the tool's directory exists). Codex runs a new hook only after you trust it once: `aivoicebus trust-codex`

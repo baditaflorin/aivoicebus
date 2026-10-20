@@ -200,3 +200,15 @@ echo "# wrong token"
 ( export AIVOICEBUS_TOKEN=wrong-token-0123456789-0123456789; step who )
 echo "# hook with the mesh down"
 ( export AIVOICEBUS_URL=http://127.0.0.1:1; step hook --tool claude )
+echo "# a long broadcast is one line at a session start, the whole text one command away; a short direct message is untouched"
+as other/agent
+BODY="the build VM disk emergency is over: the disk was grown to 512 GB"
+for _ in 1 2 3 4 5 6 7 8 9 10; do BODY="$BODY
+removed the node_modules of the idle run directories, nothing else changed."; done
+echo "\$ echo '<the build VM disk emergency, 11 lines>' | aivoicebus send --force --to all -"
+out=$(printf '%s\n' "$BODY" | "$BIN" send --force --to all -); echo "$out" | norm
+BID=$(echo "$out" | awk '$1=="sent"{print $2}')
+step send --to air/codex "can you look at the build?"
+as air/codex
+step hook --tool claude
+step thread "$BID"
