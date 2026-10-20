@@ -52,16 +52,17 @@ var taskTool = tool{
 	description: "Give a machine a task: every session on it sees it on its next prompt until one claims it (the first claim wins), and only that one keeps it. " +
 		"Target a machine (laptop-b), a tool on it (laptop-b/codex) or a selector (@repo=x). Set wait_seconds to wait for the answer in the same call (a claim is reported as progress). " +
 		"Never put secrets in a task.",
-	schema: obj([]string{"to", "body"}, map[string]any{
-		"to":           str("the machine (host), host/tool, or a selector such as @repo=name"),
+	schema: obj([]string{"body"}, map[string]any{
+		"to":           str("the machine (host), host/tool, or a selector such as @repo=name; with needs, where to look (default: everywhere)"),
+		"needs":        str("send it to the one session that has all of these capabilities, comma-separated: repo:owner/name, branch:, tool:, model:, role: or a declared word such as gpu (aivoicebus_who lists them); listening now first, then the most recently seen"),
 		"body":         str("what to do, self-contained: the other agent has none of your context"),
 		"ttl":          str("how long it stays open, such as 2h or 1d (default 3d)"),
 		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("wait this long for the answer (at most %d); 0: return at once", maxWaitSeconds)},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct {
-			To, Body, TTL string
-			WaitSeconds   int `json:"wait_seconds"`
+			To, Body, TTL, Needs string
+			WaitSeconds          int `json:"wait_seconds"`
 		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
@@ -69,6 +70,30 @@ var taskTool = tool{
 		c, err := s.Client()
 		if err != nil {
 			return "", err
+		}
+		why := ""
+		if a.Needs != "" {
+			needs, err := msg.ParseNeeds(a.Needs)
+			if err != nil {
+				return "", fmt.Errorf("%v: call it again with valid needs", err)
+			}
+			if a.To == "" {
+				a.To = "all"
+			}
+			roster, err := c.Roster()
+			if err != nil {
+				return "", err
+			}
+			p, err := pickFor(roster, a.To, needs, tasks.PickOpts{Me: identity.Me()})
+			if errors.Is(err, tasks.ErrNoMatch) {
+				return "NOBODY MATCHED: " + err.Error() + ". Nothing was sent." + p.closest, nil
+			}
+			if err != nil {
+				return "", err
+			}
+			a.To, why = p.To, fmt.Sprintf("needs: %s (%s)\n", view.Name(p.To, msg.MaxIdentity), p.Why)
+		} else if a.To == "" {
+			return "", errors.New("to is where the task goes (a machine, host/tool or @selector), or give needs: call it again with one")
 		}
 		var warn strings.Builder
 		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, TTL: a.TTL, Kind: msg.KindTask}, &warn)
@@ -79,7 +104,7 @@ var taskTool = tool{
 		if err != nil {
 			return "", err
 		}
-		res := fmt.Sprintf("task %s sent (thread %s); %s", out.ID, out.Thread, strings.Join(plan.Notes, "; "))
+		res := why + fmt.Sprintf("task %s sent (thread %s); %s", out.ID, out.Thread, strings.Join(plan.Notes, "; "))
 		if a.WaitSeconds > 0 {
 			res += "\n" + waitAnswer(c, identity.Me(), out.Thread, a.WaitSeconds)
 		} else {

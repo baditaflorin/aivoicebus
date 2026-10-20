@@ -169,6 +169,9 @@ Read this only when you need to message another agent.
   and refused (exit 2): rerun with `--pick N` or the session id. It sends with `--max-turns 4
   --deadline 15m` and exits 0 answered, 3 nobody took it (taken back), 6 taken but no answer yet.
 - Route a task: `--tool codex` (that machine's Codex sessions), `--can gpu`, `--model 'gpt-*'`.
+  `task --needs repo:owner/name,gpu "..."` (also `ask --needs`) goes to the one session that has
+  every capability (`who` lists them): listening now first, then the one seen last; with none,
+  nothing is sent (exit 3) and the closest are listed with what each lacks.
   If it may sit untaken: `task <m1> "..." --wait-reply 15m --claim-within 2m --fallback <m2>,<m3>`
   takes it back and gives it to the next machine when nobody took it in time. `task --any --tool
   codex "..."` gives it to one Codex session or worker that is listening right now. `task --each

@@ -28,12 +28,12 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--person] [--any] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--person] [--any] [--needs repo:owner/name,gpu] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	args = joinWaitState(args) // --wait-state ready 10m: both words are the flag's
 	valued := map[string]bool{"ttl": true, "wait-reply": true, "wait-state": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true}
-	var machine, tool, can, model, fallback, claimWithin, each, waitAll string
+	var machine, tool, can, model, fallback, claimWithin, each, waitAll, needs string
 	anyListening, person := false, false
 	var rest []string
 	var words []int // indexes into rest of the plain words (not flags or their values)
@@ -46,7 +46,7 @@ func taskCmd(args []string, s Streams) error {
 		}
 		key, val, hasEq := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		switch key {
-		case "tool", "can", "model", "fallback", "claim-within", "each", "wait-all":
+		case "tool", "can", "model", "fallback", "claim-within", "each", "wait-all", "needs":
 			if !hasEq {
 				if i+1 >= len(args) {
 					return usage
@@ -67,6 +67,8 @@ func taskCmd(args []string, s Streams) error {
 				each = val
 			case "wait-all":
 				waitAll = val
+			case "needs":
+				needs = val
 			default:
 				model = val
 			}
@@ -101,7 +103,10 @@ func taskCmd(args []string, s Streams) error {
 		}
 		return fanOut(strings.Split(each, ","), tool, strings.Join(text, " "), waitAll, flags, s)
 	}
-	if len(words) > 0 && (len(words) > 1 || (can == "" && model == "" && tool == "")) {
+	if needs != "" && (person || each != "" || anyListening || fallback != "" || can != "" || model != "") {
+		return outbox.Usagef("--needs picks the one session that has it all: put a capability or a model in it (--needs gpu,model:gpt-*), and leave out --any, --can, --model, --person, --each and --fallback")
+	}
+	if len(words) > 0 && (len(words) > 1 || (can == "" && model == "" && tool == "" && needs == "")) {
 		machine = rest[words[0]]
 		rest = append(rest[:words[0]], rest[words[0]+1:]...)
 	}
@@ -118,8 +123,13 @@ func taskCmd(args []string, s Streams) error {
 		to = machine + "/human"
 		rest = append([]string{msg.PersonTag}, rest...)
 	}
-	if to == "" && anyListening {
+	if to == "" && (anyListening || needs != "") {
 		to = "all"
+	}
+	if needs != "" {
+		if to, err = pickNeeds(to, needs, s); err != nil {
+			return err
+		}
 	}
 	if to == "" {
 		return usage
@@ -187,6 +197,49 @@ func pickListening(target string, s Streams) (string, error) {
 	pick := free[rand.IntN(len(free))]
 	fmt.Fprintf(s.Err, "  --any: %s, picked from %d listening now\n", view.Session(pick, time.Now()), len(free))
 	return pick.Me, nil
+}
+
+// pickNeeds is task --needs: the one session target reaches that has every capability asked for
+// (tasks.PickNeeds), said on stderr with why. With none, nothing is sent and the error lists the
+// closest sessions and what each lacks.
+func pickNeeds(target, needs string, s Streams) (string, error) {
+	ns, err := msg.ParseNeeds(needs)
+	if err != nil {
+		return "", outbox.Usagef("%v", err)
+	}
+	c, err := sessionClient()
+	if err != nil {
+		return "", err
+	}
+	roster, err := c.Roster()
+	if err != nil {
+		return "", err
+	}
+	p, err := tasks.PickNeeds(roster, target, ns, tasks.PickOpts{Me: identity.Me()})
+	if errors.Is(err, tasks.ErrNoMatch) {
+		return "", needsRefusal(err, p.Closest)
+	}
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(s.Err, "  --needs: %s: %s\n", view.Name(p.To, msg.MaxIdentity), p.Why)
+	return p.To, nil
+}
+
+// needsRefusal is the error for a --needs nobody satisfies: nothing was sent, and the closest
+// candidates with what each lacks, so the sender can loosen the needs or wake the right session.
+func needsRefusal(err error, closest []tasks.Candidate) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "nothing was sent: %v", err)
+	if len(closest) == 0 {
+		b.WriteString("; no session there was seen at all (aivoicebus who --all lists them)")
+	} else {
+		b.WriteString("; the closest:")
+		for _, c := range closest {
+			b.WriteString("\n  " + tasks.CandidateLine(c, time.Now()))
+		}
+	}
+	return outbox.NotFoundf("%s\nloosen --needs, or start a session where the work is: `aivoicebus who` lists what each session can do", b.String())
 }
 
 // taskTarget is the narrowest address for who may take a task: a machine, a tool on it

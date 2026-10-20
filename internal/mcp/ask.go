@@ -28,17 +28,18 @@ var askTool = tool{
 		"body":          str("the question, self-contained: the other agent has none of your context"),
 		"tool":          str("ask this tool's sessions (codex, claude...): on target, or anywhere with any"),
 		"any":           flag("any session that matches will do: no target needed, look-alikes are not refused"),
+		"needs":         str("ask the session that has all of these capabilities, comma-separated: repo:owner/name, branch:, tool:, model:, role: or a declared word such as gpu (aivoicebus_who lists them). No target needed; listening now first, then the most recently seen"),
 		"pick":          map[string]any{"type": "integer", "description": "of the sessions listed as looking alike, ask the Nth (1-based)"},
 		"wait_seconds":  map[string]any{"type": "integer", "description": fmt.Sprintf("wait this long for the answer (default and at most %d)", maxWaitSeconds)},
 		"claim_seconds": map[string]any{"type": "integer", "description": "nobody took it (claimed, or read by the session asked) in this long: take it back and say so (default 120)"},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct {
-			Target, Body, Tool string
-			Any                bool
-			Pick               int
-			WaitSeconds        int `json:"wait_seconds"`
-			ClaimSeconds       int `json:"claim_seconds"`
+			Target, Body, Tool, Needs string
+			Any                       bool
+			Pick                      int
+			WaitSeconds               int `json:"wait_seconds"`
+			ClaimSeconds              int `json:"claim_seconds"`
 		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
@@ -46,7 +47,17 @@ var askTool = tool{
 		if strings.TrimSpace(a.Body) == "" {
 			return "", errors.New("body is the question: call it again with the question in body")
 		}
-		target, err := askTarget(a.Target, a.Tool, a.Any)
+		var needs []string
+		if a.Needs != "" {
+			if a.Pick > 0 {
+				return "", errors.New("needs picks the one session that has it all: call it again without pick")
+			}
+			var err error
+			if needs, err = msg.ParseNeeds(a.Needs); err != nil {
+				return "", fmt.Errorf("%v: call it again with valid needs", err)
+			}
+		}
+		target, err := askTarget(a.Target, a.Tool, a.Any || needs != nil)
 		if err != nil {
 			return "", err
 		}
@@ -66,8 +77,10 @@ var askTool = tool{
 			return "", err
 		}
 		me := identity.Me()
-		p, err := tasks.PickSession(roster, target, tasks.PickOpts{Me: me, Any: a.Any, Pick: a.Pick, Rand: rand.IntN})
+		p, err := pickFor(roster, target, needs, tasks.PickOpts{Me: me, Any: a.Any, Pick: a.Pick, Rand: rand.IntN})
 		switch {
+		case errors.Is(err, tasks.ErrNoMatch):
+			return "NOBODY MATCHED: " + err.Error() + ". Nothing was sent." + p.closest, nil
 		case errors.Is(err, tasks.ErrAlike):
 			var b strings.Builder
 			fmt.Fprintf(&b, "%d sessions at %s look alike; asking one would be a guess. Call again with pick N, or with the session as target:\n", len(p.Alike), view.Name(target, msg.MaxIdentity))
@@ -124,6 +137,33 @@ var askTool = tool{
 
 // askTarget is who an ask may go to (as `aivoicebus ask`): a machine, host/tool or one session,
 // or with any anyone (of a tool).
+// picked is tasks.Pick, with the closest candidates as text when a needs pick found nobody.
+type picked struct {
+	tasks.Pick
+	closest string
+}
+
+// pickFor is the session an ask or a task goes to: by needs (tasks.PickNeeds) when there are any,
+// else tasks.PickSession.
+func pickFor(roster []msg.RosterEntry, target string, needs []string, o tasks.PickOpts) (picked, error) {
+	if needs == nil {
+		p, err := tasks.PickSession(roster, target, o)
+		return picked{Pick: p}, err
+	}
+	np, err := tasks.PickNeeds(roster, target, needs, o)
+	if errors.Is(err, tasks.ErrNoMatch) {
+		var b strings.Builder
+		for _, c := range np.Closest {
+			b.WriteString("\n  " + tasks.CandidateLine(c, time.Now()))
+		}
+		if b.Len() > 0 {
+			return picked{closest: " The closest (loosen needs, or ask for a session where the work is):" + b.String()}, err
+		}
+		return picked{closest: " No session there was seen at all: aivoicebus_who lists them."}, err
+	}
+	return picked{Pick: tasks.Pick{To: np.To, Why: np.Why, Listening: np.Listening}}, err
+}
+
 func askTarget(target, tool string, anyOne bool) (string, error) {
 	switch {
 	case strings.ContainsAny(tool, ",= /*@"):
