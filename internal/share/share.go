@@ -94,6 +94,9 @@ type Space struct {
 	box     []byte
 	host    string
 	looked  map[string]bool // machines whose keys were looked for in the log
+	// rootUnsigned is what this machine found of the first message's signature when it is not a
+	// good one (msg.Verified*), so a refusal can say why no one is in the thread.
+	rootUnsigned string
 }
 
 // Open loads thread id's space (id may be any message of the thread). It refuses on a node that
@@ -173,6 +176,11 @@ func (s *Space) machines() {
 		}
 		if m.ID == s.Thread {
 			root = &s.msgs[i]
+		}
+	}
+	for _, m := range s.msgs {
+		if m.ID == s.Thread && m.Verified != msg.VerifiedSigned {
+			s.rootUnsigned = m.Verified
 		}
 	}
 	if root != nil {
@@ -305,6 +313,12 @@ func (s *Space) writeKey() (string, []byte) {
 }
 
 func (s *Space) notInThread() error {
+	switch s.rootUnsigned {
+	case msg.VerifiedUnsigned:
+		return fmt.Errorf("thread %s's first message is not signed (a node older than %s is in the mesh, or its sender runs an aivoicebus that old), so who is in the thread cannot be checked and it gets no shared space: ask the user to update the nodes (`aivoicebus nodes` lists them), or hand the file over once with `aivoicebus share put %s FILE --via pipe`", s.Thread, msg.SignSince, s.Thread)
+	case msg.VerifiedBad, msg.VerifiedChanged:
+		return fmt.Errorf("thread %s's first message does not verify as its sender's (altered, or signed by another key than the one pinned), so it gets no shared space: start one in a new thread (`aivoicebus send`), and ask the user to check that machine (`aivoicebus keys`)", s.Thread)
+	}
 	return fmt.Errorf("this machine (%s) is not part of thread %s, so it cannot use its shared space: ask a participant (%s) to add it with `aivoicebus share add %s %s`", s.host, s.Thread, strings.Join(s.Participants(), ", "), s.Thread, s.host)
 }
 
