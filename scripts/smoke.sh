@@ -128,6 +128,26 @@ step inbox
 echo "\$ aivoicebus inbox --all | tail -2"; "$BIN" inbox --all | norm | tail -2
 step thread "$RID"
 
+echo "# leases: run holds a key while its command goes on and frees it after; a held key refuses a second run; globs list"
+as imac/claude
+step lease run deploy:prod:api --ttl 10m --note "shipping 1.2.3" --settle 0s -- sh -c 'echo "deploying under $AIVOICEBUS_LEASES"; exit 3'
+step lease list
+step lease take deploy:prod:api --ttl 10m --note "shipping 1.2.3" --settle 0s
+step lease take load:prod/scan-a --settle 0s
+as air/codex
+step lease run deploy:prod:api --settle 0s -- sh -c 'echo "never runs"'
+step lease run deploy:prod:api --settle 0s --override-hold short -- true
+step lease run deploy:prod:api --settle 0s --override-hold "Florin agreed: the hold is stale" -- sh -c 'echo "ran anyway"'
+step lease list 'deploy:*'
+step lease list 'load:*' 'hub:*'
+step lease list 'nothing:*'
+step audit | grep -E 'lease override|^\$|^\[exit' | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T<TIME>Z/<UTC>/'   # norm took the clock; the date would go stale
+as imac/claude
+step inbox --ack
+step lease release deploy:prod:api
+step lease release load:prod/scan-a
+step lease list
+
 echo "# the hook is silent when there is nothing to say, and honours the opt-out file"
 as air/codex
 step hook --tool codex

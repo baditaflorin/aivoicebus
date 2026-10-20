@@ -310,7 +310,8 @@ object on stderr with stdout empty (also for a bad flag). One exception, on purp
 exits 1 when it finds a FAIL and still prints its full report on stdout. Exit codes: 0 ok; 1
 failed (or `mesh`/`doctor` found a problem); 2 the command was used wrongly (bad flags or id, no
 body, no node configured, an ambiguous id, `reply` that cannot tell what to answer); 3 not found;
-4 no node answered (retry later); 5 a node refused the token; 6 `wait` or `--wait-reply` saw nothing arrive in time. `send --file/--tail`, `get`, `tail`,
+4 no node answered (retry later); 5 a node refused the token; 6 `wait` or `--wait-reply` saw nothing arrive in time; 7 `lease run`
+found the key held by someone else and ran nothing (when it does run, its code is the command's). `send --file/--tail`, `get`, `tail`,
 `update`, `secret`, `export` and `import` have no `--json`.
 
 ### Tasks for a machine, and conversations between agents
@@ -728,6 +729,27 @@ session-start radar lists leases held by others (those whose key names this repo
 message of `--kind lease` addressed to its own holder, so it reaches no inbox; the earliest live one
 on a key holds it, by the rule tasks use. It is advisory: it tells, it does not stop anyone.
 Nodes of 0.6.0 or later (feature `leases`) hold them.
+
+`lease list 'load:prod/*'` shows only the keys that match: `*` stands for any run of characters (a
+`/` or `:` too, so `load:*` reaches `load:prod/scan`) and `?` for one; several globs add up.
+
+**Leases that take themselves.** `aivoicebus lease run deploy:prod:api --ttl 45m --note "shipping
+1.2.3" -- ./deploy.sh --prod` takes the lease, runs the command and releases the lease when the
+command ends, however it ends (its exit, a `SIGTERM` or `SIGHUP` sent to `lease run`, which passes
+them on and waits for the command). Put it in the script that does the dangerous thing, so the key
+is held by what runs, not by someone remembering to take it. The run exits with the command's own
+code (128 plus the signal that killed it). When someone else holds the key it runs nothing and
+exits 7, naming the holder, their note and when it frees up; when no node can be asked it runs
+nothing either and exits 4. While the command goes on the run extends the lease every third of the
+ttl, so `--ttl` bounds how long a run killed with `kill -9` keeps the key, not how long the command
+may take; a lease held by this same session also refuses (an earlier run of it is still going, or
+died: `lease release KEY` frees it). The command sees `AIVOICEBUS_LEASES` (the keys it runs under,
+comma separated), so a script can tell it is already inside the lease and not take it twice.
+`lease run -h` lists its flags and exits 0 (an older aivoicebus answers it with a usage error, which is how a
+script tells whether `lease run` exists). `--override-hold "who agreed and why"` (at least 10 characters) runs the command without the lease
+when it is held or no node answers: the run says so, writes a `lease override` line in the audit
+log (the command's name, not its arguments, the key, the holder and the reason; see `aivoicebus
+audit`) and sends the holder a notice. It takes nothing from the holder, whose lease stays.
 
 **Rooms.** `aivoicebus room join release-0.5` puts this session in a standing conversation of
 several agents: everything `room say release-0.5 "..."` says goes to every member, in one thread

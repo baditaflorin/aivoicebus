@@ -53,7 +53,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"handoff", "hand work to another agent: a task with the goal, repo, branch, commit, push state and (--diff) your changes"},
 	{"keys", "this machine's signing key, and the keys pinned for other machines (forget one after a reinstall)"},
 	{"room", "a standing conversation of several agents: join, say, wait, who, invite"},
-	{"lease", "take, release or list a lease on a file, branch or anything named, so two agents do not edit it at once"},
+	{"lease", "take, release or list a lease on a file, branch or anything named, so two agents do not edit it at once; `lease run KEY -- CMD` holds one while CMD runs and frees it after"},
 	{"status", "where this session stands, in one screen, each problem with its fix; `status ID`: did that message get through"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},

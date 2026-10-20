@@ -22,6 +22,32 @@ var reLeaseKey = regexp.MustCompile(`^[A-Za-z0-9._:/@+-]{1,120}$`)
 // ValidLeaseKey reports whether k can name a lease: 1 to 120 letters, digits and . _ : / @ + -.
 func ValidLeaseKey(k string) bool { return reLeaseKey.MatchString(k) }
 
+// MatchKey reports whether key matches pattern: `*` stands for any run of characters (a `/` or `:`
+// too, since a key uses them as plain separators, so `load:*` reaches `load:prod/scan`) and `?`
+// for exactly one. Anything else matches itself.
+func MatchKey(pattern, key string) bool {
+	p, k := 0, 0
+	star, mark := -1, 0 // the last `*` in pattern, and where in key it has been made to stop
+	for k < len(key) {
+		switch {
+		case p < len(pattern) && (pattern[p] == '?' || pattern[p] == key[k]):
+			p, k = p+1, k+1
+		case p < len(pattern) && pattern[p] == '*':
+			star, mark = p, k
+			p++
+		case star >= 0:
+			mark++
+			p, k = star+1, mark
+		default:
+			return false
+		}
+	}
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+	return p == len(pattern)
+}
+
 // LeaseBody is the body of a lease message.
 func LeaseBody(key, note string) string {
 	if note = strings.TrimSpace(note); note != "" {
