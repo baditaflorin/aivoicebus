@@ -770,6 +770,57 @@ out=$(deploy/rollout.sh "$REL10" --unsigned --apply --soak 3 2>&1); rc=$?
 [ $rc = 0 ] && pass "a rollout after the quarantine succeeds: only an increase stops one" || { fail "rollout exit $rc"; echo "$out" | tail -12; }
 for i in 1 2 3 4 5; do [ "$(version_of $i)" = 6.1.0 ] && pass "node $i runs 6.1.0" || fail "node $i runs $(version_of $i)"; done
 
+section "a thread's shared space: sealed, versioned, replicated, kept across a restart and a lost disk"
+# Late in the lab: its machines send with the shared token, which the token checks above would
+# (rightly) count as machines a rotation cuts off.
+# Two machines (their own HOME, so their own keys) on different nodes, and one outside the thread.
+mkdir -p "$LAB/sh-a" "$LAB/sh-b" "$LAB/sh-c"
+sa() { HOME="$LAB/sh-a" AIVOICEBUS_ME=labsa/agent.s1 AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "$@"; }
+sb() { HOME="$LAB/sh-b" AIVOICEBUS_ME=labsb/agent.s2 AIVOICEBUS_URL="$(url "${SBN:-3}")" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "$@"; }
+sc() { HOME="$LAB/sh-c" AIVOICEBUS_ME=labsc/agent.s3 AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "$@"; }
+M=$(sa send --to labsb/agent.s2 "a thread to share in" 2>&1); ST=$(awk '/^sent /{print $2; exit}' <<<"$M")
+has "the thread starts on node 1" "^sent " "$M"
+sb_sees_thread() { sb thread "$ST" 2>&1 | grep -q 'a thread to share in'; }
+eventually "node 3 has it" 20 sb_sees_thread
+has "the other machine answers on node 3" "^sent " "$(sb reply --re "$ST" "go ahead" 2>&1)"
+sa_sees_reply() { sa thread "$ST" 2>&1 | grep -q 'go ahead'; }
+eventually "its answer reaches node 1" 20 sa_sees_reply
+MARK="LABSHARE-$RANDOM$RANDOM"
+{ echo "$MARK"; head -c $((5 * 1024 * 1024)) /dev/urandom | od -An -tx1 | tr -d ' \n'; echo; } >"$LAB/share.big" # about 10 MiB of text: three chunks
+out=$(sa share put "$ST" "$LAB/share.big" 2>&1)
+has "a 10 MiB file is shared as version 1 on node 1" "as version 1 in thread $ST" "$out"
+has "sealed for both machines" "sealed for labsa, labsb" "$out"
+sb_reads() { sb share get "$ST" share.big --out "$LAB/share.got" --force && cmp -s "$LAB/share.big" "$LAB/share.got"; }
+eventually "the other machine reads it through node 3, byte for byte" 40 sb_reads
+plain=$(grep -rl "$MARK" "$LAB"/nodes/*/var/lib/aivoicebus 2>/dev/null | wc -l | tr -d ' ')
+[ "$plain" = 0 ] && pass "no node holds a byte of it in plaintext" || fail "$plain node file(s) hold the plaintext"
+echo "the second version" >"$LAB/share.big2"
+has "a second version, written on node 3" "as version 2" "$(sb share put "$ST" "$LAB/share.big2" --name share.big 2>&1)"
+sa_v2() { [ "$(sa share get "$ST" share.big 2>/dev/null)" = "the second version" ]; }
+eventually "node 1 serves version 2" 30 sa_v2
+sa_v1() { sa share get "$ST" share.big --version 1 --out "$LAB/share.v1" --force && cmp -s "$LAB/share.big" "$LAB/share.v1"; }
+ok "and version 1 still" sa_v1
+has "notes start on node 1" "version 1" "$(printf 'plan: one\n' | sa share notes "$ST" --edit --base 0 2>&1)"
+sb_notes1() { sb share notes "$ST" 2>/dev/null | grep -q 'plan: one'; }
+eventually "node 3 has the notes" 30 sb_notes1
+has "the other machine edits version 1 on node 3" "version 2" "$(printf 'plan: one\nplan: two\n' | sb share notes "$ST" --edit --base 1 2>&1)"
+sa_notes2() { sa share notes "$ST" 2>/dev/null | grep -q 'plan: two'; }
+eventually "node 1 has notes version 2" 30 sa_notes2
+out=$(printf 'plan: one, edited\n' | sa share notes "$ST" --edit --base 1 2>&1)
+has "a stale edit of version 1 is refused, naming version 2 and the next step" "at version 2.*--base 2" "$out"
+out=$(sc share get "$ST" share.big 2>&1)
+has "a machine outside the thread cannot read it" "not part of thread" "$out"
+nodectl 3 restart
+eventually "node 3 is back after a restart" 15 curl -fsS "http://127.0.0.13:$PORT/healthz"
+sb_reads_v2() { [ "$(sb share get "$ST" share.big 2>/dev/null)" = "the second version" ] && sb share get "$ST" share.big --version 1 --out "$LAB/share.got" --force && cmp -s "$LAB/share.big" "$LAB/share.got"; }
+eventually "and still serves both versions" 20 sb_reads_v2
+nodectl 2 stop
+rm -rf "$LAB/nodes/lab_n2/var/lib/aivoicebus"/*
+nodectl 2 start
+eventually "node 2 is back with an empty disk" 15 curl -fsS "http://127.0.0.12:$PORT/healthz"
+sb2_reads() { SBN=2 sb share get "$ST" share.big --version 1 --out "$LAB/share.n2" --force && cmp -s "$LAB/share.big" "$LAB/share.n2"; }
+eventually "node 2 takes the space back from its peers" 40 sb2_reads
+
 section "signed messages only: is the mesh ready, and the switch"
 unsigned() { code "$TOKEN_FILE" "$(url "$1")/v1/send" -X POST -d "{\"from\":\"labold/agent\",\"to\":\"lab/reader\",\"body\":\"unsigned, like a client older than 0.7.0 ($2)\"}"; }
 [ "$(unsigned 2 one)" = 200 ] && pass "a node takes an unsigned message by default" || fail "unsigned send refused"

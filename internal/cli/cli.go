@@ -105,6 +105,7 @@ func init() {
 		"deny":        denyCmd,
 		"incident":    incidentCmd,
 		"state":       stateCmd,
+		"share":       shareCmd,
 	}
 }
 
@@ -176,7 +177,7 @@ func screenForAgent(m msg.Message) string {
 }
 
 // agentReads are the commands whose output an agent reads into its context.
-var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true, "ask": true}
+var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true, "ask": true, "share": true}
 
 type countingWriter struct {
 	w io.Writer

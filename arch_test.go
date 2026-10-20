@@ -29,18 +29,19 @@ var allowed = map[string][]string{
 	"view":       {"attach", "msg"},
 	"store":      {"msg"},
 	"sharestore": {"msg"},
+	"share":      {"attach", "client", "config", "msg", "outbox"},
 	"client":     {"config", "msg", "view"}, // view: a node's words reach callers only as safe lines
 	"server":     {"client", "config", "msg", "release", "secrets", "sharestore", "store", "version"},
 	"hook":       {"client", "config", "discovery", "identity", "msg", "outbox", "release", "version", "view"},
 	"agentcfg":   {"assets", "config", "version"},
 	"discovery":  {"client", "config", "release"},
 	"updater":    {"client", "release"},
-	"mcp":        {"assets", "attach", "client", "config", "identity", "msg", "outbox", "tasks", "view"},
+	"mcp":        {"assets", "attach", "client", "config", "identity", "msg", "outbox", "share", "tasks", "view"},
 	"tasks":      {"client", "msg", "outbox", "view"}, // view: alert times as a person reads them
 	"status":     {"client", "config", "msg", "release", "view"},
 	"worker":     {"client", "config", "msg", "outbox", "tasks", "view"},
 	"outbox":     {"client", "config", "identity", "msg", "release", "secrets", "view"},
-	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "status", "store", "tasks", "updater", "version", "view", "worker"},
+	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "status", "store", "tasks", "updater", "version", "view", "worker"},
 }
 
 func TestPackageDependenciesPointOneWay(t *testing.T) {
