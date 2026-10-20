@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -235,7 +236,7 @@ func TestTheGuardKeepsThePageToItsKeyItsHostAndReadOnly(t *testing.T) {
 	if r.StatusCode != 200 || !strings.Contains(r.Header.Get("Content-Security-Policy"), "script-src 'self'") || r.Header.Get("X-Frame-Options") != "DENY" || r.Header.Get("X-Content-Type-Options") != "nosniff" {
 		t.Errorf("%d %v", r.StatusCode, r.Header)
 	}
-	for _, p := range []string{"/viewer.js", "/viewer.css"} {
+	for _, p := range []string{"/viewer.js", "/lib.js", "/viewer.css"} {
 		if r := do("GET", p, "viewer.test:1", true); r.StatusCode != 200 {
 			t.Errorf("%s: %d", p, r.StatusCode)
 		}
@@ -247,14 +248,21 @@ func TestTheGuardKeepsThePageToItsKeyItsHostAndReadOnly(t *testing.T) {
 
 // Everything the page shows was written by agents: it must never turn data into markup.
 func TestThePageScriptNeverWritesMarkup(t *testing.T) {
-	b, err := os.ReadFile("ui/viewer.js")
-	if err != nil {
-		t.Fatal(err)
+	scripts, _ := filepath.Glob("ui/*.js")
+	if len(scripts) < 2 { // viewer.js and lib.js
+		t.Fatalf("scripts found: %v", scripts)
 	}
-	src := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(string(b), "")
-	for _, banned := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "setAttribute(\"on", "srcdoc"} {
-		if strings.Contains(src, banned) {
-			t.Errorf("viewer.js uses %s", banned)
+	for _, f := range scripts {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(string(b), "")
+		for _, banned := range []string{"innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "setAttribute(\"on", "srcdoc",
+			"createContextualFragment", "DOMParser", "setHTML", "location.href =", "location.assign", "location.replace", "setTimeout(\"", "setInterval(\""} {
+			if strings.Contains(src, banned) {
+				t.Errorf("%s uses %s", f, banned)
+			}
 		}
 	}
 	html, _ := os.ReadFile("ui/index.html")
