@@ -118,13 +118,16 @@ func (e *StatusError) explain(reason string) (string, bool) {
 	case msg.RefusedDeadline:
 		return "this conversation's deadline (--deadline) passed, so the message was not sent. Close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
 	case msg.RefusedLoop:
-		return "the message was not sent: this sender said the same thing several times in this thread, which looks like a loop. Stop and ask the user whether to go on, or close it with `aivoicebus reply --end --re ID`", true
+		return "the message was not sent (the loop check): this sender's last messages in this thread say mostly the same thing as ones before them, which looks like a loop. Say what is new, send status updates with `--kind progress`, stop and ask the user whether to go on, or close it with `aivoicebus reply --end --re ID`", true
 	case msg.RefusedRateSender:
 		return "this sender has used its messages for the hour (rate limit), so nothing was sent. Try again " + later(e.RetryAfter) + ", send fewer and shorter messages, or ask the user", true
 	case msg.RefusedRateMachine:
 		return "this machine has used its messages for the hour, all its sessions together (rate limit), so nothing was sent. Try again " + later(e.RetryAfter) + ", or ask the user", true
 	case msg.RefusedRatePair:
-		return "the message was not sent: two sessions are answering each other fast enough to look like a loop. Stop, and ask the user whether to go on (or try again " + later(e.RetryAfter) + ")", true
+		if strings.Contains(said, "the same words") { // the reply repeats one before it (nodes of msg.BrakesSince)
+			return "the message was not sent (the pair brake): two sessions are answering each other fast, and this reply repeats one this sender sent before, which looks like a loop. Say what is new, or stop and ask the user whether to go on (or try again " + later(e.RetryAfter) + ")", true
+		}
+		return "the message was not sent (the pair brake): two sessions are answering each other fast enough to look like a loop. Slow down, or stop and ask the user whether to go on (or try again " + later(e.RetryAfter) + ")", true
 	case msg.RefusedRateRetract:
 		return "this identity has used its retractions for the hour (rate limit), so nothing was taken back. Try again " + later(e.RetryAfter), true
 	case msg.RefusedUnknown:

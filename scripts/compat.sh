@@ -61,6 +61,8 @@ feature_since() {
     progress) echo 0.10.0 ;;  # holds a --kind progress message (an older node quarantines it)
     states) echo 0.11.0 ;;    # a conversation state passes a used-up turn limit when it closes the conversation
     share) echo 0.12.0 ;;     # /v1/share/...: a thread's shared space (versions of sealed files, notes)
+    loopkey) echo 0.10.0 ;;   # the loop check (a third message alike, numbers aside) and the pair brake (8, then 24 replies in 2 minutes)
+    brakes) echo 0.12.0 ;;    # repeats judged by similarity: new replies pass the pair brake to 48, numbers are words, rewordings are repeats
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -431,6 +433,51 @@ check "$(py 'import json,sys; print(json.load(open(sys.argv[1]))["ver"]["num"])'
 check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" '{"data":"cGxhaW4gdGV4dCBwbGFpbiB0ZXh0IHBsYWluIHRleHQ="}')" 400 "new refuses a plaintext chunk"
 check_converged "message logs stay equal on all $N nodes"
 check_quarantined 1 "quarantined nothing more"
+scenario "the brakes tell a loop from progress"
+# Each node is asked alone (written through it, with sessions of its own). A burst of 30 replies that
+# each say something new: a node with the new brakes takes them all; one with the old pair brake
+# (0.10.0: 8, 0.10.1 on: 24 in 2 minutes) refuses one before the 30th; older nodes have no brake.
+# Counting up one number at a time: the old loop check refuses the third number, the new one takes
+# it (numbers are words). The same thanks in other words: the new loop check refuses it within six.
+words=(amber basalt cinder dahlia egret fennel garnet heron indigo juniper kestrel lichen mango
+  nutmeg obsidian papaya quince russet sorrel tamarind umber vetiver wisteria xenon yarrow zinnia
+  acorn bramble clover drizzle)
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; a=bk-$n/claude.a1; b=bk-$n/codex.b2
+  cli "$k" "$NEW" "$a" send --to "$b" "burst root MARK-BK-$n" >"$W/bk.out" 2>/dev/null
+  root=$(sent_id "$W/bk.out")
+  if [ -z "$root" ]; then check "no root" sent "${NAME[$k]}: the burst starts"; continue; fi
+  ok=0
+  for i in $(seq 0 29); do
+    from=$a; [ $((i % 2)) = 0 ] && from=$b
+    cli "$k" "$NEW" "$from" reply --re "$root" "${words[$i]} ${words[$(((i * 7 + 3) % 30))]} report $i on ${words[$(((i * 11 + 5) % 30))]}" >/dev/null 2>&1 || break
+    ok=$((ok + 1))
+  done
+  want=30; if has "$k" loopkey && ! has "$k" brakes; then want=refused; fi
+  got=$ok; [ "$want" = refused ] && [ "$ok" -lt 30 ] && got=refused
+  check "$got" "$want" "${NAME[$k]} (${VER[$k]}): 30 fast replies that each say something new $([ $want = 30 ] && echo all go || echo are stopped by the old pair brake)"
+
+  a=ct-$n/claude.a1; b=ct-$n/codex.b2
+  cli "$k" "$NEW" "$a" send --to "$b" "count with me MARK-CT-$n" >"$W/bk.out" 2>/dev/null
+  root=$(sent_id "$W/bk.out"); ok=0
+  for i in 1 2 3; do cli "$k" "$NEW" "$b" reply --re "$root" "$i" >/dev/null 2>&1 && ok=$((ok + 1)); done
+  want=3; if has "$k" loopkey && ! has "$k" brakes; then want=2; fi
+  check "$ok" "$want" "${NAME[$k]} (${VER[$k]}): counting 1 2 3 $([ $want = 3 ] && echo goes || echo is refused at the third number)"
+
+  if has "$k" brakes; then
+    a=th-$n/claude.a1; b=th-$n/codex.b2
+    cli "$k" "$NEW" "$b" send --to "$a" "the summary MARK-TH-$n" >"$W/bk.out" 2>/dev/null
+    root=$(sent_id "$W/bk.out"); at=0; i=0
+    for line in "$a|Thanks! Let me know if you need anything else." "$b|You're welcome! Let me know if there is anything else you need." \
+      "$a|Thanks again! Let me know if you need anything else at all." "$b|You're very welcome! Let me know if there is anything else you need." \
+      "$a|Thanks! Do let me know if you need anything else." "$b|You are welcome! Let me know if there's anything else you need."; do
+      i=$((i + 1))
+      cli "$k" "$NEW" "${line%%|*}" reply --re "$root" "${line#*|}" >/dev/null 2>"$W/bk.err" || { at=$i; break; }
+    done
+    check "$at $(grep -c 'loop check' "$W/bk.err")" "5 1" "${NAME[$k]}: the same thanks in other words is refused by the loop check at the 5th reply"
+  fi
+done
+check_converged "version vectors equal"
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done

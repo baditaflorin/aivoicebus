@@ -35,6 +35,8 @@ var oldRefusals = []struct {
 	{429, "rate limit: 60 messages an hour per sender is the most", msg.RefusedRateSender, "Try again"},
 	{429, "rate limit: 300 messages an hour from one machine is the most", msg.RefusedRateMachine, "Try again"},
 	{429, "rate limit: 24 messages between the same two sessions in 2m0s is the most", msg.RefusedRatePair, "ask the user"},
+	{429, "rate limit: 24 replies between the same two sessions in 2m0s, and this one is 80% the same words as one this sender sent before (the pair brake)", msg.RefusedRatePair, "Say what is new"},
+	{429, "rate limit: 48 replies between the same two sessions in 2m0s is the most, even when each says something new (the pair brake)", msg.RefusedRatePair, "Slow down"},
 	{429, "rate limit: 60 retractions an hour per sender is the most", msg.RefusedRateRetract, "Try again"},
 	{400, "bad request", msg.RefusedBadRequest, "aivoicebus update"},
 	{400, "bad request: that id is a retraction notice, not a message: there is nothing to reply to", msg.RefusedNotice, "aivoicebus inbox --all"},

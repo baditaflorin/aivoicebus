@@ -24,7 +24,7 @@ func TestAStateMessageIsOutsideThePairBrake(t *testing.T) {
 	sync()
 	// a conversation that used most of the brake
 	n := 0
-	for i := 0; n < pairLimit-2; i++ {
+	for i := 0; n < pairFreshLimit-2; i++ {
 		from, to := a, b
 		if i%2 == 1 {
 			from, to = b, a
