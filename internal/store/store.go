@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
@@ -998,7 +999,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 		m.Exp, m.TTL = &exp, 0
 	}
 	if m.Thread != m.ID {
-		m.MaxTurns, m.Deadline = 0, 0 // only the message that starts a thread sets its limits
+		m.MaxTurns, m.Deadline, m.BudgetChars = 0, 0, 0 // only the message that starts a thread sets its limits
 		if err := s.turnsLeftLocked(m, sim, twice); err != nil {
 			s.limited++
 			switch e := err.Error(); {
@@ -1006,6 +1007,8 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 				s.refusedBy["deadline"]++
 			case strings.Contains(e, "looks like a loop"):
 				s.refusedBy["loop"]++
+			case strings.Contains(e, "character budget"):
+				s.refusedBy["budget"]++
 			default:
 				s.refusedBy["turns"]++
 			}
@@ -1219,6 +1222,15 @@ func (s *Store) turnsLeftLocked(m msg.Message, sim float64, twice bool) error {
 	if root.Deadline > 0 {
 		if end := root.At.Add(time.Duration(root.Deadline) * time.Second); s.now().After(end) {
 			return fmt.Errorf("%w: its deadline passed at %s: close it with `reply --end`, or start a new conversation", ErrTurnLimit, end.UTC().Format(time.RFC3339))
+		}
+	}
+	if root.BudgetChars > 0 {
+		used, n := 0, utf8.RuneCountInString(m.Body)
+		for _, i := range s.threads[m.Thread] {
+			used += utf8.RuneCountInString(s.msgs[i].Body)
+		}
+		if used+n > root.BudgetChars {
+			return fmt.Errorf("%w: this message is %d characters and the conversation has %d left of its character budget of %d (--budget-chars): say it in fewer words, close it with `reply --end`, or start a new conversation", ErrTurnLimit, n, max(0, root.BudgetChars-used), root.BudgetChars)
 		}
 	}
 	if twice {
@@ -1660,7 +1672,7 @@ type Stats struct {
 	Quarantined int   // placeholders held, each in place of a record that failed msg.Record.ValidateReplicated
 	Refused     int64 // records dropped for an origin that cannot be kept, since start
 	// RefusedBy is the sends refused since start, by reason: rate_sender, rate_machine, rate_pair,
-	// turns, deadline, loop.
+	// turns, deadline, budget, loop.
 	RefusedBy map[string]int64
 	// LastHour is the messages this node took in during the last hour.
 	LastHour int

@@ -20,6 +20,8 @@ type ThreadSize struct {
 	TokensIn  int     `json:"tokens_in,omitempty"`
 	TokensOut int     `json:"tokens_out,omitempty"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
+	// BudgetChars is the conversation's --budget-chars, from its opening message; 0 when none.
+	BudgetChars int `json:"budget_chars,omitempty"`
 }
 
 // CharsPerToken is the rough rule ThreadSize estimates tokens by.
@@ -38,6 +40,9 @@ func SizeOf(ms []Message) ThreadSize {
 		seen[m.ID] = true
 		z.Messages++
 		z.Chars += utf8.RuneCountInString(m.Body)
+		if m.ID == m.Thread && m.Re == "" {
+			z.BudgetChars = m.BudgetChars
+		}
 		if _, agent, _ := strings.Cut(m.From, "/"); !strings.HasSuffix(agent, "worker") || m.Retracted != nil {
 			continue
 		}

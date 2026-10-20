@@ -8,6 +8,8 @@ error: unknown command "frobnicate": `aivoicebus help` lists the commands
 $ aivoicebus send --bogus
 flag provided but not defined: -bogus
 Usage of send:
+  -budget-chars int
+    	start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs
   -deadline duration
     	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
   -dry-run
@@ -59,6 +61,8 @@ Usage of send:
 [exit 2]
 $ aivoicebus send -h
 Usage of send:
+  -budget-chars int
+    	start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs
   -deadline duration
     	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
   -dry-run
@@ -422,7 +426,7 @@ ok    claude instructions    snippet b105598f
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)
-ok    node features          smoke: brakes,decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,share,states,tasks,token-seen,turns,unsigned-report
+ok    node features          smoke: brakes,budget,decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,share,states,tasks,token-seen,turns,unsigned-report
 WARN  token kind             the mesh's shared token: whoever holds it can send as this machine. Unless this is the machine you deploy from (which keeps it), the operator gives it its own: deploy/machine-token.sh add air --apply (from the root of an aivoicebus checkout), then aivoicebus token hand air
 [exit 0]
 $ aivoicebus uninstall --dry-run

@@ -15,6 +15,7 @@ const (
 	RefusedTurns        = "turns"           // the conversation used up its --max-turns (409)
 	RefusedDeadline     = "deadline"        // the conversation's --deadline passed (409)
 	RefusedLoop         = "loop"            // the same thing said again and again in one thread (409)
+	RefusedBudget       = "budget"          // the conversation used up its --budget-chars (409)
 	RefusedRateSender   = "rate_sender"     // a sender's messages for the hour are used up (429)
 	RefusedRateMachine  = "rate_machine"    // a machine's messages for the hour are used up (429)
 	RefusedRatePair     = "rate_pair"       // two sessions answering each other in a loop (429)

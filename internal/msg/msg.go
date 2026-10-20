@@ -63,6 +63,10 @@ type Message struct {
 	// Deadline, on the message that starts a thread, is how many seconds after it the thread stays
 	// open: nodes of TurnsSince or later refuse a later message in it, except an [end]. 0 is none.
 	Deadline int64 `json:"deadline,omitempty"`
+	// BudgetChars, on the message that starts a thread, is how many characters of message bodies the
+	// thread may hold in all: nodes of BudgetSince or later refuse a message that would take it
+	// past that, except an [end], a claim, and a state that closes it. 0 is none. Not signed.
+	BudgetChars int `json:"budget_chars,omitempty"`
 	// Depth is how many tasks deep this task was sent from: 0 from a person's session, 1 from a
 	// run a worker started for a task, and so on (the worker passes AIVOICEBUS_TASK_DEPTH to the
 	// run). A task deeper than MaxTaskDepth is not sent and not run: no chain reactions.
@@ -219,6 +223,9 @@ func (m Message) ValidateOptions() error {
 	if m.Deadline < 0 || m.Deadline > MaxDeadline {
 		return fmt.Errorf("deadline is 0 (none) to %d seconds", MaxDeadline)
 	}
+	if m.BudgetChars < 0 || m.BudgetChars > MaxBudgetChars {
+		return fmt.Errorf("budget_chars is 0 (none) to %d", MaxBudgetChars)
+	}
 	if m.Kind == KindLease && m.TTL == 0 {
 		return errors.New("a lease must say how long it lasts (ttl)")
 	}
@@ -356,6 +363,10 @@ const (
 	MaxDepthField = 10             // what a node takes at all
 	TurnsSince    = "0.10.0"
 	FeatureTurns  = "turns"
+	// MaxBudgetChars bounds budget_chars; BudgetSince is the release whose nodes enforce it.
+	MaxBudgetChars = 10_000_000
+	BudgetSince    = "0.12.0"
+	FeatureBudget  = "budget"
 )
 
 // NewID returns a random 10-hex-char message id.

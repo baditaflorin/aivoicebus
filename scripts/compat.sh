@@ -64,6 +64,7 @@ feature_since() {
     loopkey) echo 0.10.0 ;;   # the loop check (a third message alike, numbers aside) and the pair brake (8, then 24 replies in 2 minutes)
     brakes) echo 0.12.0 ;;    # repeats judged by similarity: new replies pass the pair brake to 48, numbers are words, rewordings are repeats
     signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
+    budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -454,6 +455,37 @@ for ((i = 1; i < N; i++)); do
 done
 check_converged "message logs stay equal on all $N nodes"
 check_quarantined 1 "quarantined nothing more"
+
+scenario "a conversation's character budget"
+# The CLI sends --budget-chars only when every node it knows (the one it asks and that node's
+# peers) enforces it: in this mixed mesh it refuses through any node, sending nothing. The nodes
+# are then asked with raw requests, each alone: a node that enforces budgets (0.12.0 on) refuses a
+# reply that would pass one with 409 and takes one that fits and an [end]; an older node ignores
+# the field it does not know, and takes the reply.
+for k in "${!NAME[@]}"; do
+  cli "$k" "$NEW" "bc-${NAME[$k]}/claude.a1" send --to "bc-${NAME[$k]}/codex.b2" --budget-chars 80 "budget by CLI MARK-BC-${NAME[$k]}" >"$W/bg.out" 2>"$W/bg.err"; rc=$?
+  check "$rc $(grep -c 'does not enforce --budget-chars' "$W/bg.err") $(sent_id "$W/bg.out")" "1 1 " "new CLI refuses --budget-chars through ${NAME[$k]} in a mesh with older nodes, sending nothing"
+done
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; a=bg-$n/claude.a1; b=bg-$n/codex.b2; p=${PORT[$k]}
+  check "$(post "$p" /v1/send '{"from":"'"$a"'","to":"'"$b"'","body":"budget root MARK-BG-'"$n"'","budget_chars":80}')" 200 "$n: a conversation with budget_chars 80 starts"
+  root=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$W/last.out")
+  check "$(post "$p" /v1/send '{"from":"'"$b"'","to":"'"$a"'","re":"'"$root"'","body":"this reply fits in the budget"}')" 200 "$n: a reply that fits goes"
+  want=200; has "$k" budget && want=409
+  check "$(post "$p" /v1/send '{"from":"'"$a"'","to":"'"$b"'","re":"'"$root"'","body":"and this one is far too long to fit in what is left of it"}')" "$want" \
+    "$n (${VER[$k]}): a reply past the budget $([ $want = 409 ] && echo is refused || echo goes, the field unknown there)"
+  if has "$k" tasks; then
+    check "$(post "$p" /v1/send '{"from":"'"$a"'","to":"'"$b"'","re":"'"$root"'","kind":"end","body":"closing: the budget is used"}')" 200 "$n: an [end] goes"
+  fi
+  bgroot[$k]=$root
+done
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  check "$(thread_of "${PORT[$k]}" "${bgroot[0]}")" "budget root MARK-BG-new" "${NAME[$k]} holds the new node's budget conversation, body unchanged"
+done
+got=$(cli 0 "$NEW" "bg-new/claude.a1" thread --digest "${bgroot[0]}" 2>/dev/null | grep -c 'of its 80 characters')
+check "$got" 1 "new CLI's digest shows the size against the budget"
+
 scenario "the brakes tell a loop from progress"
 # Each node is asked alone (written through it, with sessions of its own). A burst of 30 replies that
 # each say something new: a node with the new brakes takes them all; one with the old pair brake

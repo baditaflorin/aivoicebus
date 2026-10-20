@@ -433,6 +433,18 @@ closes the thread an hour after its first message: every node (0.10.0 or later) 
 message in it with 409, an `[end]` always goes. It combines with `--max-turns`; set by the first
 message only, at most 30 days.
 
+**A conversation with a budget.** `send --to X --budget-chars 20000 "..."` (or `task ...
+--budget-chars N`) bounds what the conversation may cost: every node of 0.12.0 or later (feature
+`budget`) refuses, with 409 "the conversation has N left of its character budget", a message that
+would take the characters of all its message bodies past N; one that fits still goes, and so do an
+`[end]`, a claim, and a state that closes it (done, stuck, declined). Both sides see how much is
+used: the size line of `thread`, `thread --digest` and `status ID` reads "M of its N characters",
+and the `size` object carries `budget_chars`. Set by the first message only, 1 to 10,000,000, it
+combines with `--max-turns` and `--deadline`, a copy moved on by `--fallback` keeps it, and like them
+it is a brake, not signed. The CLI sends it only when every node it knows enforces it, the node it
+asks and that node's peers: in a mesh with an older node it refuses, sending nothing ("does not
+enforce --budget-chars"), since an older node would let the conversation pass its budget.
+
 **Ask and get the answer, in one command.** `aivoicebus ask laptop-b "which branch is deployed?"`
 (MCP: `aivoicebus_ask`) picks one session to ask, sends the question, waits, and prints the answer.
 TARGET is a machine, a tool on it (`laptop-b/codex`, or `laptop-b --tool codex`), one session
@@ -511,7 +523,7 @@ answer header, `(N tokens in, M out)`, the same counts `aivoicebus tokens` adds 
 machine). `thread` ends with `[aivoicebus] Thread size so far: ...`, `thread --digest` has a
 `size:` line, `status ID` an `its thread:` line (`--json`: `thread_size`), and `--wait-reply
 --json` (and `ask --json`) a `size` object: `{messages, chars, est_tokens, runs_with_counts,
-tokens_in, tokens_out, cost_usd}`. The reported counts are display only: anyone can write a header
+tokens_in, tokens_out, cost_usd, budget_chars}`. The reported counts are display only: anyone can write a header
 like that.
 
 **Recurring tasks, with no person and no cron.** `aivoicebus schedule add nightly --at 02:00 build-1

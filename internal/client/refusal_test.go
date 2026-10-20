@@ -30,6 +30,7 @@ var oldRefusals = []struct {
 	{409, "the conversation reached its turn limit or deadline", msg.RefusedTurns, "aivoicebus reply --end --re"},
 	{409, "the conversation reached its turn limit or deadline: its deadline passed at 2026-10-18T10:00:00Z: close it with `reply --end`", msg.RefusedDeadline, "aivoicebus send"},
 	{409, "the conversation reached its turn limit or deadline: this sender said the same thing 3 times in this thread already (numbers and wording aside): it looks like a loop", msg.RefusedLoop, "ask the user"},
+	{409, "the conversation reached its turn limit or deadline: this message is 57 characters and the conversation has 28 left of its character budget of 80 (--budget-chars): say it in fewer words", msg.RefusedBudget, "this message is 57 characters, and 28 of its 80 are left"},
 	{422, "this message looks like it contains a GitHub token. Messages are kept in clear text", msg.RefusedSecret, "GitHub token"},
 	{422, "this node does not hold that message (it may not have reached it yet, or the id is wrong)", msg.RefusedUnknown, "aivoicebus inbox --all"},
 	{429, "rate limit: 60 messages an hour per sender is the most", msg.RefusedRateSender, "Try again"},
@@ -59,7 +60,7 @@ func TestRefusalsSayWhatToDo(t *testing.T) {
 	}
 	// a reason named by a newer node wins over the text, and every reason says what to do
 	for _, reason := range []string{msg.RefusedToken, msg.RefusedDenied, msg.RefusedReadOnly, msg.RefusedUnsigned, msg.RefusedSecret,
-		msg.RefusedTurns, msg.RefusedDeadline, msg.RefusedLoop, msg.RefusedRateSender, msg.RefusedRateMachine, msg.RefusedRatePair,
+		msg.RefusedTurns, msg.RefusedDeadline, msg.RefusedBudget, msg.RefusedLoop, msg.RefusedRateSender, msg.RefusedRateMachine, msg.RefusedRatePair,
 		msg.RefusedRateRetract, msg.RefusedUnknown, msg.RefusedNotSender, msg.RefusedReservedID, msg.RefusedNotice,
 		msg.RefusedBadRequest, msg.RefusedTooLarge, msg.RefusedGone, msg.RefusedRecovering, msg.RefusedShareFull, msg.RefusedConflict,
 		msg.RefusedShareMissing, "from-a-future-release"} {
