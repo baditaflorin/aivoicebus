@@ -50,9 +50,12 @@ func Thread(w io.Writer, all, ms []msg.Message, maxBody int) {
 	}
 	if maxBody > 0 {
 		Brief(w, ms, maxBody)
-		return
+	} else {
+		Messages(w, ms)
 	}
-	Messages(w, ms)
+	if len(all) > 0 { // what the conversation has cost so far, for both sides alike
+		fmt.Fprintf(w, "[aivoicebus] Thread size so far: %s\n", SizeLine(msg.SizeOf(all)))
+	}
 }
 
 // Subject is what a thread is about: the first line of its opening message, as a reader is shown

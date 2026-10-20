@@ -30,14 +30,18 @@ type resultView struct {
 	// State is the conversation's state (msg/state.go) when the wait ended; absent when nobody
 	// offered or took anything in it.
 	State *msg.StateView `json:"state,omitempty"`
+	// Size is what the conversation has cost so far (msg.SizeOf); absent when the nodes did not say.
+	Size *msg.ThreadSize `json:"size,omitempty"`
 }
 
-// withState adds the thread's conversation state to r, when it has one and the nodes say.
+// withState adds the thread's conversation state and size to r, when the nodes say.
 func withState(c *client.Client, r resultView) resultView {
-	if ms, err := c.Thread(r.Thread); err == nil {
+	if ms, err := c.Thread(r.Thread); err == nil && len(ms) > 0 {
 		if v := msg.ThreadState(ms); v.State != "" {
 			r.State = &v
 		}
+		z := msg.SizeOf(ms)
+		r.Size = &z
 	}
 	return r
 }

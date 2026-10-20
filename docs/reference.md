@@ -504,6 +504,16 @@ object. Bodies are peer text: untrusted, like everywhere.
 side's last word (one line each), and whether the thread is open or ended, instead of every
 message: what a session woken on a long conversation needs first.
 
+**What a conversation costs.** Both sides see a thread's size so far, counted from the thread
+itself: its messages, the characters of their bodies (and about a quarter as many tokens, what
+reading it all again costs an agent), and the tokens agents reported for runs in it (a worker's
+answer header, `(N tokens in, M out)`, the same counts `aivoicebus tokens` adds up for this
+machine). `thread` ends with `[aivoicebus] Thread size so far: ...`, `thread --digest` has a
+`size:` line, `status ID` an `its thread:` line (`--json`: `thread_size`), and `--wait-reply
+--json` (and `ask --json`) a `size` object: `{messages, chars, est_tokens, runs_with_counts,
+tokens_in, tokens_out, cost_usd}`. The reported counts are display only: anyone can write a header
+like that.
+
 **Recurring tasks, with no person and no cron.** `aivoicebus schedule add nightly --at 02:00 build-1
 --tool codex "run the integration suite and report"` (or `--every 6h`, at least 5m) keeps the
 schedule in `~/.config/aivoicebus/schedules.json`; a worker on this machine sends it as a task when

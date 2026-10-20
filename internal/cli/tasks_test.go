@@ -179,8 +179,17 @@ func TestStatusSaysWhoReadItAndWhoTookIt(t *testing.T) {
 	run(t, "", "reply", "--re", id, "disk is fine")
 	t.Setenv("AIVOICEBUS_ME", boss)
 	_, st, _ := run(t, "", "status", id)
-	if !strings.Contains(st, "read by 1") || !strings.Contains(st, sb) || !strings.Contains(st, "taken by "+sb) || !strings.Contains(st, "repl") {
+	if !strings.Contains(st, "read by 1") || !strings.Contains(st, sb) || !strings.Contains(st, "taken by "+sb) || !strings.Contains(st, "repl") ||
+		!strings.Contains(st, "its thread: 3 message(s), ") {
 		t.Fatalf("status after the claim:\n%s", st)
+	}
+	_, js, _ := run(t, "", "status", "--json", id)
+	var rv struct {
+		ID   string          `json:"id"`
+		Size *msg.ThreadSize `json:"thread_size"`
+	}
+	if err := json.Unmarshal([]byte(js), &rv); err != nil || rv.ID != id || rv.Size == nil || rv.Size.Messages != 3 {
+		t.Errorf("status --json: %v %s", err, js)
 	}
 	if code, _, _ := run(t, "", "status", "0000000000"); code != exitNotFound {
 		t.Errorf("unknown id: %d", code)

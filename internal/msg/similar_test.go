@@ -29,3 +29,19 @@ func TestSimilarity(t *testing.T) {
 		t.Error("only the first few kilobytes of a body are read")
 	}
 }
+
+func TestSizeOf(t *testing.T) {
+	ms := []Message{
+		{ID: "a000000001", From: "lap/claude.a1", Body: "can you run it?"},
+		{ID: "a000000002", From: "box/worker", Body: "[worker on box] exit 0 after 12s (14212 tokens in (9984 cached), 5 out, $0.0123).\n42"},
+		{ID: "a000000002", From: "box/worker", Body: "[worker on box] exit 0 after 12s (14212 tokens in (9984 cached), 5 out, $0.0123).\n42"},
+		{ID: "a000000003", From: "box/codex.b2", Body: "[worker on box] exit 0 after 1s (999 tokens in, 1 out).\nnot a worker"},
+		{ID: "a000000004", From: "box/worker", Body: "[worker on box] exit 1 after 3s.\nno counts"},
+		{ID: "a000000005", From: "box/worker", Body: "[worker on box] exit 0 after 2s (100 tokens in, 20 out).\nmore"},
+	}
+	z := SizeOf(ms)
+	want := 15 + 84 + 68 + 42 + 61
+	if z.Messages != 5 || z.Chars != want || z.EstTokens != want/CharsPerToken || z.Runs != 2 || z.TokensIn != 14312 || z.TokensOut != 25 || z.CostUSD != 0.0123 {
+		t.Errorf("%+v (want %d chars)", z, want)
+	}
+}

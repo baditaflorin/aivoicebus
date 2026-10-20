@@ -147,6 +147,9 @@ var statusTool = tool{
 		}
 		var b strings.Builder
 		view.Receipts(&b, r)
+		if ms, err := c.Thread(a.ID); err == nil && len(ms) > 0 {
+			fmt.Fprintln(&b, "  its thread: "+view.SizeLine(msg.SizeOf(ms)))
+		}
 		return b.String(), nil
 	},
 }
