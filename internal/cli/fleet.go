@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -37,12 +39,14 @@ func fleetCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
+	caps := fleetCaps(time.Duration(*days) * 24 * time.Hour)
 	if *asJSON {
 		return writeJSON(s.Out, struct {
-			Target   string          `json:"nodes_release"`
-			Nodes    []reportNode    `json:"nodes"`
-			Machines []reportMachine `json:"machines"`
-		}{target, v.Nodes, v.Machines})
+			Target   string              `json:"nodes_release"`
+			Nodes    []reportNode        `json:"nodes"`
+			Machines []reportMachine     `json:"machines"`
+			Caps     map[string][]string `json:"caps"` // per machine, what its sessions can do (task --needs)
+		}{target, v.Nodes, v.Machines, caps})
 	}
 	fmt.Fprintf(s.Out, "machines heard from in the last %dd; the nodes run %s:\n", *days, orDash(target))
 	tw := tabwriter.NewWriter(s.Out, 0, 4, 2, ' ', 0)
@@ -59,6 +63,12 @@ func fleetCmd(args []string, s Streams) error {
 	for _, n := range v.Nodes {
 		if n.Error != "" {
 			fmt.Fprintf(s.Out, "  node %s: %s\n", view.OneLine(n.URL, 80), view.OneLine(n.Error, 160))
+		}
+	}
+	if len(caps) > 0 {
+		fmt.Fprintf(s.Out, "what their sessions can do (from their labels; task --needs picks by it):\n")
+		for _, h := range slices.Sorted(maps.Keys(caps)) {
+			fmt.Fprintf(s.Out, "  %s: %s\n", view.Name(h, msg.MaxIdentity), view.Name(strings.Join(caps[h], " "), 400))
 		}
 	}
 	if behind > 0 {
@@ -88,6 +98,46 @@ func fleetView(days int) (tokenReportView, string, error) {
 		}
 	}
 	return v, target, nil
+}
+
+// fleetCaps is, per machine, every capability (msg.CapsOf) of the sessions seen there within span:
+// the declared words first, then the repositories, branches, tools, models and roles, each once.
+// Nothing when the roster cannot be read: the table above does not depend on it.
+func fleetCaps(span time.Duration) map[string][]string {
+	c, err := sessionClient()
+	if err != nil {
+		return nil
+	}
+	roster, err := c.Roster()
+	if err != nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, e := range view.SanitiseRoster(roster) {
+		if time.Since(e.Seen) > span {
+			continue
+		}
+		h := msg.HostOf(e.Me)
+		for _, c := range msg.CapsOf(e.Me, e.Labels) {
+			if !slices.Contains(out[h], c) {
+				out[h] = append(out[h], c)
+			}
+		}
+	}
+	for h := range out {
+		slices.SortStableFunc(out[h], func(a, b string) int { // words first, then kinds in NeedKeys order
+			return capRank(a) - capRank(b)
+		})
+	}
+	return out
+}
+
+func capRank(c string) int {
+	k, _, ok := strings.Cut(c, ":")
+	if !ok {
+		return -1
+	}
+	return slices.Index(msg.NeedKeys, k)
 }
 
 // fleetRelease is the release column and, for a machine that may be behind, why.

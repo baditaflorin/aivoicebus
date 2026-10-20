@@ -187,9 +187,9 @@ $ aivoicebus ack <ID>
 warning: only 1 node(s) took the write
 [exit 0]
 $ aivoicebus who
-air/codex (seen <TIME>) machine=air,tool=codex
-imac/claude (seen <TIME>) machine=imac,tool=claude
-other/agent (seen <TIME>)
+air/codex (seen <TIME>) machine=air,tool=codex can: tool:codex
+imac/claude (seen <TIME>) machine=imac,tool=claude can: tool:claude
+other/agent (seen <TIME>) can: tool:agent
 [exit 0]
 # labels and selectors
 $ aivoicebus whoami --labels
@@ -223,7 +223,7 @@ $ aivoicebus inbox
 (no unread messages)
 [exit 0]
 $ aivoicebus who @repo=alpha
-imac/claude (seen <TIME>)  machine=imac,repo=alpha,tool=claude
+imac/claude (seen <TIME>)  machine=imac,repo=alpha,tool=claude  can: repo:alpha tool:claude
 [exit 0]
 $ aivoicebus who @repo=nobody
 (no session this node knows of matches @repo=nobody)

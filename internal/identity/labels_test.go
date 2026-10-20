@@ -133,3 +133,24 @@ func TestAFullLabelSetWarnsOnceThatCapsAreNotAdvertised(t *testing.T) {
 		t.Errorf("no warning when caps fit: %q", warn.String())
 	}
 }
+
+func TestAGPUIsAddedToTheCapsAndKeepsWhatWasDeclared(t *testing.T) {
+	fakeGit(t, "", "")
+	old := gpuCaps
+	t.Cleanup(func() { gpuCaps = old })
+	gpuCaps = func() string { return "gpu cuda" }
+	t.Setenv("AIVOICEBUS_LABELS", "")
+	t.Setenv("AIVOICEBUS_ME", "")
+	t.Setenv("AIVOICEBUS_CAPS", "run")
+	if got := Labels("/anywhere")["caps"]; got != "cuda+gpu+run" {
+		t.Errorf("declared and detected together: %q", got)
+	}
+	t.Setenv("AIVOICEBUS_CAPS", "")
+	t.Setenv("AIVOICEBUS_LABELS", "caps=prod")
+	if got := Labels("/anywhere")["caps"]; got != "cuda+gpu+prod" {
+		t.Errorf("a pinned caps label stands, with the GPU added: %q", got)
+	}
+	if got := labelsFor(t, "")["caps"]; got != "" {
+		t.Errorf("an overridden identity says nothing about this machine's GPU: %q", got)
+	}
+}

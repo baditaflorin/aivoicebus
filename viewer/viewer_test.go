@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,9 @@ func TestSessionCardsComeFromTheRosterAndTheMessages(t *testing.T) {
 	a := by["laptop-a/claude.a1b2"]
 	if a.Title != "Fix the login" || a.Tool != "claude" || a.Machine != "laptop-a-m1-mbp" || a.Repo != "dash" || a.Branch != "fix/login" || a.Sent != 1 || a.Received != 1 || a.Threads != 1 {
 		t.Errorf("%+v", a)
+	}
+	if want := []string{"repo:dash", "branch:fix/login", "tool:claude", "model:claude-opus-5-5"}; !slices.Equal(a.Caps, want) {
+		t.Errorf("caps %v, want %v", a.Caps, want)
 	}
 	if a.Model != "claude-opus-5-5" || by["build/codex.q1w2"].Model != "gpt-5.1-codex" {
 		t.Errorf("models from the label, else the latest message: %q %q", a.Model, by["build/codex.q1w2"].Model)

@@ -812,6 +812,9 @@ func who(args []string, s Streams) error {
 		if l := labels.String(); l != "" {
 			line += "  " + view.Name(l, 300)
 		}
+		if caps := msg.CapsOf(me, labels); len(caps) > 0 { // what task/ask --needs matches
+			line += "  can: " + view.Name(strings.Join(caps, " "), 300)
+		}
 		fmt.Fprintln(s.Out, line)
 	}
 
@@ -841,10 +844,18 @@ func who(args []string, s Streams) error {
 
 	switch {
 	case *asJSON:
+		type withCaps struct {
+			msg.RosterEntry
+			Caps []string `json:"caps"` // what task/ask --needs matches (msg.CapsOf)
+		}
+		out := []withCaps{}
+		for _, e := range view.SanitiseRoster(rows) {
+			out = append(out, withCaps{e, append([]string{}, msg.CapsOf(e.Me, e.Labels)...)})
+		}
 		return writeJSON(s.Out, struct {
-			Sessions []msg.RosterEntry `json:"sessions"`
-			Hidden   int               `json:"hidden"` // seen, but not within --within
-		}{view.SanitiseRoster(rows), hidden})
+			Sessions []withCaps `json:"sessions"`
+			Hidden   int        `json:"hidden"` // seen, but not within --within
+		}{out, hidden})
 	case *tools:
 		printToolGroups(s.Out, rows)
 	}

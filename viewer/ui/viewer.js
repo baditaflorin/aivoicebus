@@ -6,7 +6,7 @@
 
 /**
  * @typedef {{me: string, title?: string, tool: string, model?: string, machine: string, repo?: string, branch?: string,
- *   last_seen: string, sent: number, received: number, threads: number, hidden?: string}} Session
+ *   caps?: string[], last_seen: string, sent: number, received: number, threads: number, hidden?: string}} Session
  * @typedef {{me: string, title?: string}} Participant
  * @typedef {{thread: string, subject?: string, participants: Participant[], audience?: string[],
  *   messages: number, first: string, last: string, last_from: string, withdrawn?: number,
@@ -103,6 +103,13 @@ function card(s) {
   if (s.model) chips.appendChild(el("span", "chip model", s.model));
   if (s.machine) chips.appendChild(el("span", "chip", s.machine));
   if (s.repo) chips.appendChild(el("span", "chip repo", s.branch ? s.repo + " @ " + s.branch : s.repo));
+  // What task --needs matches: the declared words and roles get a chip (repo, branch, tool and model
+  // have theirs above); the whole list is the chips' tooltip.
+  const caps = s.caps || [];
+  for (const c of caps) {
+    if (!c.includes(":") || c.startsWith("role:")) chips.appendChild(el("span", "chip cap", c));
+  }
+  if (caps.length) chips.title = "can: " + caps.join(" ");
   b.appendChild(chips);
   b.appendChild(el("div", "meta", "seen " + ago(s.last_seen) + " · sent " + s.sent + " · received " + s.received + " · " + s.threads + " conversation(s)"));
   b.addEventListener("click", () => {
