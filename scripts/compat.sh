@@ -63,6 +63,7 @@ feature_since() {
     share) echo 0.12.0 ;;     # /v1/share/...: a thread's shared space (versions of sealed files, notes)
     loopkey) echo 0.10.0 ;;   # the loop check (a third message alike, numbers aside) and the pair brake (8, then 24 replies in 2 minutes)
     brakes) echo 0.12.0 ;;    # repeats judged by similarity: new replies pass the pair brake to 48, numbers are words, rewordings are repeats
+    signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -431,6 +432,26 @@ ver=$(py 'import json,os,sys; print(json.dumps({"thread":sys.argv[1],"ver":{"id"
 check "$(post "${PORT[0]}" /v1/share/put "$ver")" 200 "new takes a version of it"
 check "$(py 'import json,sys; print(json.load(open(sys.argv[1]))["ver"]["num"])' "$W/last.out")" 1 "  numbered 1"
 check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" '{"data":"cGxhaW4gdGV4dCBwbGFpbiB0ZXh0IHBsYWluIHRleHQ="}')" 400 "new refuses a plaintext chunk"
+# The CLI: through this tree's node it shares and reads back; through an older node it says the
+# node holds no shared spaces and points at --via pipe, and stores nothing.
+cli 0 "$NEW" h0/compat.sh1 send --to h9/compat.sh9 "share root MARK-SH-root" >"$W/sh.out" 2>/dev/null
+SR=$(awk '$1=="sent"{print $2; exit}' "$W/sh.out")
+printf 'shared text MARK-SH-text\n' >"$W/sh.txt"
+# Who is in a thread is read from signed messages: with a node from before signing in the mesh no
+# client signs, so the CLI refuses and says why.
+allsign=1; for k in "${!NAME[@]}"; do has "$k" signing || allsign=; done
+out=$(cli 0 "$NEW" h0/compat.sh1 share put "$SR" "$W/sh.txt" 2>&1); rc=$?
+if [ -n "$allsign" ]; then
+  check "$rc" 0 "new CLI shares a file through new"
+  check "$(cli 0 "$NEW" h0/compat.sh1 share get "$SR" sh.txt 2>/dev/null)" "shared text MARK-SH-text" "new CLI reads it back through new"
+else
+  check "$rc $(grep -c 'first message is not signed' <<<"$out")" "1 1" "new CLI refuses to share in an unsigned thread (a node before 0.7.0 is in the mesh), saying why"
+fi
+converge
+for ((i = 1; i < N; i++)); do
+  out=$(cli "$i" "$NEW" h0/compat.sh1 share ls "$SR" 2>&1); rc=$?
+  check "$rc $(grep -c 'holds no shared spaces' <<<"$out") $(grep -c -- '--via pipe' <<<"$out")" "1 1 1" "new CLI through ${NAME[$i]} (${VER[$i]}) says it holds no shared spaces, and what to do"
+done
 check_converged "message logs stay equal on all $N nodes"
 check_quarantined 1 "quarantined nothing more"
 scenario "the brakes tell a loop from progress"

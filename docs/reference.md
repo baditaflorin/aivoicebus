@@ -1000,7 +1000,10 @@ aivoicebus share add 4f2a9c1e0b laptop-c                # let one more machine i
 aivoicebus share put 4f2a9c1e0b big.tgz --via pipe      # a one-off hand-off instead: a reply carrying a one-time pipe link
 ```
 
-`ID` is any message of the thread.
+`ID` is any message of the thread. The MCP server has the same as `aivoicebus_share_put` (text or a
+file's path), `aivoicebus_share_get` (short text inline, anything else saved under
+`~/.local/share/aivoicebus/received/share-<thread>/`), `aivoicebus_share_ls` and `aivoicebus_share_notes`
+(read, or write with `base`).
 
 - **Versions.** Every put is a new version; older ones stay readable until the space goes. Notes
   are one text with versions, and a write names the version it edits (`--base N`, 0 for the first
@@ -1015,7 +1018,10 @@ aivoicebus share put 4f2a9c1e0b big.tgz --via pipe      # a one-off hand-off ins
   key is sealed (X25519, HKDF-SHA256, AES-256-GCM, its own label, bound to the thread and the
   machine); a participant's next `share` command seals it for a machine that joined since. A key
   record counts only when a participant's machine key signed it, so a machine outside the thread
-  can fetch ciphertext (any token holder can) but never a key, and cannot slip one in.
+  can fetch ciphertext (any token holder can) but never a key, and cannot slip one in. A
+  participant that has not written in the thread yet is known by the first key record it signs,
+  which is then pinned (trust on first use, as a machine's first signed message is); a machine
+  whose key nobody here knows yet is told to reply in the thread first.
 - **What a node holds.** Sealed chunks (AES-256-GCM per chunk, bound to the thread, the version, its
   place and the chunk count), sealed metadata (name, size, sha256, kind) and an opaque name id: never
   a name, a key or a byte of plaintext. It refuses a chunk that is not sealed. Nodes replicate the

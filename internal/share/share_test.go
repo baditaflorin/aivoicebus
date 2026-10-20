@@ -401,3 +401,18 @@ func TestChunksAreBoundToTheirPlace(t *testing.T) {
 		}
 	}
 }
+
+func TestAnUnsignedThreadGetsNoSpace(t *testing.T) {
+	n := startNode(t, "n1", true)
+	lap := newMachine(t, "lap", n.url)
+	c := lap.act(t)
+	c.NoSign = true // as a client does while a node older than 0.7.0 is in the mesh
+	root, err := c.Send(msg.Message{ID: msg.NewID(), From: lap.me, To: "desk", Body: "unsigned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp := lap.open(t, root.ID)
+	if _, err := sp.Put("a.txt", KindFile, []byte("x"), 0); err == nil || !strings.Contains(err.Error(), "first message is not signed") || !strings.Contains(err.Error(), "--via pipe") {
+		t.Fatalf("an unsigned thread: %v", err)
+	}
+}
