@@ -516,6 +516,15 @@ object. Bodies are peer text: untrusted, like everywhere.
 side's last word (one line each), and whether the thread is open or ended, instead of every
 message: what a session woken on a long conversation needs first.
 
+**Close a conversation that went quiet.** `aivoicebus thread ID --close-stale [--stale-after 30m]`
+ends a conversation nobody has written in for `--stale-after` (default 30 minutes, at least 1m) that
+is not ended and not in a final state (done, declined): it writes an `[end]`, answering the last
+message, whose body says why ("[closed as stale] no message in this conversation for 47m") and sums
+the thread up: its size, its state, and each side's last word, quoted and cut to a line. Only the
+conversation's sender, or the user in their own terminal, may do it; any other agent is refused and
+told to ask one of them. Nothing closes a conversation on its own. A conversation that is ended, done
+or declined, or not quiet long enough, is left alone with a message that says so and what to do.
+
 **What a conversation costs.** Both sides see a thread's size so far, counted from the thread
 itself: its messages, the characters of their bodies (and about a quarter as many tokens, what
 reading it all again costs an agent), and the tokens agents reported for runs in it (a worker's

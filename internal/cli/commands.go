@@ -631,15 +631,26 @@ func thread(args []string, s Streams) error {
 	fs := newFlagSet("thread")
 	asJSON := fs.Bool("json", false, "print the messages as a JSON array")
 	digest := fs.Bool("digest", false, "the thread in a few lines: who took part, the task's state, each side's last word, open or ended")
+	stale := fs.Bool("close-stale", false, "end a conversation nobody has written in for --stale-after, with a summary (only its sender or the user; never done on its own)")
+	staleAfter := fs.Duration("stale-after", 30*time.Minute, "with --close-stale: how long without a message makes a conversation stale")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	rest := takeJSON(fs.Args(), asJSON)
-	if len(rest) == 2 && rest[1] == "--digest" { // the flag after the id
-		rest, *digest = rest[:1], true
+	if len(rest) > 1 { // flags after the id: thread ID --digest, thread ID --close-stale
+		if err := parseFlags(fs, rest[1:], s); err != nil {
+			return err
+		}
+		rest = append([]string{rest[0]}, takeJSON(fs.Args(), asJSON)...)
 	}
 	if len(rest) != 1 {
-		return outbox.Usagef("usage: thread <id> [--json | --digest]")
+		return outbox.Usagef("usage: thread <id> [--json | --digest | --close-stale [--stale-after 30m]]")
+	}
+	if *stale && (*asJSON || *digest) {
+		return outbox.Usagef("--close-stale writes an [end]; it does not combine with --json or --digest: run it again with one of them")
+	}
+	if *staleAfter < time.Minute {
+		return outbox.Usagef("--stale-after is at least 1m: run it again with a longer span")
 	}
 	c, err := client.FromEnv()
 	if err != nil {
@@ -657,6 +668,9 @@ func thread(args []string, s Streams) error {
 	}
 	if len(ms) == 0 {
 		return outbox.NotFoundf("no thread with message %s on the nodes (a typo, or it has not reached them yet): try again in a minute, or check the id with `aivoicebus inbox --all`", id)
+	}
+	if *stale {
+		return closeStale(c, ms, *staleAfter, s)
 	}
 	if *asJSON {
 		return writeMessages(s.Out, ms, false)
