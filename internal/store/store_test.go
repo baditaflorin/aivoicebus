@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -542,7 +543,8 @@ func TestQuarantinePlaceholderIsWhatTheFeedVectorsSay(t *testing.T) {
 	}
 }
 
-// Two sessions replying to each other fast is stopped at pairLimit; the counts survive a restart.
+// Two sessions replying to each other fast is stopped at pairFreshLimit even when each reply is new;
+// the counts survive a restart.
 func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir, "n1")
@@ -553,7 +555,7 @@ func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
 	first, _ := s.Send(msg.Message{From: a, To: b, Body: "ping 0"})
 	var err2 error
 	n := 0
-	for i := 1; i <= 3*pairLimit && err2 == nil; i++ {
+	for i := 1; i <= 3*pairFreshLimit && err2 == nil; i++ {
 		from, to := a, b
 		if i%2 == 1 {
 			from, to = b, a
@@ -564,7 +566,7 @@ func TestAFastReplyLoopIsStoppedAndRemembered(t *testing.T) {
 		}
 	}
 	var rl *RateLimitError
-	if !errors.As(err2, &rl) || rl.Scope != "pair" || n != pairLimit {
+	if !errors.As(err2, &rl) || rl.Scope != "pair" || rl.Repeat != 0 || n != pairFreshLimit {
 		t.Fatalf("after %d replies: %v", n, err2)
 	}
 	if _, err := s.Send(msg.Message{From: a, To: b, Re: first.ID, Kind: msg.KindEnd, Body: "stopping here"}); err != nil {
@@ -596,7 +598,7 @@ func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
 	sync()
 	var err error
 	n := 0
-	for i := 1; i <= 3*pairLimit; i++ {
+	for i := 1; i <= 3*pairFreshLimit; i++ {
 		if i%2 == 1 {
 			_, err = nb.Send(msg.Message{From: b, To: a, Re: first.ID, Body: strings.Repeat("y", i)}) // b writes through node b
 		} else {
@@ -609,7 +611,7 @@ func TestAReplyLoopAcrossTwoNodesIsStopped(t *testing.T) {
 		sync()
 	}
 	var rl *RateLimitError
-	if !errors.As(err, &rl) || rl.Scope != "pair" || n > pairLimit {
+	if !errors.As(err, &rl) || rl.Scope != "pair" || n > pairFreshLimit {
 		t.Fatalf("after %d replies across two nodes: %v", n, err)
 	}
 }
@@ -632,12 +634,12 @@ func TestAMessageWrittenToTwoNodesCountsOnceForTheBrake(t *testing.T) {
 	words := strings.Fields("apple river canyon violet harbor meadow lantern orbit cedar falcon glacier pepper " +
 		"walnut copper tundra saffron marble willow cobalt ember thistle quartz basil coral hazel maple")
 	n := 0
-	for i := 0; i < pairLimit+2; i++ {
+	for i := 0; i < pairFreshLimit+2; i++ {
 		from, to := a, b
 		if i%2 == 1 {
 			from, to = b, a
 		}
-		m := msg.Message{ID: msg.NewID(), From: from, To: to, Re: first.ID, Body: words[i]}
+		m := msg.Message{ID: msg.NewID(), From: from, To: to, Re: first.ID, Body: fmt.Sprintf("%s %d", words[i%len(words)], i)}
 		_, err1 := na.Send(m) // the client writes it to both nodes...
 		_, err2 := nb.Send(m)
 		sync() // ...and each node then gets the other's copy too
@@ -650,8 +652,8 @@ func TestAMessageWrittenToTwoNodesCountsOnceForTheBrake(t *testing.T) {
 		}
 		n++
 	}
-	if n != pairLimit {
-		t.Errorf("the brake held after %d messages, want %d: a message written to two nodes counted twice", n, pairLimit)
+	if n != pairFreshLimit {
+		t.Errorf("the brake held after %d messages, want %d: a message written to two nodes counted twice", n, pairFreshLimit)
 	}
 }
 
@@ -676,27 +678,194 @@ func TestADeadlineClosesAThread(t *testing.T) {
 	}
 }
 
-// The same thing said a third time in a thread, numbers and wording aside, is refused as a loop.
+// The same thing said a third time in a thread, case and punctuation aside, is refused as a loop,
+// and so is a long message sent again with one number changed; counting is new each time, and
+// progress heartbeats are left alone.
 func TestASlowRepeatingLoopIsRefused(t *testing.T) {
 	s, err := Open(t.TempDir(), "n1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, _ := s.Send(msg.Message{From: "lap/claude.a1", To: "box/codex.b2", Body: "count with me: 1"})
-	var errs []error
+	a, b := "lap/claude.a1", "box/codex.b2"
+	root, _ := s.Send(msg.Message{From: a, To: b, Body: "count with me: 1"})
 	for i := 2; i <= 6; i++ {
-		_, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Body: fmt.Sprintf("%d!", i*10)})
+		if _, err := s.Send(msg.Message{From: b, To: a, Re: root.ID, Body: fmt.Sprintf("%d!", i*10)}); err != nil {
+			t.Fatalf("counting says a new number each time: %v", err)
+		}
+	}
+	var errs []error
+	for _, body := range []string{"Thanks!", "thanks", "THANKS!!!"} {
+		_, err := s.Send(msg.Message{From: b, To: a, Re: root.ID, Body: body})
+		errs = append(errs, err)
+	}
+	if errs[0] != nil || errs[1] != nil || !errors.Is(errs[2], ErrTurnLimit) || !strings.Contains(errs[2].Error(), "looks like a loop") {
+		t.Fatalf("%v", errs)
+	}
+	if _, err := s.Send(msg.Message{From: b, To: a, Re: root.ID, Body: "something new to say"}); err != nil {
+		t.Errorf("a new thing is not a loop: %v", err)
+	}
+	report := "the nightly build of the store package ran %d tests on the linux runner, all of them passed, and the coverage report is attached as usual"
+	errs = nil
+	for _, n := range []int{311, 312, 313} {
+		_, err := s.Send(msg.Message{From: a, To: b, Re: root.ID, Body: fmt.Sprintf(report, n)})
 		errs = append(errs, err)
 	}
 	if errs[0] != nil || errs[1] != nil || !errors.Is(errs[2], ErrTurnLimit) {
-		t.Fatalf("%v", errs)
-	}
-	if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Body: "something new to say"}); err != nil {
-		t.Errorf("a new thing is not a loop: %v", err)
+		t.Fatalf("the same report with one number changed: %v", errs)
 	}
 	for i := 0; i < 4; i++ {
-		if _, err := s.Send(msg.Message{From: "box/codex.b2", To: "lap/claude.a1", Re: root.ID, Kind: msg.KindProgress, Body: fmt.Sprintf("still running, %ds in", i)}); err != nil {
+		if _, err := s.Send(msg.Message{From: b, To: a, Re: root.ID, Kind: msg.KindProgress, Body: fmt.Sprintf("still running, %ds in", i)}); err != nil {
 			t.Fatalf("progress heartbeats are not a loop: %v", err)
 		}
+	}
+}
+
+// A productive conversation, where every reply says something new, goes on past the 24 replies in
+// two minutes that stop a repetitive one: 40 messages in 4 minutes, 30 of them in the first two.
+func TestAProductiveConversationIsNotRefused(t *testing.T) {
+	s, _ := Open(t.TempDir(), "n1")
+	now := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	s.SetClock(func() time.Time { return now })
+	a, b := "lap/claude.a1", "box/codex.b2"
+	root, err := s.Send(msg.Message{From: a, To: b, Kind: msg.KindTask, Body: productive[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peak := 0
+	for i, body := range productive[1:] {
+		if i < 29 {
+			now = now.Add(4 * time.Second)
+		} else {
+			now = now.Add(12 * time.Second)
+		}
+		from, to := b, a
+		if i%2 == 1 {
+			from, to = a, b
+		}
+		if _, err := s.Send(msg.Message{From: from, To: to, Re: root.ID, Body: body}); err != nil {
+			t.Fatalf("message %d of %d (%q) refused at %s: %v", i+2, len(productive), body, now.Format("15:04:05"), err)
+		}
+		peak = max(peak, recent(s.pairSends[a+"\x00"+b], pairWindow, now)+recent(s.pairSends[b+"\x00"+a], pairWindow, now))
+	}
+	if len(productive) != 40 || now.Sub(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)) > 4*time.Minute {
+		t.Errorf("the conversation is %d messages over %s, want 40 in 4 minutes", len(productive), now.Sub(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)))
+	}
+	if peak < pairLimit {
+		t.Errorf("at most %d replies within %s: the test never reached the old limit of %d", peak, pairWindow, pairLimit)
+	}
+}
+
+// productive is a handoff between two agents in which every message adds something.
+var productive = []string{
+	"Can you take over the flaky replication test in internal/store? It fails about one run in twenty on the build host.",
+	"Taking it. Which test name, and do you have a failing log?",
+	"TestAReplyLoopAcrossTwoNodesIsStopped. Log is in /tmp/avb-gate-x/out.txt, line 4120 onwards.",
+	"Got the log. The second node merges before the first one has flushed its pair counts.",
+	"That matches what I saw. Is it the clock or the order of the sync calls?",
+	"Order. sync() pulls b into a before a into b, so the very first reply is counted on one side only.",
+	"Would swapping the two Merge calls be enough, or does it just move the race?",
+	"Swapping only moves it. I would make notePairLocked idempotent per message id instead.",
+	"Agreed. There is already a held map in Merge you could reuse for that.",
+	"Right, held tells whether the id was applied before. I will key the count on it.",
+	"While you are in there: ratelimits.json is written on every send, which is slow on tmpfs.",
+	"flushLimitsLocked already batches with limitsDirty; I measured 40 microseconds per write here.",
+	"Fine then, ignore that. What about the restart path, does it reload the pair map?",
+	"Yes, keep() trims entries older than the window when it loads the file.",
+	"Good. Push a branch when the test is green fifty times in a row under -race.",
+	"Running it now with -count=50 -race on two cores.",
+	"Meanwhile I am updating the reference docs for the brake numbers.",
+	"Fifty out of fifty green. Branch is fix-pair-count, one commit, eleven lines changed.",
+	"Reading the diff. Why did you drop the comment about clocks running ahead?",
+	"It described the old behaviour; maxClockAhead still guards that and has its own comment.",
+	"Makes sense. Can you add a regression test that replays the exact interleaving from the log?",
+	"Added TestThePairCountSurvivesAnEarlyMerge; it failed before the fix and passes after.",
+	"The vet step complains about a shadowed err in that new test.",
+	"Fixed, renamed it to mergeErr and amended the commit.",
+	"Lint is clean. I am kicking off the full gate on the build host.",
+	"I will watch the compat run against the eleven old releases in parallel.",
+	"Compat says 0.10.0 refuses state messages, which is expected and documented.",
+	"Yes, that line has been in the summary since states landed.",
+	"Gate finished: exit code zero, lab count 358 of 358.",
+	"Great. I will open the pull request and link the failing log in its description.",
+	"PR is up as number 81. Do you want me to request a review from the person?",
+	"No need, they merge after a clean gate. Add the live test transcript instead.",
+	"Live test done against two throwaway nodes on loopback, transcript attached to the PR.",
+	"Merged. Can you delete the gate directory on the host so tmpfs does not fill up?",
+	"Removed /tmp/avb-gate-fix-pair-count; the host has 5.4 gigabytes free again.",
+	"Thanks. Next on my list is the digest output for long threads, want to pair on it?",
+	"Sure, but after lunch; I need to read how thread --digest groups replies first.",
+	"No rush. I left notes in the shared folder about where the digest is built.",
+	"Found them, cli/thread.go builds it from the folded state plus the last message per side.",
+	"Perfect. Ending this one here; talk after lunch about the digest.",
+}
+
+// A conversation that repeats itself in other words is refused within six messages, by the loop
+// check, long before any rate limit.
+func TestARepetitiveConversationIsRefusedWithinSixMessages(t *testing.T) {
+	s, _ := Open(t.TempDir(), "n1")
+	a, b := "lap/claude.a1", "box/codex.b2"
+	said := []struct{ from, to, body string }{
+		{a, b, "Thanks! Let me know if you need anything else."},
+		{b, a, "You're welcome! Let me know if there is anything else you need."},
+		{a, b, "Thanks again! Let me know if you need anything else at all."},
+		{b, a, "You're very welcome! Let me know if there is anything else you need."},
+		{a, b, "Thanks! Do let me know if you need anything else."},
+		{b, a, "You are welcome! Let me know if there's anything else you need."},
+		{a, b, "Thanks so much! Let me know if you need anything else."},
+	}
+	root, _ := s.Send(msg.Message{From: b, To: a, Body: "Here is the summary you asked for."})
+	refused := 0
+	for i, m := range said {
+		if _, err := s.Send(msg.Message{From: m.from, To: m.to, Re: root.ID, Body: m.body}); err != nil {
+			if !errors.Is(err, ErrTurnLimit) || !strings.Contains(err.Error(), "looks like a loop") {
+				t.Fatalf("message %d refused for another reason: %v", i+1, err)
+			}
+			refused = i + 1
+			break
+		}
+	}
+	if refused == 0 || refused > 6 {
+		t.Fatalf("refused at message %d of the repeating conversation, want within 6", refused)
+	}
+}
+
+// A reply that repeats one before it, in a conversation that otherwise moves on, is stopped by the
+// pair brake at pairLimit; a new reply still goes until pairFreshLimit.
+func TestThePairBrakeStopsARepeatSoonerThanSomethingNew(t *testing.T) {
+	s, _ := Open(t.TempDir(), "n1")
+	a, b := "lap/claude.a1", "box/codex.b2"
+	root, _ := s.Send(msg.Message{From: a, To: b, Body: "start"})
+	rng := rand.New(rand.NewSource(20))
+	fresh := func() string {
+		w := make([]string, 6)
+		for i := range w {
+			b := make([]byte, 6)
+			for j := range b {
+				b[j] = byte('a' + rng.Intn(26))
+			}
+			w[i] = string(b)
+		}
+		return strings.Join(w, " ")
+	}
+	var err error
+	n := 0
+	for i := 0; err == nil && n < pairFreshLimit; i++ {
+		from, to, body := b, a, fresh()
+		switch i % 4 {
+		case 1:
+			from, to = a, b
+		case 3: // a asks the same thing again, every other turn of its own
+			from, to, body = a, b, fmt.Sprintf("please confirm that build %d of the store package is deployed to staging now", i)
+		}
+		if _, err = s.Send(msg.Message{From: from, To: to, Re: root.ID, Body: body}); err == nil {
+			n++
+		}
+	}
+	var rl *RateLimitError
+	if !errors.As(err, &rl) || rl.Scope != "pair" || rl.Repeat < 60 || n < pairLimit-1 || n >= pairFreshLimit || !strings.Contains(err.Error(), "the same words") {
+		t.Fatalf("after %d replies: %v", n, err)
+	}
+	if _, err := s.Send(msg.Message{From: a, To: b, Re: root.ID, Body: fresh()}); err != nil {
+		t.Errorf("something new still goes: %v", err)
 	}
 }

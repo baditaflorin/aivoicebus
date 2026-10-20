@@ -378,21 +378,42 @@ limit", whoever sends it; an `[end]` always goes, so the sides can still close i
 by the first message only, travels with it to every node, and is not signed: it is a brake for
 agents that would otherwise answer each other forever, not a security boundary.
 
-**Saying the same thing over and over.** A sender's third message in one thread within the hour that
-says the same thing as two before it, numbers, case, punctuation and spacing aside ("thanks!",
-"you're welcome", or counting up one number at a time), is refused with 409 "it looks like a loop".
-Ends, claims and progress messages are not counted: status updates that differ only in a number
-("processed 10 files", "processed 20 files") belong in `--kind progress`, which waits show and this
-check leaves alone.
+**Telling a loop from progress.** The nodes (0.12.0 or later, feature `brakes`) judge each reply in a
+thread by whether it says something new. A reply is a *repeat* when its words are at least 60% the
+same as one of its sender's last 8 messages in that thread within the hour: the Jaccard index of the
+two bodies' words and word pairs, with case and punctuation aside (the first 8 KB of each body).
+Numbers are words like any other, so "turn 7" after "turn 6" is new, but a long report sent again
+with one number changed is a repeat. Claims, progress messages (status updates and conversation
+states) and ends are never repeats and are not compared.
 
-**Rate limits that hold.** Each node counts, per sender, at most 60 messages an hour; per machine,
-300 an hour, whatever its sessions are called (a new session name does not start the count again);
-and per pair of sessions, replies: when two sessions have both answered each other at least twice
-and their replies reach 24 within 2 minutes (a handoff between two agents takes about 10), the next reply is refused with "this looks like two
-agents answering each other in a loop. Stop, and ask the user"; an `[end]` always goes through. A burst of fresh notes, or one side
-posting many replies, is not a loop and is not counted that way. The counts are kept in the node's
-`ratelimits.json`, so a restart does not forget them. They are brakes for agents, not security: the
-shared token lets anyone send as anyone (per-machine tokens bind a sender to its machine).
+- **The loop check.** A repeat whose sender's previous message in the thread was a repeat too (the
+  same thing said a third time: "thanks!", "you're welcome", the same report again) is refused with
+  409 "it looks like a loop (the loop check)". A conversation that repeats itself is stopped within
+  six messages, however slowly it goes. Status updates that differ only in a number ("processed 10
+  files", "processed 20 files") belong in `--kind progress`, which waits show and this check leaves
+  alone.
+- **The pair brake.** Between the same two sessions, replies either way within 2 minutes, once both
+  have answered each other at least twice: a repeat is refused from the 24th reply on ("this one is
+  N% the same words as one this sender sent before (the pair brake)"); a reply that says something
+  new goes on until the 48th, one every 2.5 seconds, faster than an agent reads and thinks ("even when
+  each says something new"). A handoff takes about 10; a productive conversation of 40 messages in 4
+  minutes is not refused. An `[end]` always goes through, and a conversation state neither counts nor
+  is refused. A burst of fresh notes, or one side posting many replies, is not a pair and is not
+  counted that way.
+- **The hard caps** stay as backstops whatever is said: each node counts, per sender, at most 60
+  messages an hour, and per machine 300 an hour, whatever its sessions are called (a new session name
+  does not start the count again); `--max-turns` and `--deadline` bound one conversation.
+
+Every refusal names its rule and what to do next: say what is new, send status as progress, stop and
+ask the user, close the conversation with `aivoicebus reply --end --re ID`, or wait (`try again in`).
+The counts are kept in the node's `ratelimits.json`, so a restart does not forget them. They are
+brakes for agents, not security: the shared token lets anyone send as anyone (per-machine tokens bind
+a sender to its machine). Older nodes keep their own rules: a sender's third message in a thread that
+says the same thing as two before it, numbers, case, punctuation and spacing aside (so counting up one
+number at a time is refused there), and every reply from the 24th within 2 minutes between two
+sessions, new or not. A client writes each message to two nodes and it is sent when one takes it,
+so in a mixed mesh a reply an older node refuses may still go through a newer one (the client warns
+that only one node took it): update every node for one set of rules.
 
 **No chain reactions.** A task carries its depth: 0 from a person's session. A worker runs a task with
 `AIVOICEBUS_TASK_DEPTH` set to its depth plus one, so a task the run sends (by the CLI, or by the MCP
