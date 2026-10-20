@@ -264,7 +264,11 @@ for i in 1 2 3 4; do [ "$(code "$LAB/old.token" "$(url $i)/v1/who")" = 401 ] && 
 [ "$(code "$TOKEN_FILE" "$(url 1)/v1/who")" = 200 ] && pass "this machine's token file is now the new token" || fail "local token file not switched"
 M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "sent after the old token was retired" 2>&1); has "sending after retirement works" "^sent " "$M"
 eventually "and replication still works between nodes" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 1)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'after the old token was retired'"
-out=$(AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh 2>&1); [ $? = 0 ] && pass "the mesh is healthy after rotation" || { fail "mesh unhealthy after rotation"; echo "$out"; }
+# A peer link reconnects a moment after the rotation, longer on a loaded host: wait for it, as the
+# replication check above does, and show the table if it never comes.
+healthy() { AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh >/dev/null 2>&1; }
+ok=""; for _ in $(seq 1 80); do healthy && { ok=1; break; }; sleep 0.25; done
+[ -n "$ok" ] && pass "the mesh is healthy after rotation" || { fail "mesh unhealthy after rotation (not within 20s)"; AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh 2>&1; }
 grep -q . "$HOME/.config/aivoicebus/token.nodes" 2>/dev/null && fail "rotation payload left behind" || pass "no rotation leftovers"
 
 section "a machine's own token: bound to that machine and revocable alone"
