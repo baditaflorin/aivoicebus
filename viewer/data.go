@@ -21,8 +21,9 @@ type Session struct {
 	Branch   string    `json:"branch,omitempty"`
 	LastSeen time.Time `json:"last_seen"`
 	Sent     int       `json:"sent"`
-	Received int       `json:"received"` // messages addressed to exactly this session
-	Threads  int       `json:"threads"`  // conversations it took part in
+	Received int       `json:"received"`       // messages addressed to exactly this session
+	Threads  int       `json:"threads"`        // conversations it took part in
+	Caps     []string  `json:"caps,omitempty"` // what task/ask --needs matches (msg.CapsOf)
 
 	modelAt        time.Time // when the message the model came from was sent
 	modelFromLabel bool      // the roster's label decides; messages only fill in
@@ -151,6 +152,10 @@ func Sessions(roster []msg.RosterEntry, ms []msg.Message) []Session {
 		s.Repo, s.Branch = clean(e.Labels["repo"], maxLabel), clean(e.Labels["branch"], maxLabel)
 		if m := msg.CleanModel(e.Labels[msg.ModelLabel]); m != "" {
 			s.Model, s.modelFromLabel = m, true
+		}
+		s.Caps = nil
+		for _, c := range msg.CapsOf(e.Me, e.Labels) {
+			s.Caps = append(s.Caps, clean(c, maxLabel*2))
 		}
 	}
 	threads := map[string]map[string]bool{}

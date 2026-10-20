@@ -129,7 +129,15 @@ or a command to a `can=` target without checking who it resolved to. The recipie
 the send (the MCP `aivoicebus_send` only previews until `confirm_caps` is true), and an urgent message, a
 `--file`, a log link or an abbreviated `--re` is refused on such a route: name the session or use a
 pinned role. `aivoicebus who --tools`
-groups the live sessions by tool and repo, with each one's caps. A machine that only runs
+groups the live sessions by tool and repo, with each one's caps.
+
+What a session can do needs no setup beyond that: `who` (after `can:`), `who --json` (`caps`), `fleet`
+(per machine) and the viewer (each card) list its **capabilities**, read from its labels: the declared
+words, `repo:OWNER/NAME` (from the checkout's origin; the bare name without one), `branch:…`, `tool:…`,
+`model:…` and `role:…`. A machine with a GPU adds `gpu` and what runs on it (`metal` on Apple silicon,
+`cuda` with an NVIDIA driver, `rocm` with AMD's compute driver) to the declared words, from cheap checks
+only (the OS and device files; not with `AIVOICEBUS_ME`, which says nothing about the machine). Like
+every label they are self-declared hints. A machine that only runs
 `aivoicebus mcp` learns new nodes from the signed node list when the server starts, as a
 session-start hook does (within a 300ms total budget, skipped when the config directory cannot
 record the attempt).

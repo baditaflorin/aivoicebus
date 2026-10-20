@@ -57,6 +57,9 @@ func TestFleetShowsReleasesAndAsksThePersonToUpdate(t *testing.T) {
 	if !strings.Contains(out, "the nodes run 0.11.3") || !strings.Contains(out, "may be behind: aivoicebus fleet update") {
 		t.Errorf("summary:\n%s", out)
 	}
+	if !strings.Contains(out, "what their sessions can do") || !strings.Contains(out, "  imac: tool:codex\n") {
+		t.Errorf("what each machine can do:\n%s", out)
+	}
 
 	// the plan names imac and old, not air, and sends nothing
 	code, out, _ = run(t, "", "fleet", "update")

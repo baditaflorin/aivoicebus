@@ -20,6 +20,7 @@ import (
 // Labels describes this session for selector routing (`--to @repo=x`):
 //
 //	caps     what the session offers, from AIVOICEBUS_CAPS    ask+run   (read on every call, never pinned)
+//	         plus gpu and metal|cuda|rocm where the machine has one (not when AIVOICEBUS_ME overrides the identity)
 //	machine  the host part of the identity        laptop-a
 //	tool     the tool part of the agent           claude
 //	host     the plain hostname                   laptop        (not when AIVOICEBUS_ME overrides the identity)
@@ -79,8 +80,16 @@ func Labels(cwd string) msg.Labels {
 		l = l.Overlay(msg.Labels{"branch": branch}) // a detached HEAD (mid-rebase, say) keeps the pinned branch
 	}
 	// Declared, never guessed (a tool cannot know what its user allows), and read afresh on every
-	// call rather than pinned with the rest: dropping to read-only must take effect at once.
-	if caps := msg.CleanCaps(os.Getenv("AIVOICEBUS_CAPS")); caps != "" {
+	// call rather than pinned with the rest: dropping to read-only must take effect at once. The
+	// one word added is the GPU, a fact of the machine rather than a permission.
+	declared := os.Getenv("AIVOICEBUS_CAPS")
+	if declared == "" {
+		declared = l[msg.CapsLabel] // nothing in the environment: an explicit pin stands
+	}
+	if os.Getenv("AIVOICEBUS_ME") == "" {
+		declared += " " + gpuCaps()
+	}
+	if caps := msg.CleanCaps(declared); caps != "" {
 		l = l.Overlay(msg.Labels{msg.CapsLabel: caps})
 		if l[msg.CapsLabel] == "" && !capsDropWarned.Swap(true) {
 			fmt.Fprintf(warnOut, "aivoicebus: warning: AIVOICEBUS_CAPS is not advertised: a session holds at most %d labels and this one's are full (trim AIVOICEBUS_LABELS)\n", msg.MaxLabels)

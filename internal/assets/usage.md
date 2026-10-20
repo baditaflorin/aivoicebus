@@ -47,7 +47,8 @@ Read this only when you need to message another agent.
   names `send` prints (before the message goes) before sending a secret or a command; an urgent
   message, `--file` or a log link is refused on a `can=` route (name the session, or use a pinned
   role), and an abbreviated `--re` is refused for those too. `aivoicebus who --tools`
-  groups live sessions by tool and repo.
+  groups live sessions by tool and repo. `who` also lists each session's capabilities
+  (`can: gpu repo:owner/name branch:main tool:claude`), read from its labels with no setup.
 - Roles: `--to @build` goes to the one live session that claims the role (a session claims
   it with `AIVOICEBUS_ROLE=build` or `role=build` in its labels). A claim is self-declared, so
   pin the role to sessions you trust: `aivoicebus role pin build 'build-*/claude.*'` (host/agent
