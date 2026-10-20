@@ -105,8 +105,11 @@ func TestSendRefusesASelectorThatMatchesNobodyUnlessQueued(t *testing.T) {
 	if code != 0 || !strings.HasPrefix(out, "sent ") || !strings.Contains(e, "no matching session seen in the last 24h; it waits for one to start") {
 		t.Errorf("--queue sends it and says it will wait: %d %q %q", code, out, e)
 	}
-	if code, _, e = run(t, "", "send", "--to", "nobody/claude.zzzz", "to a name nobody has"); code != 0 || !strings.Contains(e, "no matching session seen") {
-		t.Errorf("a named recipient is never refused, but a possible typo is pointed out: %d %q", code, e)
+	if code, _, e = run(t, "", "send", "--to", "nobody/claude.zzzz", "to a name nobody has"); code == 0 || !strings.Contains(e, "refused: nobody/claude.zzzz has not been seen by the nodes") {
+		t.Errorf("a named recipient the nodes never heard of is refused, which also catches a typo: %d %q", code, e)
+	}
+	if code, _, e = run(t, "", "send", "--to", "nobody/claude.zzzz", "--queue", "to a name nobody has"); code != 0 || !strings.Contains(e, "no matching session seen") {
+		t.Errorf("--queue sends it, and the typo is pointed out: %d %q", code, e)
 	}
 }
 
@@ -166,11 +169,11 @@ func TestSendingTooMuchIsRefusedWithTheReason(t *testing.T) {
 	nodes(t, 2, func(s *store.Store) { s.SetSendLimit(2) })
 	session(t, "loop/agent", "")
 	for i := 0; i < 2; i++ {
-		if code, _, e := run(t, "", "send", "--to", "imac/claude.zzzz", fmt.Sprintf("msg %d", i)); code != 0 {
+		if code, _, e := run(t, "", "send", "--to", "imac/claude.zzzz", "--queue", fmt.Sprintf("msg %d", i)); code != 0 {
 			t.Fatalf("send %d: %d %q", i, code, e)
 		}
 	}
-	code, out, e := run(t, "", "send", "--to", "imac/claude.zzzz", "msg 3")
+	code, out, e := run(t, "", "send", "--to", "imac/claude.zzzz", "--queue", "msg 3")
 	if code != 1 || out != "" || !strings.Contains(e, "429") || !strings.Contains(e, "rate limit") || !strings.Contains(e, "ask the user") {
 		t.Fatalf("a flood is stopped and the agent is told what to do: %d %q %q", code, out, e)
 	}
@@ -182,8 +185,8 @@ func TestSendingTooMuchIsRefusedWithTheReason(t *testing.T) {
 func TestInboxAckAndAckLeaveReceiptsSayingHowTheMessageWasRead(t *testing.T) {
 	stores := nodes(t, 1, nil)
 	session(t, "other/agent", "")
-	run(t, "", "send", "--to", "mac/claude.aaaa", "first, read through the inbox")
-	run(t, "", "send", "--to", "mac/claude.aaaa", "second, acknowledged by hand")
+	run(t, "", "send", "--to", "mac/claude.aaaa", "--queue", "first, read through the inbox")
+	run(t, "", "send", "--to", "mac/claude.aaaa", "--queue", "second, acknowledged by hand")
 	var ids []string
 	for _, r := range stores[0].Since(map[string]uint64{}, 100) {
 		if r.Msg != nil {
@@ -228,7 +231,7 @@ func TestSendRefusesACredentialBeforeAnythingLeavesAndWarnsAboutWeakShapes(t *te
 	if n := len(stores[0].Since(map[string]uint64{}, 100)); n != 0 {
 		t.Errorf("nothing was sent: %d records", n)
 	}
-	code, out, e = run(t, "", "send", "--to", "mac/claude.aaaa", "AIVOICEBUS_TOKEN=Zm9vYmFyYmF6cXV4MTIzNDU2 is set")
+	code, out, e = run(t, "", "send", "--to", "mac/claude.aaaa", "--queue", "AIVOICEBUS_TOKEN=Zm9vYmFyYmF6cXV4MTIzNDU2 is set")
 	if code != 0 || !strings.HasPrefix(out, "sent ") || !strings.Contains(e, "warning: this message contains something that looks like a password or token value") {
 		t.Errorf("a weak shape warns and still sends: %d %q %q", code, out, e)
 	}

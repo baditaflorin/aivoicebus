@@ -68,7 +68,7 @@ func TestExpiredMessagesAreHiddenFromInboxAndMarkedInAll(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	session(t, "other/agent", "")
-	if code, _, e := run(t, "", "send", "--to", "a/b", "--ttl", "1h", "stale news"); code != 0 {
+	if code, _, e := run(t, "", "send", "--to", "a/b", "--queue", "--ttl", "1h", "stale news"); code != 0 {
 		t.Fatal(e)
 	}
 	session(t, "a/b", "")

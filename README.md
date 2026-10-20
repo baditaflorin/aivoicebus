@@ -112,6 +112,12 @@ times a minute, a sender or a machine past its hourly limit, a task sent by a ta
 most). A long task says how it is doing (`progress`), and an agent can ask you a question
 (`ask-human`) that you answer on the terminal or with a button on the phone. A blocked agent says so (`stuck`) instead of going silent, and a task taken and then left silent for 10 minutes is reported to its sender.
 
+`send` also checks what you wrote against what the bus knows, before anything goes out. A message to one exact session that
+has not been seen for 30 minutes is refused: it says when the session was last seen and who is live on that machine, and
+suggests `ask HOST`, `task HOST` or `--queue` (which, like `--force`, sends it anyway). A message that says `FYI`, `DONE` or
+"no action needed" and asks nothing is sent as `fyi` (say `--prio ask` to interrupt), and a question sent as `fyi`, which
+running sessions never see, gets a warning.
+
 Approving a write-mode task needs a person: `aivoicebus approver init` makes a key sealed with your passphrase,
 and only a decision signed with it counts, from the terminal (`approve ID`) or the phone's Approve button. A worker
 runs each command without access to your secrets (`~/.ssh`, cloud and git credentials, keychains); peer text that

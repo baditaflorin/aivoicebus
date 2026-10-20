@@ -160,9 +160,28 @@ characters).
 `aivoicebus send --dry-run ...` checks a message and prints who it would reach and what it
 would put into their contexts, without sending. `send` refuses an urgent message to five or
 more sessions and a long body to three or more (`--force` overrides, for people; the MCP
-tools cannot force). A reply (`--re ID`) goes back to whoever wrote that message, and
+tools cannot force). It also refuses a message to one exact session (`host/tool.session`)
+that the nodes have not seen for 30 minutes, or never: see *A session that is not there*
+below. A reply (`--re ID`) goes back to whoever wrote that message, and
 `--kind question` / `--kind answer` make an ask with a lifecycle: the first answer stops the
 question being handed to sessions that have not read it yet.
+
+### A session that is not there
+
+A message to one exact session (`host/tool.session`, or a name you registered with `name add`) is held
+until it reads it, however long that takes, so a send to a session that has ended is never read.
+`send`, `reply --to`, `task` and the MCP `aivoicebus_send` therefore refuse when the nodes have not seen that
+session in the last 30 minutes (the limit `ping --within` and `ask --within` use; a session standing by
+in a `wait` is always live), or have never heard of it. The refusal says when it was last seen, names
+the sessions that are live on the same machine (those in the same repo first), and gives three ways on:
+`ask HOST "..."` (one live session there answers), `task HOST "..."` (any session there can take it),
+or run it again with `--queue` (or `--force`, which also lifts the other guardrails) to keep it for
+that session. It goes out unchanged when the target is a machine, a tool, a selector or `all`, a session
+that is live, or when `--queue`/`--force` is given. A reply whose target is taken from the message it
+answers (no `--to`) is never refused: it prints a warning with the same facts and is sent, since the
+answer belongs in the thread where its asker will look. `ask` has its own `--within` and is not checked
+a second time. The check reads the roster `who` and `ping` read, so it adds no request, and a roster
+that cannot be read skips it.
 
 ### Who is around
 
@@ -257,6 +276,24 @@ session; `inbox --all` still lists it, marked `[expired]`. The node computes the
 from its own clock (`At + ttl`), not the sender's. Both fields are optional and omitted
 from the log for a plain message. A node that predates them drops them, so roll the nodes
 before relying on them.
+
+**The words are checked against the priority.** `send`, `reply` and the MCP `aivoicebus_send` look at a
+plain message (no `--kind`, or `--kind question`) before sending, and only when you chose no
+`--prio`:
+
+- A body that starts with `FYI`, `DONE` or `no action` (after any `[`, `(`, `*`, `#` or `>`), or says
+  `no reply needed` or `no action needed` anywhere, and asks nothing, is sent as `fyi`. The command says
+  `(sent as fyi; --prio ask to interrupt)`, `--json` carries it in `notes`, and `--dry-run` shows it.
+  "Asks something" is a `?` that ends a sentence (a `?` inside a URL, a `` `code span` `` or a fenced block
+  does not count), or `reply to me`, or `who owns`. A body that also says `please`, `tell me`,
+  `let me know`, `do not` or `don't` is a request, not "no action", and keeps its priority.
+- A message that goes out at `fyi` (you passed `--prio fyi`) and asks something is sent, with a warning:
+  `fyi` is only counted at session start, so a running session never sees it; use
+  `--kind question --prio ask`.
+
+An explicit `--prio`, a task, an answer, a progress note or any other `--kind` is never changed. The
+checks run on what a person or an agent writes; the tool's own messages (claims, progress, worker
+results, `pause`, `room`) are sent as they are. Nothing about the message on the wire changes.
 
 A session declares its labels with every inbox read (the session-start hook exports the
 set once, so later commands agree), and the node matches at read time. Nothing about

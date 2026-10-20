@@ -13,7 +13,7 @@ func TestWhoInboxAndThreadShowTheSessionTitles(t *testing.T) {
 	t.Setenv(config.TitleEnv, "")
 	config.SaveTitle("h/claude.a1b2", "Fix the hub login")
 	t.Setenv("AIVOICEBUS_ME", "h/claude.a1b2")
-	code, out, e := run(t, "", "send", "--to", "r/codex.q1w2", "the login is fixed")
+	code, out, e := run(t, "", "send", "--to", "r/codex.q1w2", "--queue", "the login is fixed")
 	if code != 0 {
 		t.Fatalf("%d %s %s", code, out, e)
 	}

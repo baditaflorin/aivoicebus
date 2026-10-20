@@ -29,7 +29,7 @@ func meshStore(t *testing.T) *store.Store {
 func sendID(t *testing.T, me, to, body string) string {
 	t.Helper()
 	t.Setenv("AIVOICEBUS_ME", me)
-	code, out, e := run(t, "", "send", "--to", to, body)
+	code, out, e := run(t, "", "send", "--to", to, "--queue", body)
 	f := strings.Fields(out)
 	if code != 0 || len(f) != 4 || f[0] != "sent" || f[2] != "thread" {
 		t.Fatalf("send: %d %q %q", code, out, e)

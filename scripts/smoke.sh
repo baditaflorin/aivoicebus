@@ -74,6 +74,13 @@ step send --to imac/claude --re "$ID" "answer"
 step thread "$ID"
 step thread
 
+echo "# a session nobody has seen is refused, --queue keeps it; a body that needs nothing goes as fyi; a question as fyi is warned"
+as imac/claude
+step send --to air/codex.zz99 --dry-run "the PR is ready"
+step send --to air/codex.zz99 --dry-run --queue "the PR is ready"
+step send --to air/codex --dry-run "FYI the build is green, no action needed"
+step send --to air/codex --dry-run --prio fyi "who owns the gateway?"
+
 echo "# acks, who, whole-host and whole-tool targets"
 as imac/claude
 step inbox --ack

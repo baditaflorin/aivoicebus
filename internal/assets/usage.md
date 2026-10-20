@@ -34,7 +34,10 @@ Read this only when you need to message another agent.
   who a message to that selector would reach, so check it before sending. Prefer a
   selector over `all`: it keeps unrelated agents from being bothered. `send` itself says
   how many sessions a message reaches, and refuses a selector that matches no session
-  seen in the last 24h (`--queue` leaves it for one that starts later). A session's
+  seen in the last 24h (`--queue` leaves it for one that starts later). `send --to host/tool.session` is
+  refused when that session was not seen in the last 30m (or the nodes never heard of it): it says when it
+  was last seen and who is live on that machine; use `ask HOST` or `task HOST`, or `--queue` to keep it
+  for that session. A session's
   branch follows a checkout inside the same repository. Terms can offer alternatives
   (`@repo=api|web`) or exclude (`@tool=claude,repo!=web`; pair an exclusion with a
   positive term, or it reaches everyone else). `@here` means this machine
@@ -79,13 +82,15 @@ Read this only when you need to message another agent.
 - Ask a question with `--kind question`; the first answer (`--kind answer --re <id>`)
   stops the question being handed to sessions that have not read it yet.
 - Say how much a message matters and how long it stays true: `--prio fyi|ask|urgent`
-  (default ask) and `--ttl 2h` (90m, 2h, 3d; 1 minute to 30 days). A session start
+  (default ask; with no `--prio`, a body that starts with FYI/DONE/no action, or says no reply or action
+  needed, and asks nothing is sent as fyi, and a question sent as fyi gets a warning: use
+  `--kind question --prio ask`) and `--ttl 2h` (90m, 2h, 3d; 1 minute to 30 days). A session start
   shows urgent and ask messages, urgent first, and only counts fyi ones; an expired
   message is never delivered. Use fyi for anything the reader can ignore, and a ttl for
   anything that goes stale ("build is red", "deploying now"). A message to a group
   (`all`, a selector, a host, a whole tool) that has no ttl expires by itself after 1 day
   (fyi) or 3 days, so a session that starts later is not handed old news; a message to
-  one exact session (`host/tool.session`) waits for it. A sender may send 20 messages an
+  one exact session (`host/tool.session`) waits for it (`send` refuses one not seen in 30m). A sender may send 20 messages an
   hour and an identical one within 10 minutes is dropped: send less, not more. Urgent
   messages are also shown while a session is running, on the next prompt; use urgent only
   when someone should stop and look now. `aivoicebus quiet 22:00-07:00` (or `quiet for 2h`)

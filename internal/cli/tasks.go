@@ -192,9 +192,9 @@ func taskCmd(args []string, s Streams) error {
 			}
 			mv.claimWithin = d
 		}
-		return sendWith(append(head, rest...), s, false, mv)
+		return sendImpl(append(head, rest...), s, false, true, mv)
 	}
-	return sendWith(append(head, rest...), s, false)
+	return sendImpl(append(head, rest...), s, false, true)
 }
 
 // pickListening is task --any: one of the sessions or workers target reaches that is waiting for
@@ -518,7 +518,7 @@ func toldPerson(c *client.Client, me string, tell []msg.Message, ack bool, w io.
 // pingCmd says whether anyone is there: the sessions a target reaches and how recently each was seen.
 func pingCmd(args []string, s Streams) error {
 	fs := newFlagSet("ping")
-	within := fs.Duration("within", 30*time.Minute, "count a session as there when it was seen this recently")
+	within := fs.Duration("within", outbox.LiveWithin, "count a session as there when it was seen this recently")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
