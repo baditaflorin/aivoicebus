@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
-	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
@@ -88,22 +87,9 @@ func openSpace(id string, name string) (*share.Space, error) {
 		return nil, err
 	}
 	if os.Getenv("AIVOICEBUS_AGENT") != "" {
-		sp.Screen = shareScreen(sp.Thread, name)
+		sp.Screen = share.AgentScreen(sp.Thread, name)
 	}
 	return sp, nil
-}
-
-// shareScreen holds back, from an agent, a version another machine wrote that msg.HoldReason
-// objects to, unless the person released it, and notes it for `aivoicebus held`.
-func shareScreen(thread, name string) func(id string, m msg.Message) string {
-	return func(id string, m msg.Message) string {
-		why := msg.HoldReason(m)
-		if why == "" || config.Released(id) {
-			return ""
-		}
-		config.NoteHeldShare(id, why, thread, name)
-		return why
-	}
 }
 
 func printShareNotes(sp *share.Space, w io.Writer) {

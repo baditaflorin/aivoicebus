@@ -244,11 +244,22 @@ func verifySig(key, sig string, signed []byte) bool {
 	return err1 == nil && err2 == nil && len(k) == ed25519.PublicKeySize && len(g) == ed25519.SignatureSize && ed25519.Verify(ed25519.PublicKey(k), signed, g)
 }
 
-// trustedKey reports whether a participant's machine sealed and signed key record k.
+// trustedKey reports whether a participant's machine sealed and signed key record k. A
+// participant whose signing key is not known yet (it has not written in the thread, and nothing
+// here pinned it) is trusted on first use and pinned, as a machine's first signed message is.
 func (s *Space) trustedKey(k msg.ShareKey) bool {
 	by := msg.HostOf(k.By)
+	if !s.parts[by] || !verifySig(k.SigKey, k.Sig, k.SignedBytes(s.Thread)) {
+		return false
+	}
 	want := s.signKeyOf(by)
-	return s.parts[by] && want != "" && k.SigKey == want && verifySig(k.SigKey, k.Sig, k.SignedBytes(s.Thread))
+	if want == "" {
+		if config.PinMachine(by, k.SigKey, "") == nil {
+			s.signKey[by] = k.SigKey
+		}
+		return true
+	}
+	return k.SigKey == want
 }
 
 // openKeys opens every trusted key record sealed for this machine.
@@ -298,7 +309,7 @@ func (s *Space) notInThread() error {
 }
 
 func (s *Space) noKey() error {
-	return fmt.Errorf("the space's key is not sealed for this machine (%s) yet: ask a participant (%s) to run `aivoicebus share ls %s`, which seals it for every machine in the thread, then try again", s.host, strings.Join(s.Participants(), ", "), s.Thread)
+	return fmt.Errorf("the space's key is not sealed for this machine (%s) yet: if it has not written in the thread, reply in it first (`aivoicebus reply --re %s \"...\"`) so its key is known; then ask a participant (%s) to run `aivoicebus share ls %s`, which seals the key for every machine in the thread, and try again", s.host, s.Thread, strings.Join(s.Participants(), ", "), s.Thread)
 }
 
 // ensureKey makes the space's first key when there is none, and seals what this machine holds for
@@ -391,6 +402,11 @@ func (s *Space) boxOf(host string) ([]byte, error) {
 	}
 	if b := s.boxKey[host]; b != "" {
 		return base64.StdEncoding.DecodeString(b)
+	}
+	for _, r := range s.idx.Records { // the key it sealed for itself names its box key, signed
+		if k := r.Key; k != nil && k.For == host && msg.HostOf(k.By) == host && s.trustedKey(*k) {
+			return base64.StdEncoding.DecodeString(k.Box)
+		}
 	}
 	return BoxKey(s.C, host)
 }
@@ -696,6 +712,19 @@ func (s *Space) List() (Listing, error) {
 		return l.Entries[i].Name < l.Entries[j].Name
 	})
 	return l, nil
+}
+
+// AgentScreen is the Screen for an agent reader: a version msg.HoldReason objects to is held back,
+// unless the person released it, and noted for `aivoicebus held` under thread and name.
+func AgentScreen(thread, name string) func(id string, m msg.Message) string {
+	return func(id string, m msg.Message) string {
+		why := msg.HoldReason(m)
+		if why == "" || config.Released(id) {
+			return ""
+		}
+		config.NoteHeldShare(id, why, thread, name)
+		return why
+	}
 }
 
 // HeldID is the id a held version goes by in `aivoicebus held` and `unhold`: the first ten hex

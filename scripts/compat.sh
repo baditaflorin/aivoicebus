@@ -431,6 +431,18 @@ ver=$(py 'import json,os,sys; print(json.dumps({"thread":sys.argv[1],"ver":{"id"
 check "$(post "${PORT[0]}" /v1/share/put "$ver")" 200 "new takes a version of it"
 check "$(py 'import json,sys; print(json.load(open(sys.argv[1]))["ver"]["num"])' "$W/last.out")" 1 "  numbered 1"
 check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" '{"data":"cGxhaW4gdGV4dCBwbGFpbiB0ZXh0IHBsYWluIHRleHQ="}')" 400 "new refuses a plaintext chunk"
+# The CLI: through this tree's node it shares and reads back; through an older node it says the
+# node holds no shared spaces and points at --via pipe, and stores nothing.
+cli 0 "$NEW" h0/compat.sh1 send --to h9/compat.sh9 "share root MARK-SH-root" >"$W/sh.out" 2>/dev/null
+SR=$(awk '$1=="sent"{print $2; exit}' "$W/sh.out")
+printf 'shared text MARK-SH-text\n' >"$W/sh.txt"
+cli 0 "$NEW" h0/compat.sh1 share put "$SR" "$W/sh.txt" >/dev/null 2>&1; check "$?" 0 "new CLI shares a file through new"
+check "$(cli 0 "$NEW" h0/compat.sh1 share get "$SR" sh.txt 2>/dev/null)" "shared text MARK-SH-text" "new CLI reads it back through new"
+converge
+for ((i = 1; i < N; i++)); do
+  out=$(cli "$i" "$NEW" h0/compat.sh1 share ls "$SR" 2>&1); rc=$?
+  check "$rc $(grep -c 'holds no shared spaces' <<<"$out") $(grep -c -- '--via pipe' <<<"$out")" "1 1 1" "new CLI through ${NAME[$i]} (${VER[$i]}) says it holds no shared spaces, and what to do"
+done
 check_converged "message logs stay equal on all $N nodes"
 check_quarantined 1 "quarantined nothing more"
 scenario "the brakes tell a loop from progress"
