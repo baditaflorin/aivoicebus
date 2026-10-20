@@ -146,7 +146,7 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 		fmt.Fprintf(out, "[aivoicebus] +%d more %s; `aivoicebus inbox` shows them when the user asks.\n", more, what)
 	}
 	for _, m := range shown {
-		acks.add(m.ID, msg.ViaHook, injectedChars(m))
+		acks.add(m.ID, msg.ViaHook, injectedChars(m, nil)) // urgent and replies to this session are never shown as a headline
 	}
 	return acks
 }

@@ -262,6 +262,26 @@ func TestIsBulletin(t *testing.T) {
 	}
 }
 
+func TestIsBroadcastIsAnAudienceNotASessionNorOneToolOnOneMachine(t *testing.T) {
+	for to, want := range map[string]bool{
+		"all":                   true,
+		"*/*":                   true,
+		"@repo=x":               true,
+		"@repo=x,branch=feat/*": true,
+		"imac":                  true, // a whole host
+		"imac/*":                true,
+		"*/claude":              true,
+		"imac/claude":           false, // one tool on one machine: directed, though IsBulletin counts it
+		"imac/claude.a1b2":      false, // one session
+		"*/claude.a1b2":         false,
+		"laptop-a/codex.q":      false,
+	} {
+		if got := IsBroadcast(to); got != want {
+			t.Errorf("IsBroadcast(%q) = %v, want %v", to, got, want)
+		}
+	}
+}
+
 func TestBulletinsExpireByDefaultAndOneSessionMessagesDoNot(t *testing.T) {
 	at := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	exp := at.Add(10 * 24 * time.Hour)
