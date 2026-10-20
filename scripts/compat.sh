@@ -383,7 +383,7 @@ if [ -z "$allprog" ]; then
 else
   check "$rc" 0 "new CLI says ready through ${NAME[$via]}"
   cli "$via" "$NEW" cs-lap/codex.t1 state "$T" taken "MARK-CS-back" >/dev/null 2>&1; check "$?" 1 "new CLI refuses ready -> taken, sending nothing"
-  cli "$via" "$NEW" cs-lap/codex.t1 state "$T" done "MARK-CS-done" >/dev/null 2>&1; check "$?" 0 "new CLI says done through ${NAME[$via]}"
+  cli "$via" "$NEW" cs-lap/codex.t1 state "$T" "done" "MARK-CS-done" >/dev/null 2>&1; check "$?" 0 "new CLI says done through ${NAME[$via]}"
   check_converged "version vectors equal"
   for k in "${!NAME[@]}"; do
     got=$(feed "${PORT[$k]}" | py 'import json,sys
@@ -405,7 +405,7 @@ print(" ".join(sorted("%s:%s" % (x["kind"], x["body"]) for x in m)) or "none")')
     t=$(sent_id "$W/cs.out")
     cli "$k" "$NEW" cs-lap/codex.t1 claim "$t" --settle 0s >/dev/null 2>&1
     cli "$k" "$NEW" cs-lap/codex.t1 reply --re "$t" "the second turn MARK-CS-r-${NAME[$k]}" >/dev/null 2>&1
-    cli "$k" "$NEW" cs-lap/codex.t1 state "$t" done "closing MARK-CS-close-${NAME[$k]}" >/dev/null 2>"$W/cs.err"; rc=$?
+    cli "$k" "$NEW" cs-lap/codex.t1 state "$t" "done" "closing MARK-CS-close-${NAME[$k]}" >/dev/null 2>"$W/cs.err"; rc=$?
     [ "$rc" = 0 ] || rc=refused
     want=refused; has "$k" states && want=0
     check "$rc" "$want" "${NAME[$k]} (${VER[$k]}): done after the turn limit $([ $want = 0 ] && echo passes || echo is refused)"
