@@ -58,3 +58,36 @@ func TestShortTargetShowsTermsAsWritten(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchKeyGlobs(t *testing.T) {
+	for _, c := range []struct {
+		pattern, key string
+		want         bool
+	}{
+		{"load:prod/*", "load:prod/scan-a", true},
+		{"load:prod/*", "load:prod/", true}, // * may be empty
+		{"load:prod/*", "load:prod", false},
+		{"load:prod/*", "load:staging/scan-a", false},
+		{"load:*", "load:prod/scan-a", true}, // * crosses a / as it crosses a :
+		{"*", "deploy:prod:x", true},
+		{"*:prod:*", "deploy:prod:x", true},
+		{"deploy:prod:?", "deploy:prod:x", true},
+		{"deploy:prod:?", "deploy:prod:xy", false},
+		{"deploy:prod:?", "deploy:prod:", false},
+		{"deploy:prod:x", "deploy:prod:x", true}, // no wildcard: the key itself
+		{"deploy:prod:x", "deploy:prod:xy", false},
+		{"deploy:prod:x", "deploy:prod", false},
+		{"a*b*c", "aXbXbXc", true}, // needs the first * to give back what it took
+		{"a*b*c", "aXbXbX", false},
+		{"*b", "abab", true},
+		{"**", "", true},
+		{"", "", true},
+		{"", "x", false},
+		{"x", "", false},
+		{"hub:server.go", "hub:serverXgo", false}, // . is a dot, not "any character"
+	} {
+		if got := MatchKey(c.pattern, c.key); got != c.want {
+			t.Errorf("MatchKey(%q, %q) = %v, want %v", c.pattern, c.key, got, c.want)
+		}
+	}
+}

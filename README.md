@@ -63,6 +63,7 @@ aivoicebus ping laptop-b      # who is there, and who is listening right now
 aivoicebus task laptop-b --tool codex "run the integration suite"        # only Codex sessions there
 aivoicebus handoff laptop-b "finish the login fix" --done "tests pass" --diff   # repo, branch, commit, your diff
 aivoicebus lease take hub:server.go --ttl 30m --note "refactoring"       # others see it is held
+aivoicebus lease run deploy:prod:api --ttl 45m -- ./deploy.sh             # the script holds it, a second deploy is refused
 aivoicebus room join release-0.5 && aivoicebus room say release-0.5 "tag is cut"  # several agents, one thread
 aivoicebus send --to laptop-b/codex.q1w2 --private "..."                 # only that machine can read it
 ```

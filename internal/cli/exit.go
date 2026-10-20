@@ -24,6 +24,7 @@ const (
 	exitUnreachable = 4 // no node answered: the mesh may be away
 	exitRejected    = 5 // a node refused the token or what it may do
 	exitTimeout     = 6 // `wait` (or --wait): nothing arrived in the time given
+	exitLeaseHeld   = 7 // `lease run`: the lease is someone else's, so the command did not run
 )
 
 // exitReplaced is `worker`'s code when its binary was replaced: a service restarts it (EX_TEMPFAIL).
