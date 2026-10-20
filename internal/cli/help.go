@@ -77,6 +77,8 @@ var helpTopics = []struct{ name, summary string }{
 	{"trust-codex", "trust the Codex hooks setup installed (Codex runs new hooks only once you trust them); --check only reports"},
 	{"usage", "print the agent-facing usage text"},
 	{"version", "print the version"},
+	{"completion", "print tab completion for zsh, bash or fish: commands, subcommands and flags (`aivoicebus completion zsh > \"${fpath[1]}/_aivoicebus\"`)"},
+	{"__complete", "the candidates for the last word, for the completion scripts (not for people)"},
 	{"help", "this list; `help <command>` shows that command's flags"},
 }
 
@@ -105,7 +107,15 @@ func helpCmd(args []string, s Streams) error {
 	}
 	for _, t := range helpTopics {
 		if t.name == args[0] {
-			fmt.Fprintf(s.Out, "%s: %s\nits flags: aivoicebus %s -h\n", t.name, t.summary, t.name)
+			fmt.Fprintf(s.Out, "%s: %s\n", t.name, t.summary)
+			if ex := helpExamples[t.name]; len(ex) > 0 {
+				fmt.Fprintln(s.Out, "\nexamples:")
+				for _, e := range ex {
+					fmt.Fprintf(s.Out, "  %s\n", e)
+				}
+				fmt.Fprintln(s.Out)
+			}
+			fmt.Fprintf(s.Out, "its flags: aivoicebus %s -h\n", t.name)
 			return nil
 		}
 	}
@@ -115,4 +125,21 @@ func helpCmd(args []string, s Streams) error {
 	}
 	sort.Strings(names)
 	return fmt.Errorf("unknown command %q (commands: %s): `aivoicebus help COMMAND` says what one does", args[0], strings.Join(names, ", "))
+}
+
+// helpExamples are real command lines for the commands people reach for first (`help COMMAND`).
+// A test runs each one's flags through the command's own parser, so an example cannot rot.
+var helpExamples = map[string][]string{
+	"start":      {"aivoicebus start                 # the guided first run on a new machine"},
+	"send":       {`aivoicebus send --to laptop-b "the build is green"          # every session on a machine`, `aivoicebus send --to laptop-b/codex.k3 "look at PR 12" --prio urgent`},
+	"reply":      {`aivoicebus reply --re 4f2a "done, see 9c1e" --end`, `aivoicebus reply --re 4f2a --wait-reply 10m "which branch?"   # answer and wait for the next turn`},
+	"inbox":      {"aivoicebus inbox            # unread, without marking them read", "aivoicebus inbox --ack      # read and mark read"},
+	"task":       {`aivoicebus task build-1 "run the suite" --wait-reply 15m`, `aivoicebus task laptop-b --person "plug in the phone"   # for the person, never an agent`},
+	"ask":        {`aivoicebus ask laptop-b "does the login fix pass on your branch?"`, `aivoicebus ask --any --tool codex "review this diff" --json`},
+	"status":     {"aivoicebus status            # one screen: who you are, token, nodes, what waits", "aivoicebus status --json"},
+	"fleet":      {"aivoicebus fleet             # every machine: release, last heard, token", "aivoicebus fleet update      # the plan; --apply asks the person on each to update"},
+	"token":      {"aivoicebus token report      # which machines still use the shared token", "aivoicebus token hand laptop-b   # on the deploy machine; laptop-b's person runs token install"},
+	"stuck":      {`aivoicebus stuck "waiting for the staging DB" --re 4f2a`},
+	"pause":      {`aivoicebus pause "stop, I am looking"        # every agent on the mesh`, `aivoicebus pause laptop-b --for 30m "deploying"`},
+	"completion": {`aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"   # then open a new shell`, "aivoicebus completion fish > ~/.config/fish/completions/aivoicebus.fish"},
 }

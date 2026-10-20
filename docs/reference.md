@@ -1182,6 +1182,19 @@ allowlist if more than your own machine needs it. `aivoicebus update` brings the
 that can reach the mesh, so the same one-liner works on a second laptop. `aivoicebus secret path NAME`
 prints where the file is, for a tool that reads a file; never print the file's content.
 
+## Tab completion and help
+
+    aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"        # zsh, then a new shell
+    aivoicebus completion bash > ~/.aivoicebus-completion.bash    # bash: source it from ~/.bashrc
+    aivoicebus completion fish > ~/.config/fish/completions/aivoicebus.fish
+    aivoicebus help ask                                           # what a command does, with examples
+
+Completion offers the commands, their subcommands (`token hand`, `fleet update`, ...) and their
+flags. The flags come from each command's own `-h`, so they never go out of date; a test proves
+`-h` is harmless for every listed command (it stops at the flags, writes nothing, reaches no
+node). `help COMMAND` shows real examples for the commands people reach for first, and a test
+checks each example's flags against the command's parser.
+
 ## The fleet: which machine runs which release
 
     aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token
