@@ -26,10 +26,12 @@ import (
 func askCmd(args []string, s Streams) error {
 	usage := outbox.Usagef(`usage: ask TARGET "question" [--tool codex] [--pick N] [--wait-reply 15m] [--claim-within 2m] [--fallback M2,M3] [--max-turns 4] [--deadline 15m] [--json]
        ask --any [--tool codex] "question"
+       ask [TARGET] --needs repo:owner/name[,gpu...] "question"
   TARGET: a machine, host/tool, or one session (host/tool.id)`)
 	fs := newFlagSet("ask")
 	tool := fs.String("tool", "", "ask this tool's sessions there (host/TOOL), or with --any anywhere")
 	anyOne := fs.Bool("any", false, "any session that matches: no TARGET needed, and sessions that look alike are not refused (one listening now is picked at random)")
+	needs := fs.String("needs", "", "ask the session that has all of these capabilities (repo:owner/name, branch:, tool:, model:, role: or a declared word such as gpu; `aivoicebus who` lists them): listening now first, then the most recently seen. No TARGET needed")
 	pick := fs.Int("pick", 0, "of the sessions that look alike (as listed when ask refuses), ask the Nth")
 	within := fs.Duration("within", tasks.AskWithin, "a session seen this recently is live, when nobody is listening")
 	waitReply := fs.Duration("wait-reply", 0, "how long to wait for the answer (default: --deadline)")
@@ -48,7 +50,7 @@ func askCmd(args []string, s Streams) error {
 		return err
 	}
 	machine := ""
-	if !*anyOne || len(words) > 1 {
+	if (!*anyOne && *needs == "") || len(words) > 1 {
 		if len(words) < 2 {
 			return usage
 		}
@@ -77,7 +79,16 @@ func askCmd(args []string, s Streams) error {
 	if *ttl == "" {
 		*ttl = deadline.String()
 	}
-	target, err := askTarget(machine, *tool, *anyOne)
+	var ns []string
+	if *needs != "" {
+		if *pick > 0 || *fallback != "" {
+			return outbox.Usagef("--needs picks the one session that has it all: leave out --pick and --fallback")
+		}
+		if ns, err = msg.ParseNeeds(*needs); err != nil {
+			return outbox.Usagef("%v", err)
+		}
+	}
+	target, err := askTarget(machine, *tool, *anyOne || ns != nil)
 	if err != nil {
 		return err
 	}
@@ -106,7 +117,23 @@ func askCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	p, err := tasks.PickSession(roster, target, opts)
+	var p tasks.Pick
+	if ns != nil {
+		np, err := tasks.PickNeeds(roster, target, ns, opts)
+		if errors.Is(err, tasks.ErrNoMatch) {
+			if *asJSON {
+				_ = writeJSON(s.Out, resultView{To: view.Name(target, msg.MaxIdentity), Answers: []answerView{}, Outcome: "nobody", Why: err.Error(),
+					Note: "nobody was asked: no live session has everything --needs asks for"})
+			}
+			return needsRefusal(err, np.Closest)
+		}
+		if err != nil {
+			return err
+		}
+		p = tasks.Pick{To: np.To, Why: np.Why, Listening: np.Listening}
+	} else {
+		p, err = tasks.PickSession(roster, target, opts)
+	}
 	opts.Pick = 0 // --pick is for TARGET; a next machine is picked on its own
 	switch {
 	case errors.Is(err, tasks.ErrAlike):

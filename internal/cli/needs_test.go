@@ -44,3 +44,55 @@ func TestWhoShowsWhatEachSessionCanDo(t *testing.T) {
 		}
 	}
 }
+
+// task --needs repo:X goes to the session that has repo X checked out, and to no other; with nobody
+// that has everything, nothing is sent and the closest sessions say what they lack.
+func TestTaskNeedsPicksTheSessionOnTheRepo(t *testing.T) {
+	mesh(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("AIVOICEBUS_CAPS", "")
+	session(t, "mac/claude.need1", "repo=go-common,origin=baditaflorin/go-common,branch=main,tool=claude")
+	run(t, "", "inbox")
+	session(t, "air/claude.need2", "repo=web,origin=baditaflorin/web,branch=main,tool=claude")
+	run(t, "", "inbox") // read last: the most recent, so a pick by recency alone would take it
+
+	session(t, "boss/claude.need0", "")
+	code, out, e := run(t, "", "task", "--needs", "repo:baditaflorin/go-common", "bump the logger in go-common")
+	if code != 0 {
+		t.Fatalf("task --needs: %d\n%s\n%s", code, out, e)
+	}
+	if !strings.Contains(e, "--needs: mac/claude.need1: has repo:baditaflorin/go-common") {
+		t.Errorf("the pick is explained in one line:\n%s", e)
+	}
+
+	session(t, "mac/claude.need1", "repo=go-common,origin=baditaflorin/go-common,branch=main,tool=claude")
+	if _, out, _ = run(t, "", "inbox"); !strings.Contains(out, "bump the logger in go-common") || !strings.Contains(out, "-> mac/claude.need1") {
+		t.Errorf("the go-common session gets it:\n%s", out)
+	}
+	session(t, "air/claude.need2", "repo=web,origin=baditaflorin/web,branch=main,tool=claude")
+	if _, out, _ = run(t, "", "inbox"); strings.Contains(out, "bump the logger") {
+		t.Errorf("the web session must not:\n%s", out)
+	}
+
+	session(t, "boss/claude.need0", "")
+	code, out, e = run(t, "", "task", "--needs", "repo:baditaflorin/go-common,gpu", "train it")
+	if code != exitNotFound || !strings.Contains(e, "nothing was sent") ||
+		!strings.Contains(e, "mac/claude.need1 (seen ") || !strings.Contains(e, "lacks gpu") ||
+		!strings.Contains(e, "air/claude.need2 (seen ") || !strings.Contains(e, "lacks repo:baditaflorin/go-common,gpu") {
+		t.Errorf("refused with the closest: %d\n%s\n%s", code, out, e)
+	}
+	if strings.Index(e, "mac/claude.need1") > strings.Index(e, "air/claude.need2") {
+		t.Errorf("the one lacking less comes first:\n%s", e)
+	}
+	_, out, _ = run(t, "", "ask", "--needs", "gpu", "--json", "which gpu?")
+	var res struct{ Outcome string }
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Outcome != "nobody" {
+		t.Errorf("ask --needs --json with nobody: %v\n%s", err, out)
+	}
+	if code, _, e = run(t, "", "task", "--needs", "gpu", "--any", "x"); code != exitUsage || !strings.Contains(e, "leave out --any") {
+		t.Errorf("--needs picks itself: %d %s", code, e)
+	}
+	if code, _, e = run(t, "", "task", "--needs", "colour:blue", "x"); code != exitUsage || !strings.Contains(e, "not a capability kind") {
+		t.Errorf("a bad need: %d %s", code, e)
+	}
+}

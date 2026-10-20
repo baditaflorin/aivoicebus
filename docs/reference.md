@@ -484,9 +484,21 @@ with none left `ask` exits 3. `--json` prints the one result object of `--wait-r
 | 3 | nobody took it: nobody live there, or nobody took it in `--claim-within` (taken back) |
 | 6 | taken, but no answer in `--wait-reply`: `aivoicebus wait --thread T` waits on |
 
-`aivoicebus_ask` takes `target`, `body`, `tool`, `any`, `pick`, `wait_seconds` (at most 600) and
-`claim_seconds` (120), and returns `ANSWERED`, `NOBODY TOOK IT` or the thread to wait on; look-alikes
-are an error that lists them.
+`aivoicebus_ask` takes `target`, `body`, `tool`, `any`, `pick`, `needs`, `wait_seconds` (at most 600) and
+`claim_seconds` (120), and returns `ANSWERED`, `NOBODY TOOK IT`, `NOBODY MATCHED` or the thread to wait on;
+look-alikes are an error that lists them.
+
+**Send it to the session that can do it.** `aivoicebus task --needs repo:baditaflorin/go-common "bump
+the logger"` (and `ask --needs …`, the MCP `needs`) goes to the one session that has every capability
+asked for: comma-separated, each `repo:OWNER/NAME` (or `repo:NAME`), `branch:…`, `tool:…`, `model:…`,
+`role:…` or a declared word such as `gpu` (values may use `*`; at most 8). Of those that have them all,
+one listening now goes first, then the one seen most recently (in the last 30 minutes); a TARGET
+(a machine, or `--tool`) narrows where to look. The line `--needs: SESSION: has …; why` (on stderr)
+says which. When no live session has them all, nothing is sent (exit 3) and the three closest are
+listed with what each lacks (fewest missing first; a session that has them all but was not seen
+lately says so). `--needs` takes the place of `--any`, `--can`, `--model`, `--fallback` and `--pick`.
+Capabilities are self-declared, so `--needs` finds the session most likely to have the checkout or
+the access; it proves nothing.
 
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
