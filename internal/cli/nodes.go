@@ -14,6 +14,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/discovery"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // nodesCmd is `aivoicebus nodes`: the nodes this machine uses, where each came from,
@@ -99,7 +100,7 @@ func nodesCmd(args []string, s Streams) error {
 				until = "EXPIRED " + d.ValidUntil.Local().Format("2006-01-02") + ", not used"
 			}
 		}
-		fmt.Fprintf(s.Out, "(node list serial %d, fetched %s, %s)\n", d.Serial, d.FetchedAt.Local().Format("01-02 15:04"), until)
+		fmt.Fprintf(s.Out, "(node list serial %d, fetched %s, %s)\n", d.Serial, view.When(d.FetchedAt, time.Now()), until)
 	}
 	return nil
 }
@@ -120,7 +121,7 @@ func parseNodeConf(path string, port string) ([]release.NodeEntry, error) {
 		}
 		parts := strings.Split(line, ":")
 		if len(parts) != 3 {
-			return nil, fmt.Errorf("%s: %q is not name:alias:ip", path, line)
+			return nil, fmt.Errorf("%s: %q is not name:alias:ip: fix that line, then run it again", path, line)
 		}
 		out = append(out, release.NodeEntry{Name: parts[0], URL: "http://" + parts[2] + ":" + port})
 	}
@@ -140,7 +141,7 @@ func releaseNodes(args []string, s Streams) error {
 		return err
 	}
 	if *dir == "" {
-		return errors.New("release nodes needs --dir")
+		return errors.New("release nodes needs --dir: run it again as `aivoicebus release nodes --dir DIR`")
 	}
 	entries, err := parseNodeConf(*conf, *port)
 	if err != nil {

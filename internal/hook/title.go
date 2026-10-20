@@ -115,13 +115,18 @@ func lastTitle(buf []byte, partialFirst bool, sessionID string) (string, bool) {
 }
 
 // sessionTitle settles this session's title for the hook: AIVOICEBUS_TITLE when set, else what the
-// transcript says now (saved for the commands the agent runs later, which cannot see the transcript),
-// else what was saved before. It returns "" when the session has none or opted out.
+// transcript or Antigravity annotation says now (saved for the commands the agent runs later, which
+// cannot see the transcript), else what was saved before. It returns "" when the session has none
+// or opted out.
 func sessionTitle(in hookInput, me string, maxTail int64) string {
 	if os.Getenv(config.TitleEnv) != "" {
 		return msg.CleanTitle(config.Title(me))
 	}
 	if t := transcriptTitle(in.TranscriptPath, in.SessionID, maxTail); t != "" {
+		config.SaveTitle(me, t)
+		return t
+	}
+	if t := msg.CleanTitle(config.AntigravityTitle(in.SessionID)); t != "" {
 		config.SaveTitle(me, t)
 		return t
 	}

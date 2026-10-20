@@ -3,14 +3,18 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/share"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -38,7 +42,11 @@ func heldCmd(args []string, s Streams) error {
 		if config.Released(h.ID) {
 			state = "released"
 		}
-		fmt.Fprintf(s.Out, "\n%s  %s  %s: %s\n", h.ID, h.At.Local().Format("01-02 15:04"), state, h.Reason)
+		fmt.Fprintf(s.Out, "\n%s  %s  %s: %s\n", h.ID, view.When(h.At, time.Now()), state, h.Reason)
+		if h.Kind == "share" {
+			heldShare(h, s.Out)
+			continue
+		}
 		ms, err := c.Thread(h.ID)
 		if err != nil {
 			continue
@@ -58,7 +66,7 @@ func heldCmd(args []string, s Streams) error {
 
 func unholdCmd(args []string, s Streams) error {
 	if len(args) != 1 || !msg.ValidID(args[0]) {
-		return outbox.Usagef("usage: unhold ID   (a held message's full id, from aivoicebus held)")
+		return outbox.Usagef("usage: unhold ID   (a held message's or shared file's id, from aivoicebus held)")
 	}
 	if err := personOnly("unhold"); err != nil {
 		return err
@@ -68,7 +76,7 @@ func unholdCmd(args []string, s Streams) error {
 		return fmt.Errorf("unhold needs a person at a terminal: %v", err)
 	}
 	if strings.TrimSpace(line) != "unhold" {
-		return errors.New("not unheld")
+		return errors.New("not unheld: run it again and type unhold")
 	}
 	if err := config.Release(args[0]); err != nil {
 		return err
@@ -80,8 +88,46 @@ func unholdCmd(args []string, s Streams) error {
 
 // personOnly refuses inside an agent's session: these show or release what was kept from agents.
 func personOnly(cmd string) error {
-	if os.Getenv("AIVOICEBUS_AGENT") != "" {
-		return fmt.Errorf("%s is for the user, in their own terminal, not for an agent's session", cmd)
+	if agent, why := identity.AgentCaller(); agent {
+		return fmt.Errorf("%s is for the user, in their own terminal, not for an agent's session (%s): ask the user to run it", cmd, why)
 	}
 	return nil
+}
+
+// claimer is who takes a task from this process: an agent in an agent's session (AIVOICEBUS_AGENT,
+// or an agent tool above this process), else the person at their terminal. Only the person takes
+// a task meant for them (msg.PersonOnly).
+func claimer() tasks.Caller {
+	if agent, _ := identity.AgentCaller(); agent {
+		return tasks.Agent
+	}
+	return tasks.Person
+}
+
+// heldShare shows the person a version of a shared space that was held back from agents.
+func heldShare(h config.Held, w io.Writer) {
+	kind := share.KindFile
+	if h.Name == share.NotesName {
+		kind = share.KindNotes
+	}
+	fmt.Fprintf(w, "%s in thread %s's shared space:\n", view.OneLine(h.Name, share.MaxName), h.Thread)
+	sp, err := openSpace(h.Thread, h.Name)
+	if err != nil {
+		fmt.Fprintln(w, "  (cannot be read now: "+view.OneLine(err.Error(), 200)+")")
+		return
+	}
+	sp.Screen = nil // the person reads it
+	v, data, err := sp.Get(h.Name, kind, 0, h.ID)
+	if err != nil {
+		fmt.Fprintln(w, "  (cannot be read now: "+view.OneLine(err.Error(), 200)+")")
+		return
+	}
+	fmt.Fprintf(w, "version %d by %s%s:\n", v.Num, view.Name(v.By, msg.MaxIdentity), verdictNote(v.Verified))
+	if !utf8.Valid(data) {
+		fmt.Fprintf(w, "  (not text, %s: save it with `aivoicebus share get %s %s --id %s --out FILE`)\n", share.SizeText(v.Size), h.Thread, shellWord(h.Name), h.ID)
+		return
+	}
+	for _, line := range strings.Split(view.Sanitise(string(data)), "\n") {
+		fmt.Fprintln(w, "  | "+line)
+	}
 }

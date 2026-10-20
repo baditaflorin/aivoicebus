@@ -149,12 +149,17 @@ func meshCmd(args []string, s Streams) error {
 	maxGap := fs.Int64("max-gap", 50, "report a node holding this many fewer records than the most complete one")
 	maxRecords := fs.Int64("max-records", 150000, "report a node holding more records than this (0 turns the check off): the whole log is held in memory")
 	timeout := fs.Duration("timeout", 4*time.Second, "per node")
+	signed := fs.Bool("signed-check", false, "say whether the nodes can be switched to serve --require-signed: READY only when no message without a valid signature arrived in --days")
+	days := fs.Int("days", 7, "with --signed-check: the window, in days (1 to 30)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	c, err := client.FromEnv()
 	if err != nil {
 		return err
+	}
+	if *signed {
+		return signedCheck(c, *days, *timeout, *asJSON, s)
 	}
 	reports := fetchMesh(c.URLs, c.Token, *timeout)
 	problems := assess(reports, meshThresholds{MaxSkew: *maxSkew, MaxLag: *maxLag, MaxGap: *maxGap, MaxRecords: *maxRecords})
@@ -219,9 +224,9 @@ func nodeListNote(c *client.Client, now time.Time) string {
 	}
 	switch {
 	case n.Expired(now):
-		return fmt.Sprintf("the published node list expired on %s: machines no longer learn nodes from it (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh)", n.Until().Local().Format("2006-01-02"))
+		return fmt.Sprintf("the published node list expired on %s: machines no longer learn nodes from it (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh from the root of an aivoicebus checkout)", n.Until().Local().Format("2006-01-02"))
 	case n.Until().Sub(now) < nodeListWarning:
-		return fmt.Sprintf("the published node list expires on %s (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh)", n.Until().Local().Format("2006-01-02"))
+		return fmt.Sprintf("the published node list expires on %s (re-sign: aivoicebus release nodes, then deploy/publish-nodes.sh from the root of an aivoicebus checkout)", n.Until().Local().Format("2006-01-02"))
 	}
 	return ""
 }
@@ -229,7 +234,7 @@ func nodeListNote(c *client.Client, now time.Time) string {
 // featureList is a node's advertised features for a table cell: each cut to what a peer could
 // make of it, "-" for a node that advertises none.
 func featureList(h *msg.Health) string {
-	const shown = 12 // a hostile node cannot widen the table; a cut list says so
+	const shown = 24 // a hostile node cannot widen the table; a cut list says so
 	var out []string
 	more := 0
 	for _, f := range h.Features {

@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/sharestore"
 	"github.com/baditaflorin/aivoicebus/internal/store"
 )
 
@@ -49,7 +51,7 @@ func Run(o Options) error {
 		return err
 	}
 	if observer != "" && tokens.Has(observer) {
-		return errors.New("the observer token must differ from every shared token")
+		return errors.New("the observer token must differ from every shared token: make a new one with `deploy/install.sh --gen-observer-token` (from the root of an aivoicebus checkout), then try again")
 	}
 	st, err := store.Open(o.DataDir, o.Node, store.WithLog(out))
 	if err != nil {
@@ -71,12 +73,27 @@ func Run(o Options) error {
 	}
 	board := NewPeerBoard(peers)
 	go Replicate(context.Background(), st, peers, tok, o.SyncEvery, board)
+	sh, err := sharestore.Open(filepath.Join(o.DataDir, "share"), o.Node, sharestore.DefaultLimits(), ThreadActivity(st), sharestore.WithLog(out))
+	if err != nil {
+		return fmt.Errorf("shared spaces in %s: %v", filepath.Join(o.DataDir, "share"), err)
+	}
+	shBoard := &shareBoard{}
+	for _, p := range peers { // like the message log: take back what this node wrote before it lost its disk
+		if n, _, err := pullShares(sh, p, tok, out); err == nil {
+			shBoard.ok()
+			if n > 0 {
+				fmt.Fprintf(out, "recovered %d shared-space record(s) from %s\n", n, p)
+			}
+		}
+	}
+	go ReplicateShares(context.Background(), sh, peers, tok, o.SyncEvery, shBoard, out)
 	fmt.Fprintf(out, "node %s listening on %s, %d peer(s)\n", o.Node, o.Addr, len(peers))
 	if o.BootstrapFile != "" && len(o.BootstrapKey) < 24 {
-		return errors.New("--bootstrap-key must be at least 24 chars")
+		return errors.New("--bootstrap-key must be at least 24 chars: run it again with a longer one (`openssl rand -hex 24` makes one)")
 	}
 	h := WithBootstrap(NewHandler(st, "", WithTokenSet(tokens), WithObserverToken(observer), WithReleaseDir(o.ReleaseDir),
-		WithNode(o.Node), WithRequireSigned(o.RequireSigned), WithPeerBoard(board), WithReady(Ready(st, board, len(peers)))), o.BootstrapKey, o.BootstrapFile, o.BootstrapMaxAge)
+		WithNode(o.Node), WithRequireSigned(o.RequireSigned), WithPeerBoard(board), WithReady(Ready(st, board, len(peers))),
+		WithShares(sh, shareReady(sh, shBoard, len(peers)))), o.BootstrapKey, o.BootstrapFile, o.BootstrapMaxAge)
 	srv := defaultLimits().server(o.Addr, h)
 	// A stop (systemd sends SIGTERM) writes the roster to disk first, so a restart
 	// or an upgrade does not forget who is around.
@@ -121,9 +138,9 @@ func loadObserverToken(file, shared string) (string, error) {
 	tok := strings.TrimSpace(string(b))
 	switch {
 	case len(tok) < 24:
-		return "", errors.New("observer token missing or shorter than 24 chars")
+		return "", errors.New("observer token missing or shorter than 24 chars: make one with `deploy/install.sh --gen-observer-token` (from the root of an aivoicebus checkout), then try again")
 	case tok == shared:
-		return "", errors.New("the observer token must differ from the shared token")
+		return "", errors.New("the observer token must differ from the shared token: make a new one with `deploy/install.sh --gen-observer-token` (from the root of an aivoicebus checkout), then try again")
 	}
 	return tok, nil
 }
@@ -134,7 +151,7 @@ func loadNodeTokens(file string) (*TokenSet, error) {
 	if file == "" {
 		tok := config.Token("")
 		if len(tok) < MinTokenLen {
-			return nil, errors.New("token missing or shorter than 24 chars")
+			return nil, errors.New("token missing or shorter than 24 chars: set AIVOICEBUS_TOKEN or pass --token-file, then try again")
 		}
 		return NewTokenSet(tok), nil
 	}

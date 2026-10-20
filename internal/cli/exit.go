@@ -72,14 +72,19 @@ func takeJSON(args []string, asJSON *bool) []string {
 	return out
 }
 
-// isTerminal reports whether r is an interactive terminal.
+// isTerminal reports whether r is an interactive terminal. /dev/null is a character device too,
+// and it is what an agent's tool call often gets as stdin: nobody is there.
 func isTerminal(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
 		return false
 	}
 	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(fi, null)
 }
 
 // writeJSON prints v as indented JSON, the shape every --json output has.
@@ -92,9 +97,15 @@ func writeJSON(w io.Writer, v any) error {
 // jsonFailure is what a failing command prints on stderr under --json: stdout stays empty, so a
 // script that parses it never meets half an answer.
 func jsonFailure(w io.Writer, err error, code int) {
+	var se *client.StatusError
+	reason := ""
+	if errors.As(err, &se) {
+		reason = se.Refused() // a node's refusal, as one stable word a script can act on
+	}
 	b, _ := json.Marshal(struct {
-		Error string `json:"error"`
-		Exit  int    `json:"exit"`
-	}{view.Sanitise(err.Error()), code})
+		Error  string `json:"error"`
+		Exit   int    `json:"exit"`
+		Reason string `json:"reason,omitempty"`
+	}{view.Sanitise(err.Error()), code, reason})
 	fmt.Fprintf(w, "%s\n", b)
 }

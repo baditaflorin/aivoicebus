@@ -17,6 +17,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // Scheduled tasks: recurring work with no person and no cron. `schedule add` keeps them in
@@ -151,7 +152,7 @@ func scheduleCmd(args []string, s Streams) error {
 			}
 			last := "never yet"
 			if !sc.Last.IsZero() {
-				last = "last " + sc.Last.Local().Format("01-02 15:04")
+				last = "last " + view.When(sc.Last, time.Now())
 			}
 			fmt.Fprintf(s.Out, "%-16s %-16s to %-28s %s: %s\n", sc.Name, when, msg.SafeName(sc.To), last, sc.Text)
 		}
@@ -167,7 +168,7 @@ func scheduleCmd(args []string, s Streams) error {
 		n := len(ss)
 		ss = slicesDelete(ss, func(sc schedule) bool { return sc.Name == args[1] })
 		if len(ss) == n {
-			return outbox.NotFoundf("no schedule named %q", args[1])
+			return outbox.NotFoundf("no schedule named %q: `aivoicebus schedule list` lists them", args[1])
 		}
 		if err := saveSchedules(ss); err != nil {
 			return err
@@ -249,7 +250,7 @@ func scheduleAdd(args []string, s Streams, usage error) error {
 		return err
 	}
 	if len(ss) >= maxSchedules {
-		return fmt.Errorf("%d schedules already: remove one first", maxSchedules)
+		return fmt.Errorf("%d schedules already: remove one first (`aivoicebus schedule rm NAME`)", maxSchedules)
 	}
 	for _, sc := range ss {
 		if sc.Name == name {

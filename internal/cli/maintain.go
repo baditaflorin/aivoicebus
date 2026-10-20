@@ -11,6 +11,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/agentcfg"
 	"github.com/baditaflorin/aivoicebus/internal/assets"
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
@@ -110,7 +111,7 @@ func confirmFirstSetup(s Streams, url string, tools []string, asJSON bool) error
 	case err != nil:
 		return err
 	case !ok:
-		return errors.New("cancelled: nothing was changed")
+		return errors.New("cancelled: nothing was changed. Run it again to go ahead")
 	}
 	return nil
 }
@@ -157,7 +158,7 @@ func doctor(args []string, s Streams) error {
 		return err
 	}
 	if *dry && !*fix {
-		return errors.New("--dry-run goes with --fix")
+		return errors.New("--dry-run goes with --fix: run `aivoicebus doctor --fix --dry-run`")
 	}
 	if *fix {
 		exe, exeErr := executable()
@@ -189,7 +190,7 @@ func doctor(args []string, s Streams) error {
 			return err
 		}
 	}
-	checks := agentcfg.Doctor(opts)
+	checks := append(agentcfg.Doctor(opts), approvalCheck(isTerminal(s.In)))
 	if latest != "" {
 		checks = append(checks, releaseCheck(latest))
 	}
@@ -294,6 +295,33 @@ func splitList(s string) []string {
 	return out
 }
 
+// approvalCheck says whether a person can approve what this machine asks (a token install, a
+// write-mode worker's task): with the approver key from any terminal, on the phone through the
+// notify URL, or by answering y/N at the terminal doctor runs in. With none of them a request from
+// an agent's session waits for nobody: the M1 Pro stalled three times that way on 2026-10-18.
+func approvalCheck(atTerminal bool) agentcfg.Check {
+	const name = "approval"
+	var ways []string
+	_, keyErr := config.ApproverPublic()
+	if keyErr == nil {
+		ways = append(ways, "the approver key ("+config.ApproverPath()+")")
+	}
+	if notifyURL() != "" {
+		ways = append(ways, "the phone (notify URL)")
+	}
+	if len(ways) > 0 {
+		return agentcfg.Check{Name: name, Level: agentcfg.LevelOK, Detail: "a person approves with " + strings.Join(ways, " or ")}
+	}
+	fix := "aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)"
+	if _, err := os.Stat(config.ApproverPath()); err == nil { // there, but not one this release reads
+		fix = "the approver key is unreadable (" + keyErr.Error() + "); move it aside and run " + fix
+	}
+	if atTerminal {
+		return agentcfg.Check{Name: name, Level: agentcfg.LevelOK, Detail: "only by y/N at a terminal: a request from an agent's session waits for nobody. For those: " + fix}
+	}
+	return agentcfg.Check{Name: name, Level: agentcfg.LevelWarn, Detail: "nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: " + fix}
+}
+
 // tokenKindCheck says whether this machine still uses the mesh's shared token, with which anyone
 // holding it can send as this machine; a machine token binds its messages to its name.
 func tokenKindCheck() (agentcfg.Check, bool) {
@@ -310,5 +338,25 @@ func tokenKindCheck() (agentcfg.Check, bool) {
 	case kind == "observer":
 		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the observer token: read-only, this machine cannot send"}, true
 	}
-	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. The operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply"}, true
+	if n := deployTokens(); n > 0 {
+		// The machine you deploy from keeps the shared token (machine tokens cannot replicate or deploy);
+		// it is the one machine where that is right, and it is the one holding machine-tokens/.
+		return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelOK, Detail: fmt.Sprintf("the mesh's shared token: right here, this machine deploys (it holds machine tokens for %d machine(s) in %s)", n, machineTokensDir())}, true
+	}
+	return agentcfg.Check{Name: "token kind", Level: agentcfg.LevelWarn, Detail: "the mesh's shared token: whoever holds it can send as this machine. Unless this is the machine you deploy from (which keeps it), the operator gives it its own: deploy/machine-token.sh add " + msg.HostOf(identity.Me()) + " --apply (from the root of an aivoicebus checkout), then aivoicebus token hand " + msg.HostOf(identity.Me())}, true
+}
+
+// deployTokens counts the machine tokens kept here, the mark of the machine you deploy from.
+func deployTokens() int {
+	entries, err := os.ReadDir(machineTokensDir())
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if e.Type().IsRegular() && !strings.HasPrefix(e.Name(), ".") {
+			n++
+		}
+	}
+	return n
 }

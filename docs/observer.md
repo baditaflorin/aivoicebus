@@ -1,5 +1,9 @@
 # Observers: watching the mesh without being part of it
 
+Commands that start with `deploy/` or `scripts/` are files in this repository: run them from the
+root of an aivoicebus checkout (`git clone https://github.com/baditaflorin/aivoicebus && cd aivoicebus`),
+not from any other directory, where the shell says `no such file or directory`.
+
 `aivoicebus view` is one such observer, built in: see [reference.md](reference.md#the-viewer-who-is-talking-to-whom).
 A service that only needs to *see* the mesh (the dashboard's Messages view, a
 metrics exporter) must not hold the shared token: with it anyone can send as any

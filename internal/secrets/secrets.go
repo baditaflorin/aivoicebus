@@ -214,5 +214,5 @@ func Strong(body string) (Finding, bool) {
 
 // Refusal is the sentence a refused send is told.
 func Refusal(f Finding) string {
-	return "this message looks like it contains a " + f.Kind + ". Messages are kept in clear text on every node and shown in the dashboard: say where the secret lives instead of sending it"
+	return "this message looks like it contains a " + f.Kind + ". Messages are kept in clear text on every node and shown in the dashboard: say where the secret lives instead, and send it again"
 }

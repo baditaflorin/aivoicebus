@@ -7,6 +7,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 // auditCmd shows the audit log: what was approved, run, stopped, released or allowed on this
@@ -54,7 +55,7 @@ func auditCmd(args []string, s Streams) error {
 			continue
 		}
 		n++
-		fmt.Fprintf(s.Out, "%4d  %s  %-36s %-18s %s\n", e.Seq, e.At.Local().Format("01-02 15:04:05"), msg.SafeName(e.Who), e.Action, e.Detail)
+		fmt.Fprintf(s.Out, "%4d  %s  %-36s %-18s %s\n", e.Seq, view.WhenSec(e.At, time.Now()), msg.SafeName(e.Who), e.Action, e.Detail)
 	}
 	if n == 0 {
 		fmt.Fprintln(s.Out, "nothing in the audit log in that time")

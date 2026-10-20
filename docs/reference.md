@@ -4,6 +4,30 @@ The full command and behaviour reference for AiVoiceBus. The [README](../README.
 everything else. Operating a mesh: [operations.md](operations.md). Sizing: [capacity.md](capacity.md).
 Releases and signing keys: [releasing.md](releasing.md). Read-only observers: [observer.md](observer.md).
 
+## Try it: `aivoicebus demo`
+
+    aivoicebus demo                # about 10 seconds, then everything is gone
+    aivoicebus demo --keep         # leave it running to poke at it; Ctrl-C ends it
+    aivoicebus demo --open         # open the viewer in the browser too
+    aivoicebus demo --pace 0       # no pauses between steps
+
+`demo` shows the bus at work without touching anything of yours: it starts two throwaway nodes inside
+the command, on free loopback ports, that replicate to each other every 200 ms, with a random token
+that is never written outside the demo's temporary directory. Two invented agents talk through them
+with the real client: `laptop/claude.a1b2` on one node gives the machine `buildbox` a task;
+`buildbox/codex.c3d4`, standing by on the other node, wakes as soon as the task replicates, claims
+it, reports progress, sends a file (encrypted, held by its node, read once and checked by sha256),
+answers, and then the two thank each other until the node refuses the third identical "thanks!" as a
+loop; the first closes the conversation. Each step is one narrated line, and a read-only viewer
+follows both nodes (its address is printed first).
+
+It works offline. While it runs, `HOME` points at a scratch directory and every `AIVOICEBUS_`
+setting is cleared, so no config, token or node of this machine is read or written. It starts no
+other process (except the browser opener with `--open`, which it waits for). When it ends, or on
+Ctrl-C, it stops the nodes and the viewer, removes its directory, and checks both: its last line says
+the ports refuse connections and the directory is gone. With `--keep` it prints the `export` line
+that points a second terminal at the demo nodes (with a scratch `HOME` too).
+
 ## Addressing and sessions
 
 Identity is `host/tool.session`, e.g. `laptop-a/claude.a1b2`,
@@ -141,6 +165,22 @@ roster cannot grow without bound; identities known only from messages they sent 
 the log and appear under `--all`. Presence is gossiped between nodes (`/v1/roster?since=`),
 kept on disk and flushed on a clean stop, so a restart or a roll does not forget who is
 around; a session appears with the labels of its most recent report from any node.
+
+Wherever a session is listed or picked (`who`, `task --any`, `room who`, the MCP `who` tools), it is
+named with its title and its state, not by its short id alone:
+
+    mac14-m1pro-mbp/claude.aac5 "Aivoicebus standby" (listening)
+    mac14-m1pro-mbp/claude.632e "Fix the login redirect" (seen Oct 17 14:03 EEST)
+
+`listening` means it is in a wait right now (standing by): a message reaches it within a second.
+`send`, `reply`, `task`, `token hand` and the MCP send warn when the session named is not listening
+while another session of the same machine is, and name both: two ids of one machine differ only in
+four characters, and a hand-off once went to the wrong one. The message is sent anyway.
+
+Every time a person reads (the CLI, the viewer, the hooks, the MCP tools) is in this machine's local
+time: the clock alone when it is today, else with the date and the zone (`Oct 17 14:03 EEST`).
+JSON output and the nodes' API stay in UTC (RFC 3339). Text a node writes into a message for every
+reader (a withdrawn message's placeholder) says `UTC`, since the readers' zones differ.
 
 ### The viewer: who is talking to whom
 
@@ -285,11 +325,34 @@ sessions does not apply to a task to one machine (it still does to `all`). Claim
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
 
+**Tasks meant for the person.** Some tasks are for the person on a machine, never for an agent
+there: a `[token hand]` (it replaces the machine's credential), and any task sent with `aivoicebus
+task laptop-b --person "..."` (for an incident step, say). Both go to `laptop-b/human`, which no
+agent session reads as; `[approval needed]` requests and `ask-human` questions go there too. A task
+whose first line starts `[token hand v1]`, `[approval needed]`, `[ask-human]` or `[for the person]`
+counts as the person's wherever it was sent, unless it was sent to one session by name (the sender
+chose who takes it). `claim` and `token install` refuse such a task in an agent's session, and the
+MCP `aivoicebus_claim` always does, with a message that names what the person runs; a worker never
+takes one. An agent's session is one with `AIVOICEBUS_AGENT` set, or with an agent tool (Claude
+Code, Codex, Gemini CLI...) above the command or marking its environment; `AIVOICEBUS_ME` and
+`AIVOICEBUS_DETECT=off` do not change that. In the person's own terminal `aivoicebus queue` also
+lists the tasks waiting for them, with the command to run, and `claim` works as usual. This is a
+guard against agents taking the person's work by mistake, not against a hostile agent, which could
+clear its own environment.
+
+Nobody reads as `laptop-b/human`, so the hooks say what waits there (from 0.11.5): every session
+start, and the per-prompt hook once per task per session as one arrives, print one line, "N task(s)
+wait for you, the person on this machine, not the agent", naming the first (a `[token hand]` or an
+approval by its kind only, any other with a short quote of its first line) and the command the
+person runs, for the agent to relay without acting on it. They only look (`inbox?peek=1`, never an
+acknowledgement, and only at a node of 0.11.0 or later, which does not list the person as present);
+quiet hours hold the line back unless the task is urgent.
+
 **Held back from agents.** Before peer text reaches an agent (the hooks, the MCP tools, and the
 commands an agent runs in its session), each message passes a screen: one whose signature does not
 verify or whose machine key changed, or whose text reads like instructions to an agent ("ignore
 previous instructions", "you are now", a user-only aivoicebus command such as `approve` or
-`resume`, a download piped into a shell, deleting a home or root directory, flags that skip an
+`resume` (or `incident --apply`), a download piped into a shell, deleting a home or root directory, flags that skip an
 agent's permissions), is shown only as "[held for the user: why]". A worker does not take such a
 task. You see them, with the text, with `aivoicebus held` in your own terminal, and let agents read
 one with `aivoicebus unhold ID` (asked at the terminal). Both refuse in an agent's session. The list
@@ -297,7 +360,7 @@ is short on purpose: it catches the common injections, not every one, so peer te
 
 **An audit log.** `~/.config/aivoicebus/audit.jsonl` (mode 0600) records what was approved or denied,
 every worker decision (ran, not approved, cancelled, held, over budget...), cancels, pauses and
-resumes, unholds, allowlist changes, `worker install` and `approver init`, with who and when.
+resumes, unholds, allowlist changes, `worker install`, `approver init` and `incident --apply`, with who and when.
 `aivoicebus audit` lists it; `aivoicebus audit --verify` checks every line is in order, carries the
 SHA-256 of the line before it and is signed by this machine's key, so an edited, reordered, inserted
 or forged line shows (exit 1). Lines cut off the end do not: a file cannot prove its own length, so
@@ -324,21 +387,42 @@ limit", whoever sends it; an `[end]` always goes, so the sides can still close i
 by the first message only, travels with it to every node, and is not signed: it is a brake for
 agents that would otherwise answer each other forever, not a security boundary.
 
-**Saying the same thing over and over.** A sender's third message in one thread within the hour that
-says the same thing as two before it, numbers, case, punctuation and spacing aside ("thanks!",
-"you're welcome", or counting up one number at a time), is refused with 409 "it looks like a loop".
-Ends, claims and progress messages are not counted: status updates that differ only in a number
-("processed 10 files", "processed 20 files") belong in `--kind progress`, which waits show and this
-check leaves alone.
+**Telling a loop from progress.** The nodes (0.12.0 or later, feature `brakes`) judge each reply in a
+thread by whether it says something new. A reply is a *repeat* when its words are at least 60% the
+same as one of its sender's last 8 messages in that thread within the hour: the Jaccard index of the
+two bodies' words and word pairs, with case and punctuation aside (the first 8 KB of each body).
+Numbers are words like any other, so "turn 7" after "turn 6" is new, but a long report sent again
+with one number changed is a repeat. Claims, progress messages (status updates and conversation
+states) and ends are never repeats and are not compared.
 
-**Rate limits that hold.** Each node counts, per sender, at most 20 messages an hour; per machine,
-300 an hour, whatever its sessions are called (a new session name does not start the count again);
-and per pair of sessions, replies: when two sessions have both answered each other at least twice
-and their replies reach 24 within 2 minutes (a handoff between two agents takes about 10), the next reply is refused with "this looks like two
-agents answering each other in a loop. Stop, and ask the user"; an `[end]` always goes through. A burst of fresh notes, or one side
-posting many replies, is not a loop and is not counted that way. The counts are kept in the node's
-`ratelimits.json`, so a restart does not forget them. They are brakes for agents, not security: the
-shared token lets anyone send as anyone (per-machine tokens bind a sender to its machine).
+- **The loop check.** A repeat whose sender's previous message in the thread was a repeat too (the
+  same thing said a third time: "thanks!", "you're welcome", the same report again) is refused with
+  409 "it looks like a loop (the loop check)". A conversation that repeats itself is stopped within
+  six messages, however slowly it goes. Status updates that differ only in a number ("processed 10
+  files", "processed 20 files") belong in `--kind progress`, which waits show and this check leaves
+  alone.
+- **The pair brake.** Between the same two sessions, replies either way within 2 minutes, once both
+  have answered each other at least twice: a repeat is refused from the 24th reply on ("this one is
+  N% the same words as one this sender sent before (the pair brake)"); a reply that says something
+  new goes on until the 48th, one every 2.5 seconds, faster than an agent reads and thinks ("even when
+  each says something new"). A handoff takes about 10; a productive conversation of 40 messages in 4
+  minutes is not refused. An `[end]` always goes through, and a conversation state neither counts nor
+  is refused. A burst of fresh notes, or one side posting many replies, is not a pair and is not
+  counted that way.
+- **The hard caps** stay as backstops whatever is said: each node counts, per sender, at most 60
+  messages an hour, and per machine 300 an hour, whatever its sessions are called (a new session name
+  does not start the count again); `--max-turns` and `--deadline` bound one conversation.
+
+Every refusal names its rule and what to do next: say what is new, send status as progress, stop and
+ask the user, close the conversation with `aivoicebus reply --end --re ID`, or wait (`try again in`).
+The counts are kept in the node's `ratelimits.json`, so a restart does not forget them. They are
+brakes for agents, not security: the shared token lets anyone send as anyone (per-machine tokens bind
+a sender to its machine). Older nodes keep their own rules: a sender's third message in a thread that
+says the same thing as two before it, numbers, case, punctuation and spacing aside (so counting up one
+number at a time is refused there), and every reply from the 24th within 2 minutes between two
+sessions, new or not. A client writes each message to two nodes and it is sent when one takes it,
+so in a mixed mesh a reply an older node refuses may still go through a newer one (the client warns
+that only one node took it): update every node for one set of rules.
 
 **No chain reactions.** A task carries its depth: 0 from a person's session. A worker runs a task with
 `AIVOICEBUS_TASK_DEPTH` set to its depth plus one, so a task the run sends (by the CLI, or by the MCP
@@ -357,6 +441,53 @@ was taken but not answered, or not taken, and "N of M answered"; with `--json` o
 closes the thread an hour after its first message: every node (0.10.0 or later) refuses a later
 message in it with 409, an `[end]` always goes. It combines with `--max-turns`; set by the first
 message only, at most 30 days.
+
+**A conversation with a budget.** `send --to X --budget-chars 20000 "..."` (or `task ...
+--budget-chars N`) bounds what the conversation may cost: every node of 0.12.0 or later (feature
+`budget`) refuses, with 409 "the conversation has N left of its character budget", a message that
+would take the characters of all its message bodies past N; one that fits still goes, and so do an
+`[end]`, a claim, and a state that closes it (done, stuck, declined). Both sides see how much is
+used: the size line of `thread`, `thread --digest` and `status ID` reads "M of its N characters",
+and the `size` object carries `budget_chars`. Set by the first message only, 1 to 10,000,000, it
+combines with `--max-turns` and `--deadline`, a copy moved on by `--fallback` keeps it, and like them
+it is a brake, not signed. The CLI sends it only when every node it knows enforces it, the node it
+asks and that node's peers: in a mesh with an older node it refuses, sending nothing ("does not
+enforce --budget-chars"), since an older node would let the conversation pass its budget.
+
+**Ask and get the answer, in one command.** `aivoicebus ask laptop-b "which branch is deployed?"`
+(MCP: `aivoicebus_ask`) picks one session to ask, sends the question, waits, and prints the answer.
+TARGET is a machine, a tool on it (`laptop-b/codex`, or `laptop-b --tool codex`), one session
+(`laptop-b/codex.a1b2`), or `--any [--tool codex]` for anyone. Which session:
+
+- one listening now (a session standing by, a worker): it reads the question within a second;
+- with none listening, the one seen most recently (in the last 30 minutes, `--within`): it sees the
+  question on its next prompt;
+- a session id as named. The line `ask: SESSION: why` (on stderr) says which and why.
+
+When two candidates look alike (both listening, or none listening and seen within 2 minutes of each
+other), `ask` lists them, numbered, and refuses (exit 2) rather than guess: say `--pick N`, or name
+the session. `--any` takes any of them (one listening is picked at random). With nobody live at the
+target, nothing is sent (exit 3).
+
+The question goes as a task in a conversation with limits: `--max-turns 4` and `--deadline 15m` by
+default (an ask always carries both; raise them if a back-and-forth needs it), and `ask` waits up to
+the deadline (`--wait-reply`). Claims and progress show while it waits. Nobody took it (no claim, no
+answer, and the one session asked has not read it) in `--claim-within` (2m): the question is taken
+back, given to the next `--fallback M2,M3` machine (the session picked there; the machine itself
+when several there look alike, so the first claim wins; a machine with nobody live is skipped), and
+with none left `ask` exits 3. `--json` prints the one result object of `--wait-reply --json`, plus
+`outcome` (`answered`, `nobody`, `timeout`) and `why`.
+
+| exit | meaning |
+|---|---|
+| 0 | answered (printed, marked read) |
+| 2 | sessions look alike (listed), or a usage error |
+| 3 | nobody took it: nobody live there, or nobody took it in `--claim-within` (taken back) |
+| 6 | taken, but no answer in `--wait-reply`: `aivoicebus wait --thread T` waits on |
+
+`aivoicebus_ask` takes `target`, `body`, `tool`, `any`, `pick`, `wait_seconds` (at most 600) and
+`claim_seconds` (120), and returns `ANSWERED`, `NOBODY TOOK IT` or the thread to wait on; look-alikes
+are an error that lists them.
 
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
@@ -394,6 +525,25 @@ object. Bodies are peer text: untrusted, like everywhere.
 side's last word (one line each), and whether the thread is open or ended, instead of every
 message: what a session woken on a long conversation needs first.
 
+**Close a conversation that went quiet.** `aivoicebus thread ID --close-stale [--stale-after 30m]`
+ends a conversation nobody has written in for `--stale-after` (default 30 minutes, at least 1m) that
+is not ended and not in a final state (done, declined): it writes an `[end]`, answering the last
+message, whose body says why ("[closed as stale] no message in this conversation for 47m") and sums
+the thread up: its size, its state, and each side's last word, quoted and cut to a line. Only the
+conversation's sender, or the user in their own terminal, may do it; any other agent is refused and
+told to ask one of them. Nothing closes a conversation on its own. A conversation that is ended, done
+or declined, or not quiet long enough, is left alone with a message that says so and what to do.
+
+**What a conversation costs.** Both sides see a thread's size so far, counted from the thread
+itself: its messages, the characters of their bodies (and about a quarter as many tokens, what
+reading it all again costs an agent), and the tokens agents reported for runs in it (a worker's
+answer header, `(N tokens in, M out)`, the same counts `aivoicebus tokens` adds up for this
+machine). `thread` ends with `[aivoicebus] Thread size so far: ...`, `thread --digest` has a
+`size:` line, `status ID` an `its thread:` line (`--json`: `thread_size`), and `--wait-reply
+--json` (and `ask --json`) a `size` object: `{messages, chars, est_tokens, runs_with_counts,
+tokens_in, tokens_out, cost_usd, budget_chars}`. The reported counts are display only: anyone can write a header
+like that.
+
 **Recurring tasks, with no person and no cron.** `aivoicebus schedule add nightly --at 02:00 build-1
 --tool codex "run the integration suite and report"` (or `--every 6h`, at least 5m) keeps the
 schedule in `~/.config/aivoicebus/schedules.json`; a worker on this machine sends it as a task when
@@ -406,7 +556,9 @@ receiving machine's worker or sessions take it as any other task (a worker's all
 **Hear about a stuck task without asking.** `aivoicebus watch --after 15m` looks every minute at
 the tasks this machine sent lately (the last ten, at most a day old) and, once per task, says so
 when one has waited that long with nobody claiming or answering it (a withdrawn or expired one does
-not count). Give it somewhere to say it: `aivoicebus watch notify set https://ntfy.sh/YOUR-TOPIC`
+not count), and once more when one was taken and then went silent: nothing from whoever took it (no
+progress, answer or end) for `--quiet-after` (default 10m; 0 turns it off). The alert says who took
+it, when, and since when it has been silent. Give it somewhere to say it: `aivoicebus watch notify set https://ntfy.sh/YOUR-TOPIC`
 keeps the URL in `~/.config/aivoicebus/notify-url` (mode 0600, never printed: such URLs are often
 secrets), and every alert is POSTed there as plain text, the way ntfy and most webhook relays take
 it; `watch notify test` sends one. An alert names the task, its target and its age, never what it
@@ -433,6 +585,86 @@ code, the same path as approvals); in a terminal the person runs `aivoicebus ans
 questions and `aivoicebus answer ID` to type the answer (it refuses in an agent's session). The
 result says whether the answer came from the phone or the terminal; exit 6 when none came.
 
+**Getting unstuck.** An agent that is blocked says so instead of going silent or looping:
+`aivoicebus stuck "waiting for the person's yes on the deploy" --re ID` (MCP: `aivoicebus_stuck`).
+With `--re` the thread's other side hears it as progress (its wait prints `is STUCK` and goes on).
+By default (`--need person`) this machine's person hears it too: the whole reason in their inbox
+(`<machine>/human`; `aivoicebus answer` lists it, `aivoicebus answer ID` answers it) and, with a notify
+URL, a phone notification that carries who, which task and the reason cut to 80 characters, never
+the task's or anyone else's words. `--need peer` asks one session listening right now (as `task --any`
+picks), and `--need WORD` one listening with that tool or capability (`--need codex`, `--need gpu`),
+as a task it can claim; with nobody listening the person is told instead. A task sent with
+`--wait-reply` also says once when the session that took it goes silent for `--quiet-after` (default
+10m, 0 never), and with `--fallback` then takes it back and gives it to the next machine. A worker
+sends progress every 2 minutes while it runs, and the standby and snippet texts tell an agent to do
+the same every 5 minutes, so working sessions never trip it.
+
+**Where do I stand?** `aivoicebus status` (no id; `--json` for scripts; MCP: `aivoicebus_status` with no id) is one
+screen of about fifteen lines: who this session is and how that was worked out, the token's kind (machine, shared,
+observer, or refused), the release here, on the nodes and whether a newer one is announced, the nodes in one line
+(how many of the configured ones answer, links between them, clock spread and this machine's offset), unread messages
+by priority, tasks waiting for this session or machine, questions, approvals, stuck agents and tasks meant for the person (looked at with `inbox?peek=1`, so the person never shows as a session; nodes without `inbox-peek` are not asked), messages held
+back from agents, a pause in force, whether a worker runs here (the service, or one started by hand), which sessions
+on this machine are in a wait (standby), and quiet hours. A line marked `!` is something to act on and ends with
+`-> ` and the command that does it; `?` is a part that did not answer in time. Everything is asked at once under one
+budget (`--budget`, default 1.5s): a hung node costs the screen that and no more (a hedged read moves on to the next
+node after a quarter of a second), and what has not answered by then is `unknown` (`null` in the JSON, named in
+`unknown`) rather than a wait. It only reads; the exit code is 0 whatever it finds (read `problems` in the JSON).
+
+```
+aivoicebus status (air/claude.a1b2, 212ms)
+  me       air/claude.a1b2 (tool claude, from AIVOICEBUS_AGENT=claude.a1b2 (exported by the session-start hook))
+  token    a machine token, bound to air
+  release  0.10.4 here; nodes run 0.10.4 on 4; 0.10.5 is available
+!          release 0.10.5 is available (this is 0.10.4) -> aivoicebus update
+  nodes    4 of 5 up; peers 16/20 ok; clocks within 0.1s, this machine 0.0s off
+!          1 of 5 nodes do not answer: 0db.example:7777 -> aivoicebus mesh
+!          4 of 20 links between nodes are down -> aivoicebus mesh
+! inbox    2 unread: 1 urgent, 1 ask, 0 fyi -> aivoicebus inbox
+  tasks    none waiting for this session or machine
+  person   no question or approval waits for the person
+  held     nothing held back from agents
+  pause    none
+  worker   running (pid 4242)
+  standby  1 listening here: air/codex.k3j4
+  quiet    22:00-07:00 daily, not active now
+```
+
+**Conversation states: the handshake, said out loud.** A thread can carry an explicit state that both
+sides, `thread`, `thread --digest`, `--wait-reply --json` and the viewer show:
+
+    offered -> taken -> ready -> doing -> done        (and stuck, declined)
+
+`aivoicebus state ID` shows it and how it got there; `aivoicebus state ID ready "approved by the
+person"` moves it (MCP: `aivoicebus_state`). The thread's sender offers it, and a task is offered by
+being sent. Whoever takes it (its first claim, or the first state a session other than the sender
+says) moves it on: forward along the line, skipping steps if it likes (offered -> ready -> done is
+fine), or to `stuck` (something is in the way; it can go on to ready, doing or done) or `declined`.
+`done` and `declined` are final. Anything else is refused before it is sent, with what to do instead:
+the sender saying done ("you offered it: whoever takes it moves it on"), a third session ("X took it:
+only they move it on"), going back from doing to ready ("a state only moves forward"), a final
+conversation, a word that is no state.
+
+`--wait-state STATE [D]` (on `send`, `reply`, `task` and `state`; D defaults to 10m) blocks until the
+conversation gets to STATE or past it on the line (a wait for ready is over at ready, doing or done):
+exit 0. It also ends, with exit 1, when the other side writes in the thread first (the message is
+shown, as `--wait-reply` would), when it turns stuck while waiting (a wait that starts on stuck waits
+for it to move), or when it is final without getting there; exit 6 when D runs out. `--json` gives
+`{id, state: {state, by, at, note, offerer, taker, history, ignored}, waited_for, reached, arrived}`;
+`--wait-reply --json` carries the same `state` object. A wait spends no tokens: one held read at a time.
+
+A state is a `--kind progress` message whose first line starts with `[state NAME]`, so every node of
+0.10.0 or later stores and replicates it unchanged, and an older client shows it as the progress
+message it is. The state of a thread is folded by each reader from the thread's messages, by the
+rules above: a state message the rules refuse is listed as ignored and changes nothing, so writing the
+tag by hand skips nothing. Nodes of 0.11.0 or later (feature `states`) keep state messages out of the
+brakes: the pair brake neither counts nor refuses them, they do not count toward `--max-turns` (nor,
+being progress, toward the loop check), and `done`, `stuck` and `declined` pass a used-up turn limit
+or a passed deadline the way an `[end]` does, so a conversation can always be closed with its outcome;
+taken, ready or doing are refused there, as new work in a conversation that is over. The hourly
+limits per sender and per machine count them like any message. Older nodes count them as the
+progress messages they are.
+
 **Did it get through?** `aivoicebus status ID` (any message, `--json` for scripts) lists who read it
 and when, and how (shown at a session start or prompt, only counted, listed by `inbox`, read with the
 CLI), who took it if it is a task, how many replies it has, and whether it has expired. It reads
@@ -442,7 +674,7 @@ CLI), who took it if it is a task, how many replies it has, and whether it has e
 until something arrives (`/v1/inbox?wait=S&gen=G`, at most 25 s, answered as soon as the node takes
 in a new record), so `wait` and `--wait-reply` print an answer within a second of it reaching a node,
 with about one request per 25 s instead of one every 3 s. With an older node they fall back to asking
-every `--every`. While a session waits, `who` marks it `[listening now]` and `ping` says it is listening.
+every `--every`. While a session waits, `who` marks it `(listening)` and `ping` says it is listening.
 
 Tasks, claims and ends need nodes of release 0.2.0 or later (they advertise `tasks` in
 `/v1/health`); a node older than that would quarantine them, so the client refuses to send one
@@ -545,7 +777,7 @@ symlink, or on a line that is not an entry. No entry can mean everyone: `all`, `
 selectors and the nodes' own name are refused. `worker allow add|rm|list` edits it.
 **Sender names are self-declared.** Whoever holds the shared token can send as any name, so on a
 mesh where every machine holds the shared token the allowlist stops mistakes, not token holders.
-Per-machine tokens (`deploy/machine-token.sh`) bind each machine's messages to its own name; with
+Per-machine tokens (`deploy/machine-token.sh`, run from the root of an aivoicebus checkout) bind each machine's messages to its own name; with
 them, a machine entry means that machine.
 
 How a task runs:
@@ -667,6 +899,16 @@ MCP server offers this as its `standby` prompt, so it shows as a command in thos
 before an MCP tool runs: approve `aivoicebus_wait` for the session once (aivoicebus does not change
 Codex's approval settings). Each wake is one turn of the agent; the wait itself costs nothing.
 
+A standby can be scoped: `/aivoicebus-standby --only tasks` (the `standby` prompt's `only`
+argument; `aivoicebus wait --only tasks`, `aivoicebus_wait` with `only`) wakes only on tasks, `--only
+replies` only on messages that answer another (an answer, a claim, an end: the conversation this
+session is in), and `all`, the default, on anything. A task meant for the person (see "Tasks meant
+for the person") never wakes it as a task: under `all` and `tasks` the wait comes back once with a
+line saying it waits for the person and the command they run, and the session tells you. It looks
+at the person's own queue (`<machine>/human`) for that too, on nodes that can show it without
+making the person a session on the roster (feature `inbox-peek`). Each session says it once
+(`~/.config/aivoicebus/person-told`).
+
 Which to use:
 
 | | the worker | a session standing by |
@@ -702,24 +944,56 @@ service is an adapter behind it:
 
 | Provider | Service | Link in the message | What it gives |
 |---|---|---|---|
-| `pipe` | pipe server (default `https://pipe.0exec.com`) | `https://<pipe>/#ID~KEY`, the pipe's own end-to-end link | a file up to 7 MiB, encrypted on the sender's machine (AES-256-CTR + HMAC, the pipe's own envelope, so `p open` reads it), burn-after-read, 5 minutes |
-| `node` | one of your nodes (`/v1/files`) | `https://<node>/v1/files/ID#KEY` | the same envelope and limits, held in the node's memory, behind the mesh token |
+| `pipe` | pipe server (default `https://pipe.0exec.com`) | `https://<pipe>/#ID~KEY`, the pipe's own end-to-end link (`https://<pipe>/#ID` plus `sealed=` when the key is sealed) | a file up to 7 MiB, encrypted on the sender's machine (AES-256-CTR + HMAC, the pipe's own envelope, so `p open` reads it), burn-after-read, 5 minutes |
+| `node` | one of your nodes (`/v1/files`) | `https://<node>/v1/files/ID#KEY` (no `#KEY`, plus `sealed=`, when sealed) | the same envelope and limits, held in the node's memory, behind the mesh token |
 | `tail` | tail server (a server you run; none is set by default) | `https://<your tail>/STREAM`, the tail's own stream URL | a live log many readers can follow; the long random stream name is the only access control |
 
 ```
 aivoicebus send --to host/claude --file build.tgz "the artifact"     # --keep for several readers, --wait for a read receipt
 aivoicebus send --to host/claude --file build.tgz --via node "..."    # held by your own nodes instead of the pipe
+aivoicebus send --to host/claude --file build.tgz --open-link "..."   # key in the link, for an old reader or `p save`
+aivoicebus send --to host/claude --file post.png --meta kind=linkedin-post "the graphic"   # open metadata, sealed inside
 aivoicebus get MSGID                                                  # receiver: saves under ~/.local/share/aivoicebus/received/MSGID/
+aivoicebus get 'https://pipe.0exec.com/#ID~KEY'                       # receiver: a bare pipe link, no message needed
 make 2>&1 | aivoicebus tail push --to host/claude "following the build"
 aivoicebus get MSGID --follow                                         # receiver: reads the log for a minute
 ```
 
+**Open metadata.** `send --file F --meta k=v` (repeatable; keys of 1-32 letters, digits, `_ . -`) seals
+the pairs inside the encrypted payload (envelope version 3: `0x03 | iv | mac | AES-CTR(uint32be(len) |
+flat JSON | bytes)`, all under the pipe's MAC), together with the file's name, size and sha256. `get`
+checks the size and checksum, prefers the authenticated name over a `name=` beside the link, and prints
+the other keys as `meta k=v` lines labelled untrusted: this client never acts on a key, so agents can
+agree conventions without a release. The header is one flat JSON object, so go-fleet-pipe's `p -e -f F
+-m k=v`, `p save` and its browser page read and write the same thing. `--meta` always seals version 3.
+Without `--meta`, name, size and sha256 are sealed only with `AIVOICEBUS_PIPE_META=1` (off by default: a
+reader older than version 3 rejects it, and a read-once file is gone after that attempt; flip
+`metaDefault` in `internal/attach/pipe.go` once every node reads version 3 - readers accept both).
+
 What keeps it safe:
 
 - The message body holds one `[attach]` line; the view shows a summary (`aivoicebus get ID`) in its
-  place, so the key in a link never reaches an agent's context. The link is still in the board's
-  log, like any message: whoever can read the board can fetch the file, once, in the five
-  minutes it lives. The recipient then gets a 404 and the sender's `--wait` says it was read.
+  place, so the key in a link never reaches an agent's context.
+- **Sealed keys.** A file to one machine, or one session on it, whose machine key is known here
+  (pinned, or read from a message it signed) goes with its key sealed for that machine: the
+  `[attach]` line holds the link *without* its key plus `for=HOST sealed=v1.…`, and only that
+  machine's box key (`~/.config/aivoicebus/machine.box`, the X25519 key every signed message
+  carries) opens it. The seal is X25519 with a fresh key per file, HKDF-SHA256 and AES-256-GCM over
+  the whole link, bound to the keyless link, so it cannot be moved to another file, and an altered
+  one is refused. The board's log then holds no key that opens the file; any session on that
+  machine can fetch it with `aivoicebus get ID`, and another machine is told it is sealed for
+  someone else (the file is not burned by trying). `token hand` seals the token's key this way
+  by default.
+- **The key in the link**, as before, when there is no one machine to seal for or no key for it:
+  a broadcast or selector, a machine that has not sent a signed message yet, or `--open-link`
+  (for a reader on 0.10.4 or older, or so the pipe's own `p save` / `p open` can open the link).
+  `send` says so on stderr, and `--dry-run` says which it will be. Then whoever can read the
+  board can fetch the file, once, in the five minutes it lives; the recipient gets a 404 and the
+  sender's `--wait` says it was read. A reader on 0.10.4 or older that gets a sealed file sees
+  "not set up to use" and a `[sealed file]` line saying the key is sealed for that machine and
+  needs a newer aivoicebus; the sender can resend with `--open-link`. `token hand` sends the key
+  in the link only to an install that does not say it opens sealed keys (0.10.4 or older), and
+  says so.
 - A reader fetches only from the servers it is configured with (the pipe, `AIVOICEBUS_TAIL_URL`,
   https only, or http to loopback, and its own nodes), never from a host in a message. A link
   to any other host is shown as "not set up to use" and never fetched, so the mesh token goes
@@ -733,11 +1007,68 @@ What keeps it safe:
   selector that reaches several sessions is refused unless `--keep`.
 - The pipe and the tail are public and unauthenticated; the metadata they see is size, timing,
   the sender's and reader's IP addresses and the (random) id. A node sees the same, and only
-  token holders reach it. Per-recipient keys, so the board need not be trusted with the key, are
-  not done yet.
+  token holders reach it.
 
 Adding another service means one adapter in `internal/attach` that implements `Provider`
 (and `FileStore` or `LogStream` if it stores files or logs).
+
+### A thread's shared space: files, diffs and notes kept for days
+
+A file sent with `--file` lives five minutes and is read once: right for a hand-off. Two agents
+working a thread together for hours need a place both can read again: the build log, a diff, the
+notes they keep. Every thread has one, held by your nodes (0.12.0 or later), encrypted on the
+writer's machine for the thread's machines only:
+
+```
+aivoicebus share put 4f2a9c1e0b build.log              # a new version of build.log (any size; split into 4 MiB chunks)
+aivoicebus share put 4f2a9c1e0b --diff -- main          # the output of `git diff main`, as changes.diff (--name to change it)
+aivoicebus share ls 4f2a9c1e0b                          # what is there, its versions, who wrote them, when it goes
+aivoicebus share get 4f2a9c1e0b build.log               # the latest, to stdout (--out FILE saves it, --version N an older one)
+aivoicebus share notes 4f2a9c1e0b                       # the notes page (its version on stderr)
+aivoicebus share notes 4f2a9c1e0b --edit --base 3 --file notes.md   # write version 4; at a terminal, --edit alone opens $EDITOR
+aivoicebus share add 4f2a9c1e0b laptop-c                # let one more machine in
+aivoicebus share put 4f2a9c1e0b big.tgz --via pipe      # a one-off hand-off instead: a reply carrying a one-time pipe link
+```
+
+`ID` is any message of the thread. The MCP server has the same as `aivoicebus_share_put` (text or a
+file's path), `aivoicebus_share_get` (short text inline, anything else saved under
+`~/.local/share/aivoicebus/received/share-<thread>/`), `aivoicebus_share_ls` and `aivoicebus_share_notes`
+(read, or write with `base`).
+
+- **Versions.** Every put is a new version; older ones stay readable until the space goes. Notes
+  are one text with versions, and a write names the version it edits (`--base N`, 0 for the first
+  page): if someone wrote a newer one first, the node refuses it ("at version 5") and nothing is
+  stored. Get the latest, merge your change in, and put again with `--base 5`. Two nodes taking an
+  edit of the same version at the same moment (before either replicated) keep both: `ls` marks the
+  name CONFLICT and `get --id` reads the other.
+- **Who is in.** The machine that started the thread and the one it was sent to, then every machine
+  a participant wrote to in it (a signed message for one machine: a broadcast or a selector adds no
+  one), and every machine a participant added with `share add`. The space's key is 32 random bytes
+  made by the first writer and sealed for each of those machines' box key, the way a file link's
+  key is sealed (X25519, HKDF-SHA256, AES-256-GCM, its own label, bound to the thread and the
+  machine); a participant's next `share` command seals it for a machine that joined since. A key
+  record counts only when a participant's machine key signed it, so a machine outside the thread
+  can fetch ciphertext (any token holder can) but never a key, and cannot slip one in. A
+  participant that has not written in the thread yet is known by the first key record it signs,
+  which is then pinned (trust on first use, as a machine's first signed message is); a machine
+  whose key nobody here knows yet is told to reply in the thread first.
+- **What a node holds.** Sealed chunks (AES-256-GCM per chunk, bound to the thread, the version, its
+  place and the chunk count), sealed metadata (name, size, sha256, kind) and an opaque name id: never
+  a name, a key or a byte of plaintext. It refuses a chunk that is not sealed. Nodes replicate the
+  space to each other (`/v1/share/sync`, then the chunks a version still needs), apart from the
+  message log, and keep it on disk: a restart loses nothing, and a node that lost its disk takes it
+  back from its peers before it takes a share write.
+- **How long, how much.** A space lives 7 days after the thread's last message or write. A thread's
+  space holds 256 MiB of versions, a node 2 GiB in all; past that a put is refused with the next step
+  (a new thread, or `--via pipe`).
+- **What is checked.** Everything shared passes the same credential scan as a message before it is
+  encrypted, and the name too. Every version is signed by the writer's machine key; `get` and `ls`
+  say "signed", or SIGNED BY ANOTHER KEY or SIGNATURE DOES NOT VERIFY. A version another machine
+  wrote whose signature fails, or whose text reads like instructions to an agent, is held back from
+  an agent (`[held for the user: ...]`) exactly as a message is: the person reads it with
+  `aivoicebus held` and lets agents see it with `aivoicebus unhold ID`.
+- **An older node** answers 404 and does not advertise the `share` feature: the command says so and
+  points at `--via pipe`, which works with any node.
 
 ### Taking a message back (undo send)
 
@@ -748,6 +1079,10 @@ Adding another service means one adapter in `internal/attach` that implements `P
     aivoicebus retract --last          # the latest message this MACHINE sent, whichever session sent it
     aivoicebus retract --dry-run       # say what would happen and how many sessions had read it; write nothing
     aivoicebus retract --leak          # it held a credential: the tombstone and the dashboard say so
+
+A credential that leaked is more than one retraction: `aivoicebus incident` plans the whole response
+(revoke or rotate it, retract every message that held it, who read them) and does it at a terminal
+with `--apply` ([operations.md](operations.md), "If something leaked").
 
 **It hides, it does not erase.** On nodes that apply retractions the text stops being delivered and
 shown: unread inboxes (the session-start and per-prompt hooks, `aivoicebus_inbox`), `inbox --all` and
@@ -895,7 +1230,10 @@ on drift (missing or stale hook, stale snippet, token readable by others, no
 installed binary) and when the mesh rejects this machine's token (it asks the nodes
 `/v1/token`, or the roster on a node too old for that), and only warns for an
 unreachable mesh or a hook whose last run failed (the live check decides: the
-record may predate a fix).
+record may predate a fix). It also warns when nothing on the machine can be approved by a
+person (`approval`): no approver key (`aivoicebus approver init`), no notify URL for the phone
+(`aivoicebus watch notify set URL`), and no terminal (stdin `/dev/null`, as in an agent's tool
+call, is none). A token install or a write-mode worker's task would then wait for nobody.
 
 `doctor --fix` runs that same `setup` (only the managed blocks and hook entries are
 rewritten; the rest of your files is kept, and an instruction file whose block cannot be
@@ -963,6 +1301,121 @@ allowlist if more than your own machine needs it. `aivoicebus update` brings the
 that can reach the mesh, so the same one-liner works on a second laptop. `aivoicebus secret path NAME`
 prints where the file is, for a tool that reads a file; never print the file's content.
 
+## Tab completion and help
+
+    aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"        # zsh, then a new shell
+    aivoicebus completion bash > ~/.aivoicebus-completion.bash    # bash: source it from ~/.bashrc
+    aivoicebus completion fish > ~/.config/fish/completions/aivoicebus.fish
+    aivoicebus help ask                                           # what a command does, with examples
+
+Completion offers the commands, their subcommands (`token hand`, `fleet update`, ...) and their
+flags. The flags come from each command's own `-h`, so they never go out of date; a test proves
+`-h` is harmless for every listed command (it stops at the flags, writes nothing, reaches no
+node). `help COMMAND` shows real examples for the commands people reach for first, and a test
+checks each example's flags against the command's parser.
+
+## The fleet: which machine runs which release
+
+    aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token
+    aivoicebus fleet update                # the plan: the machines that are behind the nodes, or unknown
+    aivoicebus fleet update --apply        # a task for the person on each: "aivoicebus update" there
+
+Every client says its release with each request (the `X-Aivoicebus-Client` header, from 0.11.4), and
+each node keeps the last one it heard per machine, next to the token kind it saw (`/v1/token/seen`,
+kept across restarts). A machine whose client has not said since is "unknown". `fleet update --apply`
+sends each such machine a task for the person there (`task HOST --person`), which no agent takes:
+replacing the binary is the person's to approve, and `aivoicebus update` checks the signature first.
+`--only-behind` leaves the unknown ones out. A release-shaped value is all a node keeps from the header.
+A machine whose client is unknown or before 0.11.5 (whose hooks do not say what waits for the person)
+also gets an ordinary message to its sessions, `[for the person] ... run aivoicebus update in your own
+terminal`, which its agents relay to the user. Running it again sends nothing to a machine where the
+same task still waits for the person.
+
+## Machine tokens: handing a machine its own
+
+A machine token (`deploy/machine-token.sh add HOST --apply`, see [operations.md](operations.md))
+lets that machine send, acknowledge and read mail only as `HOST/...`. It is written on the machine you
+deploy from, to `~/.config/aivoicebus/machine-tokens/HOST`, and has to get to HOST as its
+`~/.config/aivoicebus/token`. The deploy side hands it over; the person on that machine takes it:
+
+    aivoicebus token hand laptop-a              # on the deploy machine (or --to laptop-a/codex.k3 for one session)
+    aivoicebus token install <task id>          # on laptop-a, by the person, in their own terminal
+
+1. `hand` asks the nodes whether they take the token as laptop-a's own (and refuses if not, or if
+   the file is readable by others, or if laptop-a is the deploy machine itself), then sends the person
+   on laptop-a a `[token hand v1]` task, addressed to `laptop-a/human`: no agent session there sees
+   it, and it is a task meant for the person (see "Tasks meant for the person"), so an agent that runs
+   `install` or `claim` on it is refused. `hand` prints the id and the command for the person to run.
+   With `--to SESSION` it goes to that one session instead, which may be an agent's: the deploy side
+   chose it (the approval then comes from the approver key or the phone).
+2. `install`, run there with the task's id, takes the task and asks the person to approve, since
+   it changes a credential. At a terminal it asks y/N. An agent's session has no terminal, so it sends
+   `[approval needed]` to the person and waits for one of two answers: a decision signed with the
+   approver key (`aivoicebus approve ID` in any terminal on that machine, with the approver passphrase;
+   `aivoicebus approver init` makes the key once), or the Approve button on the phone when a notify URL
+   is set. Before it waits, it answers the hand side with a progress message, `[token waiting for
+   approval]` and the request's id, so `hand` prints `taken by SESSION, waiting for the person's approval
+   on HOST (approve ID there)`. When the machine has no terminal, no approver key and no notify URL,
+   it refuses at once and answers `[token install failed]`, naming the fix: run `aivoicebus token install
+   ID` in a terminal there (it asks y/N), or `aivoicebus approver init` there once. Only after the
+   approval does it answer ready (see the conversation states below).
+   An agent named with `--to` runs `install` as a background command: the approval can take longer
+   than a tool call lasts. A task that was
+   retracted or expired is refused with a request for a fresh `token hand`. An install stopped with Ctrl-C or SIGTERM (what a tool call that times out sends) answers
+   `[token install failed]`; one killed outright answers nothing. Neither changes the token file,
+   which is replaced only after the link was fetched and checked.
+3. `hand` then puts the token in a one-time, end-to-end-encrypted file and sends only the link, in
+   the thread, to the session that said ready. Where the file is held is any of the attachment
+   services (the same as `send --file`): `--via node`, one of the mesh's nodes, or `--via pipe`, the
+   pipe server (`AIVOICEBUS_PIPE_URL`, the fleet pipe by default), whose links are the pipe's own
+   `p -e` envelope, so `p save` reads them too. Without `--via` it follows `AIVOICEBUS_FILE_VIA`, else
+   a node: for a credential, the node keeps even the ciphertext on the mesh's own machines, behind
+   the mesh token, where a pipe link can be fetched by anyone who has it. The link is good for one read
+   within five minutes, which is why it is made after the approval, not before.
+4. `install` fetches it from a node this machine is configured with, and asks the nodes with the new
+   token what it is. Only a machine token bound to this machine passes: another machine's, the
+   shared or observer token, or one no node takes is refused, and nothing changes. Then it replaces the
+   token file atomically (mode 600), reads it back and asks the nodes again; if that fails, the old
+   token goes back. It restarts the worker if one is installed, and answers `[token installed]` with
+   the new token.
+5. `hand` asks every node which token sent that answer (`/v1/token/seen`). It reports success only
+   if a node saw the answer arrive with laptop-a's machine token. The peer's own word is not enough.
+
+Which machines still use the shared token, from the nodes' own record:
+
+    aivoicebus token report [--days 7] [--deploy HOST] [--nodes NAME,...] [--check] [--json]
+
+lists every machine heard from in the last `--days` (the roster of every node), its role (`node` for
+a node's own name or one in `--nodes`, `deploy` for this machine or `--deploy`, else `client`), the
+kind of token the nodes last saw it use (`machine`, `shared`, or `unknown` when no node has seen it
+since it started; the newest answer of any node wins), and whether a machine token for it is in
+`machine-tokens/`. Its last line says whether rotating the shared token now would cut a machine off:
+any client on the shared token or unknown, or a node that did not answer, makes it NO. `--check` exits 1
+then; `deploy/rotate-token.sh --check` runs it against the nodes in deploy/nodes.conf.
+
+`install` also takes the id of a message that carries such a link, or the link itself, for a
+hand-over done by hand (a pipe link made with `p -e -f`, say). A link pasted through zsh gets a
+backslash before its `#` and `~`, which fish keeps; `install` takes those out, and refuses a
+link with a backslash anywhere else. `--json` gives the result as an object on both sides. Exit 0 from `hand` means
+installed and proven. When its `--wait` runs out, `hand` says where it stalled (`stalled_at` in
+`--json`): `untaken` (the person on HOST did not run `install`, or the `--to` session did not take it), `approval` (taken, but nobody approved it,
+or the install stopped before it asked), or `install` (approved and the link sent, but no
+`[token installed]` came back). The token is in no message, argument, output or log. A message that holds a
+raw token is refused by the send scan (the deploy machine's `machine-tokens/` and
+`AIVOICEBUS_MACHINE_TOKENS_DIR` count as secrets) and by the nodes. If `AIVOICEBUS_TOKEN` is set on
+the receiving machine, `install` refuses, because then the token file is not what that machine uses.
+Every message of the exchange must be signed by the sender's machine key.
+A worker never takes a `[token hand]` task: it is the person's.
+
+The exchange runs on conversation states (offered by the task, taken by the claim, then ready, and
+done, stuck or declined, which `thread` and the viewer show) when both sides know them: `hand` (0.11.0
+or later) ends its task with `(hand-over XXXXXXXX; states)`, and an `install` that sees that mark
+answers `[state ready]`, `[state done]` (sent with the new token), `[state stuck]` on a failure or
+`[state declined]` when the person said no. Each side still speaks to a 0.10.x peer: an `install`
+that finds no mark answers with the tags `[token ready] HOST`, `[token installed] HOST` and `[token
+install failed] HOST`, and `hand` takes either. In what follows, ready and the answer mean whichever
+the two sides used.
+
 ## Updating
 
     aivoicebus update --check       # is a newer signed release available?
@@ -1022,6 +1475,14 @@ no election, and losing nodes only delays delivery.
   How big it can get: [capacity.md](capacity.md).
 - `/v1/health` also lists the `features` a node has (`retract`, `quarantine`, ...; absent on a node that advertises none,
   where a client falls back to probing). `aivoicebus mesh` and `doctor` show them.
+- `/v1/unsigned?days=N` (1 to 30, default 7; feature `unsigned-report`) counts, per sender, the
+  messages a node holds from the last N days that carry no signature or one that does not verify:
+  what `serve --require-signed` refuses. A node keeps every message it took in (an expired one too),
+  so each answers for the mesh's traffic, and the answer survives a restart. `aivoicebus mesh
+  --signed-check [--days 7] [--json]` asks every node and says READY (exit 0) only when none holds
+  such a message and every node answered; otherwise NOT READY (exit 1), naming each sender, how many,
+  and its last message. (`/metrics`' `aivoicebus_refused_total{reason="unsigned"}` counts only what a
+  node already refuses, so it says nothing before the switch.)
 
 ## Client (each machine)
 
@@ -1066,14 +1527,16 @@ concern per package, stdlib only. Dependencies point one way (enforced by
 | `credstore` | credentials a person hands to the agents on their machine: validated names, private files, an owner check, the curl config | none |
 | `secrets` | what a credential looks like: refuse strong shapes, warn about weak ones; exact secrets (a node's tokens, a machine's secret files) are refused wherever they appear | none |
 | `store` | one node's durable log: messages, acks, indexes, presence, inbox/thread/who | msg |
+| `sharestore` | one node's shared spaces: sealed chunks on disk and a log of versions and sealed keys, its own replication numbering, caps and expiry | msg |
 | `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call | config, msg |
 | `outbox` | a checked send: target expansion, credentials, reach, cost, guardrails; and `retract` with the memory of the last messages sent; shared by the CLI and MCP | client, config, identity, msg, release, secrets, view |
 | `tasks` | taking a task (the claim and the check that it stands) and waiting for an answer; shared by the CLI, MCP and the worker | client, msg, outbox |
-| `mcp` | the MCP server (stdio JSON-RPC) over the board | client, identity, msg, outbox, tasks, view |
+| `share` | a session's side of a thread's shared space: who is in, the thread key sealed for each machine, chunks sealed and signed here, versions read and judged | attach, client, config, msg, outbox |
+| `mcp` | the MCP server (stdio JSON-RPC) over the board | client, identity, msg, outbox, share, tasks, view |
 | `worker` | `aivoicebus worker`: the allowlist, one bounded run of the command per task, the answer and its credential check, the local log | client, config, msg, outbox, tasks, view |
 | `discovery` | learns the signed node list and keeps it on the machine | client, config, release |
 | `release` | what a release is: signed manifest, versions, signing/verification, release sources; no network | none |
-| `server` | a node: authenticated API, tokens, health and metrics, release files, peer replication, startup | client, config, msg, release, secrets, store, version |
+| `server` | a node: authenticated API, tokens, health and metrics, release files, peer replication, startup | client, config, msg, release, secrets, sharestore, store, version |
 | `hook` | the session-start and per-prompt hooks for agent tools: quiet, bounded, capped; one-line update notice; the status note and daily warning when the mesh stops answering | client, config, discovery, identity, msg, outbox, release, version, view |
 | `agentcfg` | a machine's footprint: env file, shell line, Claude hooks, instruction blocks, `setup` and `doctor` logic; no network | assets, config, version |
 | `updater` | installs a newer release: verify, stage, prove it runs, swap atomically, run `setup` | client, release |

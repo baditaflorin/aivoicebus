@@ -133,7 +133,7 @@ func askHumanCmd(args []string, s Streams) error {
 var readTTYLine = func(prompt string) (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return "", errors.New("no terminal here")
+		return "", errors.New("no terminal here") // nextstep: wrapped by "answer needs a person at a terminal"
 	}
 	defer tty.Close()
 	fmt.Fprint(tty, prompt)
@@ -160,6 +160,11 @@ func answerCmd(args []string, s Streams) error {
 		n := 0
 		fmt.Fprintln(s.Out, view.UntrustedBanner)
 		for _, m := range ms {
+			if msg.IsStuck(m.Body) {
+				n++
+				fmt.Fprintf(s.Out, "%s  %s is stuck: %s\n", m.ID, view.Name(m.From, msg.MaxIdentity), view.OneLine(strings.TrimPrefix(m.Body, msg.StuckPrefix), 300))
+				continue
+			}
 			if strings.HasPrefix(m.Body, msg.AskPrefix) {
 				n++
 				q := strings.SplitN(strings.TrimPrefix(m.Body, msg.AskPrefix), "\n", 2)[0]
@@ -171,7 +176,7 @@ func answerCmd(args []string, s Streams) error {
 			}
 		}
 		if n == 0 {
-			fmt.Fprintln(s.Out, "no open questions")
+			fmt.Fprintln(s.Out, "no open questions, and no agent says it is stuck")
 		} else {
 			fmt.Fprintln(s.Out, "answer one: aivoicebus answer ID")
 		}
@@ -186,15 +191,19 @@ func answerCmd(args []string, s Streams) error {
 	}
 	var q msg.Message
 	for _, m := range ms {
-		if m.ID == args[0] && strings.HasPrefix(m.Body, msg.AskPrefix) {
+		if m.ID == args[0] && (strings.HasPrefix(m.Body, msg.AskPrefix) || (msg.IsStuck(m.Body) && m.To == msg.HumanOf(identity.Me()))) {
 			q = m
 		}
 	}
 	if q.ID == "" {
-		return outbox.Usagef("%s is not a question to a person", args[0])
+		return outbox.Usagef("%s is not a question to a person, nor an agent saying it is stuck", args[0])
 	}
 	fmt.Fprintln(s.Err, view.UntrustedBanner)
-	fmt.Fprintf(s.Err, "%s asks: %s\n", view.Name(q.From, msg.MaxIdentity), view.OneLine(strings.TrimPrefix(q.Body, msg.AskPrefix), 600))
+	if msg.IsStuck(q.Body) {
+		fmt.Fprintf(s.Err, "%s is stuck: %s\n", view.Name(q.From, msg.MaxIdentity), view.OneLine(strings.TrimPrefix(q.Body, msg.StuckPrefix), 600))
+	} else {
+		fmt.Fprintf(s.Err, "%s asks: %s\n", view.Name(q.From, msg.MaxIdentity), view.OneLine(strings.TrimPrefix(q.Body, msg.AskPrefix), 600))
+	}
 	choices := msg.AskChoices(q.Body)
 	prompt := "Your answer: "
 	if len(choices) > 0 {
@@ -205,10 +214,10 @@ func answerCmd(args []string, s Streams) error {
 		return fmt.Errorf("answer needs a person at a terminal: %v", err)
 	}
 	if text = strings.TrimSpace(text); text == "" {
-		return errors.New("no answer given; nothing sent")
+		return errors.New("no answer given; nothing sent: run `aivoicebus answer` again to answer")
 	}
 	if len(choices) > 0 && !slices.Contains(choices, strings.ToLower(text)) {
-		return fmt.Errorf("the choices are %s", strings.Join(choices, ", "))
+		return fmt.Errorf("the choices are %s: run `aivoicebus answer` again and type one", strings.Join(choices, ", "))
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: q.From, Re: q.ID, Thread: q.Thread, Kind: msg.KindAnswer, Body: msg.HumanAnswerPrefix + text, TargetSaid: true, From: msg.HumanOf(identity.Me())}, io.Discard)
 	if err != nil {

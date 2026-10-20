@@ -60,7 +60,7 @@ func TestMetricsCountRefusalsByReason(t *testing.T) {
 	r.Body.Close()
 	root, _ := s.Send(msg.Message{From: "a/b.c", To: "x/y.z", Body: "count: 1"})
 	for i := 0; i < 3; i++ {
-		s.Send(msg.Message{From: "x/y.z", To: "a/b.c", Re: root.ID, Body: fmt.Sprintf("number %d", 7+i)}) // the third is a loop
+		s.Send(msg.Message{From: "x/y.z", To: "a/b.c", Re: root.ID, Body: fmt.Sprintf("the count is at number %d now, and I will keep counting with you", 7+i)}) // the third is a loop
 	}
 	mr, _ := http.NewRequest("GET", srv.URL+"/metrics", nil)
 	mr.Header.Set("Authorization", "Bearer t")

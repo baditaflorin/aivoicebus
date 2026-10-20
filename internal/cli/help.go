@@ -10,6 +10,7 @@ import (
 // helpTopics is the one-line summary of every command, in the order `help` lists them. A test
 // holds it to the command table, so a command cannot be added without a line here.
 var helpTopics = []struct{ name, summary string }{
+	{"start", "the guided first run: reach the mesh, set up the tools, Codex trust, approver key, phone alerts, doctor, and a hello"},
 	{"send", "send a message to a session, a machine or everyone"},
 	{"reply", "answer the last message you read, to the right session"},
 	{"inbox", "read your messages (--ack marks them read)"},
@@ -37,10 +38,15 @@ var helpTopics = []struct{ name, summary string }{
 	{"trust-key", "list, add or remove the public keys this machine trusts for updates"},
 	{"release", "for maintainers: keygen, pack, verify, nodes"},
 	{"secret", "hand a credential to the agents on this machine without pasting it"},
+	{"fleet", "every machine heard from lately: its release, last heard and token, as the nodes saw them; `fleet update` asks the person on each machine that is behind to run aivoicebus update"},
+	{"token", "hand a machine its own machine token (`token hand HOST`, where it was made) and install it there (`token install ID`, a person approves); the nodes confirm the switch; `token report`: which machines still use the shared token"},
 	{"get", "download a file a message points at"},
+	{"share", "a thread's shared space, kept for days and encrypted for its machines: put ID FILE (--diff: git diff), get ID NAME [--version N], ls ID, notes ID [--edit --base N], add ID HOST; put --via pipe hands a file over once"},
 	{"tail", "follow or push a live log a message points at"},
 	{"view", "a read-only page of the mesh: session cards and the conversations between them (--demo to try it)"},
-	{"task", "give a machine a task: every session there sees it until one claims it"},
+	{"demo", "see the bus work, offline: two throwaway nodes, two invented agents, a task, a file and the brakes, narrated (--keep to poke around)"},
+	{"task", "give a machine a task: every session there sees it until one claims it (--person: for the person there, never an agent)"},
+	{"ask", "ask another machine's agent and get the answer in one command: picks the session listening now (or seen last), refuses to guess between look-alikes"},
 	{"claim", "take a task for this session (the first claim wins)"},
 	{"queue", "list the tasks waiting for this session's machine"},
 	{"wait", "block until a message arrives (in a thread, or from someone), for agent-to-agent conversations"},
@@ -48,16 +54,19 @@ var helpTopics = []struct{ name, summary string }{
 	{"keys", "this machine's signing key, and the keys pinned for other machines (forget one after a reinstall)"},
 	{"room", "a standing conversation of several agents: join, say, wait, who, invite"},
 	{"lease", "take, release or list a lease on a file, branch or anything named, so two agents do not edit it at once"},
-	{"status", "did it get through: who read a message and when, who took a task, how many replies"},
+	{"status", "where this session stands, in one screen, each problem with its fix; `status ID`: did that message get through"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
 	{"tokens", "what aivoicebus cost on this machine: context it put into each session (estimated) and the worker's runs (reported tokens)"},
 	{"audit", "what was approved, run, stopped, released or allowed on this machine; --verify checks the chain and signatures"},
 	{"ask-human", "ask this machine's person a question and wait: they answer on the phone (choice buttons) or with `aivoicebus answer`"},
-	{"answer", "the person's side of ask-human: list the open questions, or answer one (in a terminal)"},
+	{"answer", "the person's side of ask-human and stuck: list the open questions and blocked agents, or answer one (in a terminal)"},
+	{"state", "a conversation's handshake, seen by both sides: state ID ready \"note\" moves it (offered, taken, ready, doing, done, stuck, declined), --wait-state ready 10m waits for it"},
 	{"progress", "say how a task goes, to whoever waits on it: progress --re ID \"step 3/5\" (waits show it and go on)"},
+	{"stuck", "say you are blocked instead of going silent: stuck \"blocked on X\" [--re ID] [--need person|peer|TOOL]; the task's sender and your person (or a listening peer) are told"},
 	{"held", "what was held back from agents (a bad signature, or text that reads like instructions to an agent), with the text: the user's, in a terminal"},
 	{"unhold", "let agents see a held message (the user, at a terminal)"},
+	{"incident", "a credential leaked: plan (default) or do, at a terminal, the whole response: revoke or rotate it, retract the messages that held it, who read them, an audit entry"},
 	{"pause", "the kill switch: workers stop and take no task, schedules hold, sessions are told to stop (all, or a machine; --for 1h)"},
 	{"resume", "lift the pauses this machine sent (a person at a terminal)"},
 	{"cancel", "take back a task you sent: a worker running it stops the run (and everything it started) within seconds"},
@@ -69,6 +78,8 @@ var helpTopics = []struct{ name, summary string }{
 	{"trust-codex", "trust the Codex hooks setup installed (Codex runs new hooks only once you trust them); --check only reports"},
 	{"usage", "print the agent-facing usage text"},
 	{"version", "print the version"},
+	{"completion", "print tab completion for zsh, bash or fish: commands, subcommands and flags (`aivoicebus completion zsh > \"${fpath[1]}/_aivoicebus\"`)"},
+	{"__complete", "the candidates for the last word, for the completion scripts (not for people)"},
 	{"help", "this list; `help <command>` shows that command's flags"},
 }
 
@@ -97,7 +108,15 @@ func helpCmd(args []string, s Streams) error {
 	}
 	for _, t := range helpTopics {
 		if t.name == args[0] {
-			fmt.Fprintf(s.Out, "%s: %s\nits flags: aivoicebus %s -h\n", t.name, t.summary, t.name)
+			fmt.Fprintf(s.Out, "%s: %s\n", t.name, t.summary)
+			if ex := helpExamples[t.name]; len(ex) > 0 {
+				fmt.Fprintln(s.Out, "\nexamples:")
+				for _, e := range ex {
+					fmt.Fprintf(s.Out, "  %s\n", e)
+				}
+				fmt.Fprintln(s.Out)
+			}
+			fmt.Fprintf(s.Out, "its flags: aivoicebus %s -h\n", t.name)
 			return nil
 		}
 	}
@@ -106,5 +125,26 @@ func helpCmd(args []string, s Streams) error {
 		names = append(names, t.name)
 	}
 	sort.Strings(names)
-	return fmt.Errorf("unknown command %q (commands: %s)", args[0], strings.Join(names, ", "))
+	return fmt.Errorf("unknown command %q (commands: %s): `aivoicebus help COMMAND` says what one does", args[0], strings.Join(names, ", "))
+}
+
+// helpExamples are real command lines for the commands people reach for first (`help COMMAND`).
+// A test runs each one's flags through the command's own parser, so an example cannot rot.
+var helpExamples = map[string][]string{
+	"share": {"aivoicebus share put 4f2a9c1e0b build.log         # a new version of build.log in that thread's space",
+		"aivoicebus share put 4f2a9c1e0b --diff              # your uncommitted changes, as changes.diff",
+		"aivoicebus share get 4f2a9c1e0b build.log --version 1 --out old.log",
+		"aivoicebus share notes 4f2a9c1e0b --edit --base 3 --file notes.md   # refused if someone wrote version 4 first"},
+	"start":      {"aivoicebus start                 # the guided first run on a new machine"},
+	"send":       {`aivoicebus send --to laptop-b "the build is green"          # every session on a machine`, `aivoicebus send --to laptop-b/codex.k3 "look at PR 12" --prio urgent`},
+	"reply":      {`aivoicebus reply --re 4f2a "done, see 9c1e" --end`, `aivoicebus reply --re 4f2a --wait-reply 10m "which branch?"   # answer and wait for the next turn`},
+	"inbox":      {"aivoicebus inbox            # unread, without marking them read", "aivoicebus inbox --ack      # read and mark read"},
+	"task":       {`aivoicebus task build-1 "run the suite" --wait-reply 15m`, `aivoicebus task laptop-b --person "plug in the phone"   # for the person, never an agent`},
+	"ask":        {`aivoicebus ask laptop-b "does the login fix pass on your branch?"`, `aivoicebus ask --any --tool codex "review this diff" --json`},
+	"status":     {"aivoicebus status            # one screen: who you are, token, nodes, what waits", "aivoicebus status --json"},
+	"fleet":      {"aivoicebus fleet             # every machine: release, last heard, token", "aivoicebus fleet update      # the plan; --apply asks the person on each to update"},
+	"token":      {"aivoicebus token report      # which machines still use the shared token", "aivoicebus token hand laptop-b   # on the deploy machine; laptop-b's person runs token install"},
+	"stuck":      {`aivoicebus stuck "waiting for the staging DB" --re 4f2a`},
+	"pause":      {`aivoicebus pause "stop, I am looking"        # every agent on the mesh`, `aivoicebus pause laptop-b --for 30m "deploying"`},
+	"completion": {`aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"   # then open a new shell`, "aivoicebus completion fish > ~/.config/fish/completions/aivoicebus.fish"},
 }

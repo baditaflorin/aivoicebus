@@ -40,11 +40,13 @@ const (
 	FeatureRetractDryRun = "retract-dry-run" // /v1/retract answers a dry run without writing
 	FeatureTasks         = "tasks"           // accepts task, claim and end, and delivers a task to its owner only
 	FeatureTokenSeen     = "token-seen"      // /v1/token/seen: which kind of token last acted as a machine
+	FeatureUnsigned      = "unsigned-report" // /v1/unsigned: who sent messages without a valid signature lately
+	FeatureInboxPeek     = "inbox-peek"      // GET /v1/inbox?peek=1 reads what waits for an identity without making it a session
 )
 
 // NodeFeatures is what this release of the node can do, sorted.
 func NodeFeatures() []string {
-	return []string{FeatureDecide, FeatureFiles, FeatureInboxWait, FeatureLeases, FeatureQuarantine, FeatureReceipts, FeatureRetract, FeatureRetractDryRun, FeatureTasks, FeatureTokenSeen, FeatureTurns}
+	return []string{FeatureBrakes, FeatureBudget, FeatureDecide, FeatureFiles, FeatureInboxPeek, FeatureInboxWait, FeatureLeases, FeatureQuarantine, FeatureReceipts, FeatureRetract, FeatureRetractDryRun, FeatureShare, FeatureStates, FeatureTasks, FeatureTokenSeen, FeatureTurns, FeatureUnsigned}
 }
 
 // Has reports whether the node advertised feature f. False also for a node that advertises

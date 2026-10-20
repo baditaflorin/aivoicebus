@@ -3,6 +3,10 @@ package attach
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -215,7 +219,7 @@ func TestPipePutGetBurnsAndEncrypts(t *testing.T) {
 	fp, srv := newFakePipe(t)
 	p := &Pipe{Base: srv.URL}
 	data := []byte("secret-ish file contents")
-	l, watch, err := p.Put(context.Background(), data, true)
+	l, watch, err := p.Put(context.Background(), data, Meta{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,5 +347,156 @@ func TestGetTriesAgainWhenTheFirstAttemptGotNoAnswer(t *testing.T) {
 	defer gone.Close()
 	if _, err := (&Pipe{Base: gone.URL}).Get(context.Background(), Link{URL: gone.URL + "/#Abcd1234~" + key}); err != ErrGone || hits != 1 {
 		t.Errorf("a 404 was retried or misread: %v after %d requests", err, hits)
+	}
+}
+
+func TestMetaInsideRoundTripAndOptIn(t *testing.T) {
+	data := []byte("\x89PNG pretend image bytes")
+	fp, srv := newFakePipe(t)
+	p := &Pipe{Base: srv.URL}
+
+	// Default: version 1, so a reader older than version 3 can still open it.
+	t.Setenv("AIVOICEBUS_PIPE_META", "")
+	l, _, err := p.Put(context.Background(), data, Meta{Name: "post-graphic.png"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range fp.store {
+		if raw, _ := base64.StdEncoding.DecodeString(string(b)); raw[0] != verPlain {
+			t.Errorf("default upload is version %d, want %d", raw[0], verPlain)
+		}
+	}
+	if f, err := p.GetFile(context.Background(), l); err != nil || !bytes.Equal(f.Data, data) || f.Meta.Name != "" {
+		t.Fatalf("v1 GetFile: %+v %v", f, err)
+	}
+
+	// Opted in: name, size and checksum ride inside, the pipe never sees the name.
+	t.Setenv("AIVOICEBUS_PIPE_META", "1")
+	l, _, err = p.Put(context.Background(), data, Meta{Name: "post-graphic.png"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range fp.store {
+		if bytes.Contains(b, []byte("post-graphic")) {
+			t.Error("the pipe holds the file name in the clear")
+		}
+	}
+	bare := Link{URL: l.URL} // nothing beside the link: no name, size or checksum
+	f, err := p.GetFile(context.Background(), bare)
+	if err != nil || !bytes.Equal(f.Data, data) {
+		t.Fatalf("GetFile: %+v %v", f, err)
+	}
+	sum := sha256.Sum256(data)
+	if f.Meta.Name != "post-graphic.png" || f.Meta.Size != int64(len(data)) || f.Meta.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Errorf("meta %+v", f.Meta)
+	}
+	if got, err := p.Get(context.Background(), bare); err != nil || !bytes.Equal(got, data) {
+		t.Errorf("Get on a v3 file: %q %v", got, err)
+	}
+}
+
+func TestMetaEnvelopeRejectsLiesAndDamage(t *testing.T) {
+	key, _ := newKey()
+	data := []byte("the real bytes")
+	sum := sha256.Sum256(data)
+	good := Meta{Name: "a.txt", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
+
+	env, err := sealMeta(key, good, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, m, err := openAny(key, env); err != nil || !bytes.Equal(got, data) || m == nil || m.Name != "a.txt" {
+		t.Fatalf("openAny: %q %+v %v", got, m, err)
+	}
+	// Version 1 still opens, without metadata.
+	v1, _ := seal(key, data)
+	if got, m, err := openAny(key, v1); err != nil || m != nil || !bytes.Equal(got, data) {
+		t.Fatalf("v1 via openAny: %q %+v %v", got, m, err)
+	}
+	// A wrong key or a flipped bit fails the MAC, so metadata cannot be forged in transit.
+	other, _ := newKey()
+	if _, _, err := openAny(other, env); err != ErrAuth {
+		t.Errorf("wrong key: %v", err)
+	}
+	// A sender that seals metadata which does not describe the bytes is refused by GetFile.
+	for name, m := range map[string]Meta{
+		"wrong size": {Name: "a.txt", Size: 3, SHA256: good.SHA256},
+		"wrong sum":  {Name: "a.txt", Size: good.Size, SHA256: strings.Repeat("0", 64)},
+	} {
+		bad, _ := sealMeta(key, m, data)
+		fp, srv := newFakePipe(t)
+		fp.store["Badbad01"] = bad
+		p := &Pipe{Base: srv.URL}
+		if _, err := p.GetFile(context.Background(), Link{URL: p.Base + "/#Badbad01~" + key}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// A header that claims more than the payload holds is an error, not a panic.
+	pt := []byte{0xff, 0xff, 0xff, 0xff, 'x'}
+	short, _ := sealVer(key, verMeta, pt)
+	if _, _, err := openAny(key, short); err == nil {
+		t.Error("oversized header accepted")
+	}
+	tiny, _ := sealVer(key, verMeta, []byte{0, 1})
+	if _, _, err := openAny(key, tiny); err == nil {
+		t.Error("truncated header accepted")
+	}
+	if _, err := sealMeta(key, Meta{Name: strings.Repeat("x", maxMeta+1)}, data); err == nil {
+		t.Error("an over-long name was sealed")
+	}
+}
+
+func TestMetaIsOpenAndFlat(t *testing.T) {
+	m := Meta{Name: "a.png", Size: 3, SHA256: strings.Repeat("a", 64),
+		Extra: map[string]string{"kind": "post <graphic> & more", "from": "mba/claude.f360"}}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf) // as sealMeta does: json.Marshal would re-escape < > &
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(m)
+	b := buf.Bytes()
+	if err != nil || !strings.Contains(string(b), `"kind":"post <graphic> & more"`) || !strings.Contains(string(b), `"name":"a.png"`) {
+		t.Fatalf("marshal: %s %v", b, err)
+	}
+	// A header written by another client (the pipe's shell helper, another language) with keys
+	// this client has never heard of, including numbers and nested values.
+	var got Meta
+	in := `{"name":"x.txt","size":4,"future":"yes","count":7,"nested":{"a":1},"bad key":"z","ctl":"a\u001b[2Jb"}`
+	if err := json.Unmarshal([]byte(in), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "x.txt" || got.Extra["future"] != "yes" || got.Extra["count"] != "7" {
+		t.Errorf("unmarshal: %+v", got)
+	}
+	if _, ok := got.Extra["nested"]; ok {
+		t.Error("a nested value was kept")
+	}
+	if _, ok := got.Extra["bad key"]; ok {
+		t.Error("an invalid key was kept")
+	}
+	for _, l := range got.ExtraLines() {
+		if strings.ContainsRune(l, 0x1b) {
+			t.Errorf("a control character reached the output: %q", l)
+		}
+	}
+	// A key that tries to override a verified one is refused when writing.
+	for _, k := range []string{"name", "size", "sha256", "bad key", ""} {
+		if _, err := json.Marshal(Meta{Extra: map[string]string{k: "x"}}); err == nil {
+			t.Errorf("key %q accepted", k)
+		}
+	}
+}
+
+func TestExtraKeysAreSealedEvenWithoutTheOptIn(t *testing.T) {
+	t.Setenv("AIVOICEBUS_PIPE_META", "")
+	_, srv := newFakePipe(t)
+	p := &Pipe{Base: srv.URL}
+	data := []byte("body")
+	l, _, err := p.Put(context.Background(), data, Meta{Name: "n.txt", Extra: map[string]string{"kind": "demo"}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := p.GetFile(context.Background(), Link{URL: l.URL})
+	if err != nil || f.Meta.Extra["kind"] != "demo" || f.Meta.Name != "n.txt" || !bytes.Equal(f.Data, data) {
+		t.Fatalf("%+v %v", f, err)
 	}
 }

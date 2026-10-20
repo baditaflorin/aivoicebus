@@ -18,6 +18,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/credstore"
+	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
 const secretUsage = `usage: aivoicebus secret save NAME [--host HOST[,HOST]] [--check-url URL [--check-field F]] [--no-check]
@@ -65,7 +66,7 @@ func secretCmd(args []string, s Streams) error {
 func secretBase() (string, error) {
 	d := config.Dir()
 	if d == "" {
-		return "", errors.New("no home directory to keep credentials in")
+		return "", errors.New("no home directory to keep credentials in: ask the user to set HOME, then run it again")
 	}
 	return filepath.Join(d, "credentials"), nil
 }
@@ -116,7 +117,7 @@ func secretSave(base string, args []string, s Streams) error {
 	if url != "" {
 		host, err := credstore.HostOf(url, allowLoopbackCheck())
 		if err != nil {
-			return fmt.Errorf("check address: %v (plain http to localhost is only for tests)", err)
+			return fmt.Errorf("check address: %v (plain http to localhost is only for tests): run it again with an https URL", err)
 		}
 		hosts = append(hosts, host)
 		if !*noCheck {
@@ -143,7 +144,7 @@ func secretSave(base string, args []string, s Streams) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		if owner, err = credstore.Check(ctx, &http.Client{}, url, field, tok, allowLoopbackCheck()); err != nil {
-			return fmt.Errorf("%v; nothing was saved (--no-check saves it anyway)", err)
+			return fmt.Errorf("%v; nothing was saved: check the credential, then run it again (with --no-check it is saved unchecked)", err)
 		}
 	}
 	if err := credstore.Save(base, name, tok, hosts); err != nil {
@@ -248,7 +249,7 @@ func secretList(base string, s Streams) error {
 		if !e.Private {
 			hosts += "  <- readable by others: chmod 600 " + e.Path
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%04o\t%s\n", e.Name, e.Saved.Local().Format("2006-01-02 15:04"), e.Mode, hosts)
+		fmt.Fprintf(tw, "%s\t%s\t%04o\t%s\n", e.Name, view.When(e.Saved, time.Now()), e.Mode, hosts)
 	}
 	return tw.Flush()
 }
@@ -313,7 +314,7 @@ func secretCurl(base string, args []string, s Streams) error {
 	}
 	bin, err := exec.LookPath("curl")
 	if err != nil {
-		return errors.New("curl is not installed")
+		return errors.New("curl is not installed: ask the user to install curl, then run it again")
 	}
 	argv := append([]string{"-q", "-K", "-", "--proto", "=https"}, rest...) // -q first: no ~/.curlrc
 	c := exec.Command(bin, argv...)

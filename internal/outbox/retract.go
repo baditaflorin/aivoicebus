@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/identity"
@@ -68,7 +69,7 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 	by := identity.Me()
 	if o.As != "" {
 		if by = strings.ToLower(strings.TrimSpace(o.As)); !msg.ValidIdentity(by) {
-			return errors.New("--as: not an identity (host/agent)")
+			return errors.New("--as: not an identity (host/agent): `aivoicebus whoami` shows this session's")
 		}
 	}
 	last, exact := id == "", true
@@ -81,9 +82,9 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 		}
 		cand, exact, id = e, ex, e.ID
 	case o.Last:
-		return errors.New("--last takes the machine's latest message: give it no id")
+		return errors.New("--last takes the machine's latest message: run it again without the id")
 	case !msg.ValidRetractID(id):
-		return fmt.Errorf("%q is not a message id (ten lowercase hex digits)", oneLine(id, 40))
+		return fmt.Errorf("%q is not a message id (ten lowercase hex digits): `aivoicebus inbox --all` lists ids", oneLine(id, 40))
 	}
 
 	m, found, err := lookup(c, id)
@@ -106,13 +107,13 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 		if o.Agent {
 			how = "if that is the message to withdraw, call aivoicebus_retract with id " + id
 		}
-		return fmt.Errorf("nothing sent as %s is remembered, so nothing was taken back. %s; %s", view.Name(by, 80), candidate(cand, text), how)
+		return fmt.Errorf("nothing sent as %s is remembered, so nothing was taken back. %s; %s", view.Name(by, 80), candidate(cand, text), how) // nextstep: how
 	}
 	switch {
 	case err != nil:
 		return err
 	case !found:
-		return NotFoundf("message %s was not found on the nodes (a typo, or it has not reached them yet)", id)
+		return NotFoundf("message %s was not found on the nodes (a typo, or it has not reached them yet): try again in a minute, or check the id with `aivoicebus inbox --all`", id)
 	}
 	switch {
 	case !last:
@@ -132,9 +133,9 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 
 	if !msg.MayRetract(by, m.From) {
 		if o.As != "" {
-			return fmt.Errorf("--as %s is on %s, but message %s was sent from %s: only a session on that machine can retract it", view.Name(by, 80), view.Name(msg.HostOf(by), 60), id, view.Name(msg.HostOf(m.From), 60))
+			return fmt.Errorf("--as %s is on %s, but message %s was sent from %s: only a session on that machine can retract it: ask the user there to run `aivoicebus retract %s`", view.Name(by, 80), view.Name(msg.HostOf(by), 60), id, view.Name(msg.HostOf(m.From), 60), id)
 		}
-		return fmt.Errorf("message %s was sent from %s; this machine is %s; only that machine can retract it", id, view.Name(msg.HostOf(m.From), 60), view.Name(msg.HostOf(by), 60))
+		return fmt.Errorf("message %s was sent from %s; this machine is %s; only that machine can retract it: ask the user there to run `aivoicebus retract %s`", id, view.Name(msg.HostOf(m.From), 60), view.Name(msg.HostOf(by), 60), id)
 	}
 	if o.As != "" {
 		if err := needSharedToken(c, by); err != nil {
@@ -148,7 +149,7 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 	leak := o.Leak
 	mesh := viewMesh(c)
 	if r := m.Retracted; r != nil && !(leak && !r.Leak) {
-		fmt.Fprintf(w, "already retracted by %s at %s UTC", view.Name(r.By, 80), r.At.UTC().Format("2006-01-02 15:04"))
+		fmt.Fprintf(w, "already retracted by %s at %s", view.Name(r.By, 80), view.When(r.At, time.Now()))
 		if r.Leak {
 			fmt.Fprint(w, " (flagged as having held a credential)")
 		}
@@ -178,7 +179,7 @@ func Retract(c *client.Client, id string, o RetractOptions, w io.Writer) error {
 // candidate says which message a retraction without an id would be about: the machine's latest,
 // with who sent it and when, which is what a person needs to decide whether it is the one.
 func candidate(e sentMsg, text string) string {
-	return fmt.Sprintf("last message from this machine: %s sent as %s to %s at %s UTC: %s", e.ID, view.Name(e.From, 80), view.Name(e.To, 80), e.At.UTC().Format("2006-01-02 15:04"), text)
+	return fmt.Sprintf("last message from this machine: %s sent as %s to %s at %s: %s", e.ID, view.Name(e.From, 80), view.Name(e.To, 80), view.When(e.At, time.Now()), text)
 }
 
 // shown is how a message is named before it is taken back: the start of its text cut to one line,
@@ -236,9 +237,9 @@ func needSharedToken(c *client.Client, by string) error {
 	case err != nil:
 		return nil
 	case ti.Observer:
-		return errors.New("this token is read-only (an observer token) and cannot retract")
+		return errors.New("this token is read-only (an observer token) and cannot retract: ask the user to run it where the shared token is")
 	case ti.Host != "" && !strings.EqualFold(ti.Host, msg.HostOf(by)):
-		return fmt.Errorf("--as needs the shared token: this machine's token can only act as %s/...", oneLine(ti.Host, 60))
+		return fmt.Errorf("--as needs the shared token: this machine's token can only act as %s/...; ask the user to run it where the shared token is", oneLine(ti.Host, 60))
 	}
 	return nil
 }

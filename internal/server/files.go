@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
 
 // A node can hold a file for a few minutes so a message can point at it without a separate
@@ -169,7 +171,7 @@ func fileRoutes(mux *http.ServeMux, box *fileBox, upload, agent func(principalHa
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "the file is larger than a node takes (7 MiB before encryption)", http.StatusRequestEntityTooLarge)
+			refuse(w, msg.RefusedTooLarge, "the file is larger than a node takes (7 MiB before encryption)", http.StatusRequestEntityTooLarge)
 			return
 		}
 		if !looksSealed(body) {
@@ -206,7 +208,7 @@ func fileRoutes(mux *http.ServeMux, box *fileBox, upload, agent func(principalHa
 		}
 		data, ok := box.get(id)
 		if !ok {
-			http.Error(w, "gone: it expired or was already read", http.StatusNotFound)
+			refuse(w, msg.RefusedGone, "gone: it expired or was already read", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain")

@@ -95,6 +95,13 @@ func (w *Worker) Decide(m msg.Message) (why, entry string) {
 	if m.Kind != msg.KindTask {
 		return "not a task", ""
 	}
+	if strings.HasPrefix(strings.TrimSpace(m.Body), msg.TokenHandTag) {
+		// it replaces this machine's token, which a person approves: left for the person to take
+		return "it hands this machine its own token: the person there takes it (aivoicebus token install ID), not the worker", ""
+	}
+	if msg.PersonOnly(m) {
+		return "it is meant for the person on this machine (" + msg.PersonStep(m) + "), not for an agent", ""
+	}
 	entry, ok := w.Allow.Allows(m.From)
 	if !ok {
 		if w.Allow.Empty() {
@@ -180,7 +187,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 	if p, until, on := msg.ActivePause(ms, w.now()); on && !w.DryRun {
 		if note := p.ID + until.String(); note != w.pausedNote {
 			w.pausedNote = note
-			w.say("paused by %s until %s: taking no task (aivoicebus resume, on that machine, lifts it)", view.Name(p.From, msg.MaxIdentity), until.Local().Format("01-02 15:04"))
+			w.say("paused by %s until %s: taking no task (aivoicebus resume, on that machine, lifts it)", view.Name(p.From, msg.MaxIdentity), view.When(until, time.Now()))
 		}
 		return 0, nil
 	}
@@ -245,7 +252,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 // the command ran.
 func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base Entry) bool {
 	who := view.Name(m.From, msg.MaxIdentity)
-	c, err := tasks.Claim(w.C, w.Me, m.ID, "the worker on "+msg.HostOf(w.Me)+" is running it now", w.Settle, io.Discard)
+	c, err := tasks.Claim(w.C, w.Me, tasks.Agent, m.ID, "the worker on "+msg.HostOf(w.Me)+" is running it now", w.Settle, io.Discard)
 	switch {
 	case err != nil:
 		w.say("task %s from %s: claim failed: %v", m.ID, who, err)

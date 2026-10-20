@@ -15,6 +15,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/version"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -47,6 +48,7 @@ func init() {
 		"setup":   setup,
 		"doctor":  doctor,
 		"join":    join,
+		"start":   startCmd,
 		"mesh":    meshCmd,
 		"nodes":   nodesCmd,
 		"quiet":   quietCmd,
@@ -66,7 +68,9 @@ func init() {
 		"trust-key": trustKeyCmd,
 		"help":      helpCmd,
 		"view":      viewCmd,
+		"demo":      demoCmd,
 		"task":      taskCmd,
+		"ask":       askCmd,
 		"claim":     claimCmd,
 		"queue":     queueCmd,
 		"wait":      waitCmd,
@@ -88,12 +92,20 @@ func init() {
 		"ask-human":   askHumanCmd,
 		"answer":      answerCmd,
 		"progress":    progressCmd,
+		"stuck":       stuckCmd,
 		"audit":       auditCmd,
 		"unhold":      unholdCmd,
 		"tokens":      tokensCmd,
+		"fleet":       fleetCmd,
+		"completion":  completionCmd,
+		"__complete":  completeCmd,
+		"token":       tokenCmd,
 		"resume":      resumeCmd,
 		"approver":    approverCmd,
 		"deny":        denyCmd,
+		"incident":    incidentCmd,
+		"state":       stateCmd,
+		"share":       shareCmd,
 	}
 }
 
@@ -106,6 +118,7 @@ func (e exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
 // Run executes one aivoicebus invocation and returns its exit code.
 func Run(args []string, s Streams) int {
 	config.LoadEnvFile()
+	client.SetRelease(version.Release) // every request says which release this machine runs (aivoicebus fleet)
 	if len(args) < 1 {
 		fmt.Fprintln(s.Err, "usage: aivoicebus <command> [flags]   (aivoicebus help lists the commands)")
 		return 2
@@ -119,7 +132,7 @@ func Run(args []string, s Streams) int {
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
-		fmt.Fprintln(s.Err, "error:", fmt.Errorf("unknown command %q", args[0]))
+		fmt.Fprintln(s.Err, "error:", fmt.Errorf("unknown command %q: `aivoicebus help` lists the commands", args[0]))
 		return 1
 	}
 	var counted *countingWriter
@@ -132,6 +145,7 @@ func Run(args []string, s Streams) int {
 		config.NoteUsage(identity.Me(), "cli:"+args[0], counted.n)
 	}
 	code := exitCode(err)
+	err = withNextStep(err, args[0])
 	var ee exitError
 	switch {
 	case err == nil, errors.As(err, &ee):
@@ -163,7 +177,7 @@ func screenForAgent(m msg.Message) string {
 }
 
 // agentReads are the commands whose output an agent reads into its context.
-var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true}
+var agentReads = map[string]bool{"inbox": true, "wait": true, "thread": true, "queue": true, "status": true, "ping": true, "who": true, "usage": true, "ask": true, "share": true}
 
 type countingWriter struct {
 	w io.Writer

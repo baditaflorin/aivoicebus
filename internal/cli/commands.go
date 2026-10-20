@@ -90,6 +90,13 @@ func trailingFlags(fs *flag.FlagSet, s Streams) ([]string, error) {
 type taskMove struct {
 	next        []string
 	claimWithin time.Duration
+	// ask is `aivoicebus ask`: a task nobody took in claimWithin, with no next machine left, is
+	// taken back and the command exits 3 (nobody took it); a session it went to has it once it
+	// read it; and each next machine's copy goes to the session pick chooses there ("" skips one
+	// with nobody live). why is who it went to and why, for --json.
+	ask  bool
+	why  string
+	pick func(machine string) (to, why string)
 }
 
 func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
@@ -98,6 +105,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		name = "reply"
 	}
 	fs := newFlagSet(name)
+	args = joinWaitState(args)
+	ws := &waitState{}
+	fs.Var(ws, "wait-state", "after sending, wait until the conversation gets to this state or past it (offered|taken|ready|doing|done|stuck|declined), e.g. --wait-state ready 10m; it also ends when the other side writes, or it becomes stuck or final (exit 1)")
 	to := fs.String("to", "", "all | host | host/agent | */agent | host/* | @repo=x,branch=y | @here | @+group (see: aivoicebus usage); default for --re: whoever wrote that message")
 	re := fs.String("re", "", "reply to message id (or its first characters, if they name one message)")
 	thread := fs.String("thread", "", "thread id (default: new, or the reply's)")
@@ -110,13 +120,18 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	file := fs.String("file", "", "send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID")
 	via := fs.String("via", "", "with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe")
 	tail := fs.String("tail", "", "point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME")
+	openLink := fs.Bool("open-link", false, "with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once")
 	keep := fs.Bool("keep", false, "with --file: let several sessions read the file (it is not burned by the first read)")
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
+	var metas metaFlag
+	fs.Var(&metas, "meta", "with --file: seal a key=value inside the file's encrypted payload for the reader (repeatable; any keys: it is open data the reader may use or ignore; the file name, size and sha256 are sealed with it)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	private := fs.Bool("private", false, "seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)")
 	deadline := fs.Duration("deadline", 0, "start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes")
 	maxTurns := fs.Int("max-turns", 0, "start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever")
+	budgetChars := fs.Int("budget-chars", 0, "start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs")
 	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
+	quietAfter := fs.Duration("quiet-after", tasks.QuietAfter, "with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never")
 	ackIt := new(bool)
 	end := new(bool)
 	if reply {
@@ -132,7 +147,16 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		return err
 	}
 	body := strings.Join(words, " ")
+	if len(metas.m) > 0 && *file == "" {
+		return outbox.Usagef("--meta goes with --file: it is sealed inside the file's payload")
+	}
+	if ws.state != "" && *waitReply > 0 {
+		return outbox.Usagef("--wait-state and --wait-reply are two ways to wait: use one")
+	}
 	if *end {
+		if ws.state != "" {
+			return outbox.Usagef("--end closes the conversation, so there is no state to wait for")
+		}
 		if *kind != "" && *kind != msg.KindEnd {
 			return outbox.Usagef("--end and --kind %s say different things; use one", *kind)
 		}
@@ -140,6 +164,9 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		if *waitReply > 0 {
 			return outbox.Usagef("--end closes the conversation, so there is no reply to wait for")
 		}
+	}
+	if *quietAfter < 0 || (*quietAfter > 0 && *quietAfter < time.Second) {
+		return outbox.Usagef("--quiet-after is at least 1s, or 0 for never")
 	}
 	var fallbacks []string
 	claimWithin := new(time.Duration)
@@ -161,7 +188,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	}
 	if *file != "" || *tail != "" {
 		if *file != "" && *tail != "" {
-			return errors.New("use --file or --tail, not both")
+			return errors.New("use --file or --tail, not both: run it again with one")
 		}
 		c, err := client.FromEnv()
 		if err != nil {
@@ -170,8 +197,11 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		if reply && *re == "" {
 			return outbox.Usagef("reply with --file or --tail needs --re ID: nothing is inferred for an attachment")
 		}
+		if ws.state != "" {
+			return outbox.Usagef("--wait-state does not combine with --file or --tail: send it, then aivoicebus state ID --wait-state %s", ws.state)
+		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)
@@ -187,7 +217,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		return err
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
-		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline}, s.Err)
+		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars}, s.Err)
 	if err != nil {
 		return err
 	}
@@ -242,7 +272,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if *ackIt && plan.Msg.Re != "" { // the reply is out: its message is handled
 		_ = c.AckVia(plan.Msg.Re, identity.Me(), msg.ViaCLI, 0)
 	}
-	if *asJSON && *waitReply == 0 {
+	if *asJSON && *waitReply == 0 && ws.state == "" {
 		return writeJSON(s.Out, sentView{ID: out.ID, Thread: out.Thread, To: view.Name(out.To, msg.MaxIdentity), Re: out.Re, Reach: reachOf(plan), Notes: append([]string{}, plan.Notes...)})
 	}
 	sentOut := s.Out
@@ -265,9 +295,24 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	if len(plan.Suspect) > 0 {
 		fmt.Fprintln(s.Err, "if that went out: aivoicebus retract --leak "+out.ID)
 	}
+	if ws.state != "" {
+		return waitForState(c, identity.Me(), out.ID, ws, *asJSON, "", s)
+	}
 	if *waitReply > 0 {
 		me := identity.Me()
 		takenBy := ""
+		var mv taskMove
+		if len(moves) > 0 {
+			mv = moves[0]
+		}
+		result := func(cur msg.Message, got []msg.Message, outcome string) resultView {
+			r := resultOf(cur, takenBy, got)
+			if mv.ask {
+				r.Outcome, r.Why = outcome, mv.why
+			}
+			return withState(c, r) // the conversation's state when the wait ended
+		}
+		turns, closeAfter, budget := *maxTurns, *deadline, *budgetChars // the conversation's limits, for a copy moved on
 		deliver := func(cur msg.Message, got []msg.Message, ack bool) error {
 			if !*asJSON {
 				showArrived(c, me, got, ack, s)
@@ -283,7 +328,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 					takenBy = r.Owner.By
 				}
 			}
-			return writeJSON(s.Out, resultOf(cur, takenBy, got))
+			return writeJSON(s.Out, result(cur, got, "answered"))
 		}
 		if repeat { // its answer may be in already, read by the first wait: show it rather than wait for another
 			if done := answeredIn(c, out, me); len(done) > 0 {
@@ -294,50 +339,122 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		fmt.Fprintf(s.Err, "waiting up to %s for an answer in thread %s...\n", waitReply.String(), out.Thread)
 		deadline := time.Now().Add(*waitReply)
 		cur := out
+		// Who took the current task, when, and when they last said how it goes (a claim or progress):
+		// the local time it arrived drives the quiet timer, the node's times are what the alert says.
+		var takenAt, lastWordAt, lastHeard time.Time
+		claimBy := time.Now().Add(*claimWithin) // with --fallback: when the current target's turn ends
+		quietSaid := false
+		held := false // ask: the nodes say the one session asked read it, or cannot say: not moved on
+		quiet := time.Duration(0)
+		if cur.Kind == msg.KindTask {
+			quiet = *quietAfter
+		}
+		// moveOn takes cur back and gives the task to the next fallback; why says what happened.
+		moveOn := func(why string) error {
+			if _, err := c.Retract(cur.ID, me, false, false); err != nil {
+				fmt.Fprintf(s.Err, "%s, and it could not be taken back (%v): not moving it on\n", why, err)
+				fallbacks, held = nil, true
+				return nil
+			}
+			next, nextWhy := "", ""
+			for next == "" && len(fallbacks) > 0 {
+				next, fallbacks = fallbacks[0], fallbacks[1:]
+				if mv.pick != nil {
+					next, nextWhy = mv.pick(next)
+				}
+			}
+			if next == "" { // ask, and no next machine with anyone there
+				fmt.Fprintf(s.Err, "%s: took %s back. Nobody answered; ask again later or another target.\n", why, cur.ID)
+				if *asJSON {
+					_ = writeJSON(s.Out, result(cur, nil, "nobody"))
+				}
+				return exitError{exitNotFound}
+			}
+			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true,
+				MaxTurns: turns, Deadline: closeAfter, BudgetChars: budget}, io.Discard)
+			if err != nil {
+				return fmt.Errorf("moving the task on to %s: %w", next, err)
+			}
+			old := cur.ID
+			if cur, err = np.Send(c); err != nil {
+				return fmt.Errorf("moving the task on to %s: %w", next, err)
+			}
+			fmt.Fprintf(s.Err, "%s: took %s back and gave it to %s as %s\n", why, old, view.Name(next, msg.MaxIdentity), cur.ID)
+			if nextWhy != "" {
+				mv.why = nextWhy
+				fmt.Fprintf(s.Err, "  %s: %s\n", view.Name(next, msg.MaxIdentity), nextWhy)
+			}
+			out = cur
+			takenBy, takenAt, lastWordAt, lastHeard, quietSaid, held = "", time.Time{}, time.Time{}, time.Time{}, false, false
+			claimBy = time.Now().Add(*claimWithin)
+			return nil
+		}
 		for {
 			window := time.Until(deadline)
-			if len(fallbacks) > 0 {
-				window = min(window, *claimWithin)
+			switch {
+			case takenBy == "" && !held && (len(fallbacks) > 0 || mv.ask):
+				window = min(window, max(time.Until(claimBy), 0))
+			case takenBy != "" && quiet > 0 && !quietSaid:
+				window = min(window, max(time.Until(lastHeard.Add(quiet)), 0))
 			}
-			claimed := false
+			if quiet > 0 && !quietSaid {
+				// A claim does not end a wait, so a wait that starts untaken looks again within
+				// quiet: the timer then runs from the claim, not from the end of a long window.
+				window = min(window, quiet)
+			}
 			progress := claimProgress(s)
-			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) { claimed, takenBy = true, m.From; progress(m) }}, window, 3*time.Second)
+			got, err := waitFor(c, me, tasks.Filter{Thread: cur.Thread, Progress: func(m msg.Message) {
+				if takenBy == "" {
+					takenBy, takenAt = m.From, m.At
+				}
+				lastWordAt, lastHeard = m.At, time.Now()
+				progress(m)
+			}}, window, 3*time.Second)
 			if err == nil {
 				return deliver(cur, got, true)
 			}
 			if !errors.Is(err, tasks.ErrTimeout) {
 				return err
 			}
-			if claimed {
-				fallbacks = nil // taken: wait for its answer for the rest of --wait-reply
+			if takenBy != "" && quiet > 0 && !quietSaid && time.Since(lastHeard) >= quiet {
+				quietSaid = true
+				line := tasks.SilentText(tasks.Silent{ID: cur.ID, To: cur.To, By: takenBy, TakenAt: takenAt, LastWord: lastWordAt}, time.Now())
+				fmt.Fprintf(s.Err, "[aivoicebus] %s. Ask them: aivoicebus reply --re %s \"...\"\n", strings.TrimPrefix(line, "aivoicebus: "), cur.ID)
+				if len(fallbacks) > 0 && time.Until(deadline) >= time.Second {
+					if err := moveOn(fmt.Sprintf("%s took it and then said nothing for %s", view.Name(takenBy, msg.MaxIdentity), quiet.String())); err != nil {
+						return err
+					}
+				}
+				continue
 			}
-			if len(fallbacks) == 0 || time.Until(deadline) < time.Second {
-				if time.Until(deadline) >= time.Second {
-					continue
+			if time.Until(deadline) < time.Second {
+				if mv.ask && takenBy == "" && !held { // nobody took it at all: take it back (exit 3)
+					fallbacks = nil
+					return moveOn(fmt.Sprintf("nobody took it within %s", waitReply.String()))
 				}
 				fmt.Fprintf(s.Err, "no answer in %s; later: aivoicebus wait --thread %s\n", waitReply.String(), cur.Thread)
 				if *asJSON {
-					_ = writeJSON(s.Out, resultOf(cur, takenBy, nil))
+					_ = writeJSON(s.Out, result(cur, nil, "timeout"))
 				}
 				return exitError{exitTimeout}
 			}
 			// Nobody took it in --claim-within: take it back there and give it to the next target.
-			if _, err := c.Retract(cur.ID, me, false, false); err != nil {
-				fmt.Fprintf(s.Err, "nobody took %s within %s, and it could not be taken back (%v): not moving it on\n", cur.ID, claimWithin.String(), err)
-				fallbacks = nil
-				continue
+			// (A window can end sooner, to look at the quiet timer: that is not this.)
+			if takenBy == "" && !held && (len(fallbacks) > 0 || mv.ask) && !time.Now().Before(claimBy) {
+				if mv.ask { // a session asked may answer without claiming: once it read it, it has it
+					if by, how, known := tasks.TakenBy(c, cur); !known || by != "" {
+						held = true
+						if by != "" {
+							takenBy, lastHeard = by, time.Now()
+							fmt.Fprintf(s.Err, "[aivoicebus] %s %s; still waiting for the answer...\n", view.Name(by, msg.MaxIdentity), how)
+						}
+						continue
+					}
+				}
+				if err := moveOn(fmt.Sprintf("nobody took it within %s", claimWithin.String())); err != nil {
+					return err
+				}
 			}
-			next := fallbacks[0]
-			fallbacks = fallbacks[1:]
-			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true}, io.Discard)
-			if err != nil {
-				return fmt.Errorf("moving the task on to %s: %w", next, err)
-			}
-			if cur, err = np.Send(c); err != nil {
-				return fmt.Errorf("moving the task on to %s: %w", next, err)
-			}
-			fmt.Fprintf(s.Err, "nobody took it within %s: took %s back and gave it to %s as %s\n", claimWithin.String(), out.ID, view.Name(next, msg.MaxIdentity), cur.ID)
-			out = cur
 		}
 	}
 	return nil
@@ -514,15 +631,26 @@ func thread(args []string, s Streams) error {
 	fs := newFlagSet("thread")
 	asJSON := fs.Bool("json", false, "print the messages as a JSON array")
 	digest := fs.Bool("digest", false, "the thread in a few lines: who took part, the task's state, each side's last word, open or ended")
+	stale := fs.Bool("close-stale", false, "end a conversation nobody has written in for --stale-after, with a summary (only its sender or the user; never done on its own)")
+	staleAfter := fs.Duration("stale-after", 30*time.Minute, "with --close-stale: how long without a message makes a conversation stale")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	rest := takeJSON(fs.Args(), asJSON)
-	if len(rest) == 2 && rest[1] == "--digest" { // the flag after the id
-		rest, *digest = rest[:1], true
+	if len(rest) > 1 { // flags after the id: thread ID --digest, thread ID --close-stale
+		if err := parseFlags(fs, rest[1:], s); err != nil {
+			return err
+		}
+		rest = append([]string{rest[0]}, takeJSON(fs.Args(), asJSON)...)
 	}
 	if len(rest) != 1 {
-		return outbox.Usagef("usage: thread <id> [--json | --digest]")
+		return outbox.Usagef("usage: thread <id> [--json | --digest | --close-stale [--stale-after 30m]]")
+	}
+	if *stale && (*asJSON || *digest) {
+		return outbox.Usagef("--close-stale writes an [end]; it does not combine with --json or --digest: run it again with one of them")
+	}
+	if *staleAfter < time.Minute {
+		return outbox.Usagef("--stale-after is at least 1m: run it again with a longer span")
 	}
 	c, err := client.FromEnv()
 	if err != nil {
@@ -539,7 +667,10 @@ func thread(args []string, s Streams) error {
 		return err
 	}
 	if len(ms) == 0 {
-		return outbox.NotFoundf("no thread with message %s on the nodes (a typo, or it has not reached them yet)", id)
+		return outbox.NotFoundf("no thread with message %s on the nodes (a typo, or it has not reached them yet): try again in a minute, or check the id with `aivoicebus inbox --all`", id)
+	}
+	if *stale {
+		return closeStale(c, ms, *staleAfter, s)
 	}
 	if *asJSON {
 		return writeMessages(s.Out, ms, false)
@@ -663,7 +794,8 @@ func who(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	cutoff := time.Now().Add(-span)
+	now := time.Now()
+	cutoff := now.Add(-span)
 	hidden, shown := 0, 0
 	rows := []msg.RosterEntry{} // what --json prints and --tools groups
 	show := func(me string, seen time.Time, labels msg.Labels, title string, listening bool) {
@@ -676,13 +808,7 @@ func who(args []string, s Streams) error {
 			rows = append(rows, msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening})
 			return
 		}
-		line := fmt.Sprintf("%-32s last seen %s", view.Name(me, 64), seen.Local().Format("01-02 15:04"))
-		if listening {
-			line += "  [listening now]"
-		}
-		if t := view.Title(title); t != "" {
-			line += "  " + t
-		}
+		line := view.Session(msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening}, now)
 		if l := labels.String(); l != "" {
 			line += "  " + view.Name(l, 300)
 		}
@@ -700,7 +826,7 @@ func who(args []string, s Streams) error {
 	case client.IsNotFound(err):
 		// A node without a roster: list identities without labels.
 		if sel != nil {
-			return errors.New("this node does not report labels, so a selector cannot be previewed")
+			return errors.New("this node does not report labels, so a selector cannot be previewed: ask the user to update the nodes")
 		}
 		w, err := c.Who()
 		if err != nil {

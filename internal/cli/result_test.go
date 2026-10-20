@@ -37,6 +37,9 @@ func TestWaitReplyJSONIsOneResultObject(t *testing.T) {
 		r.TakenBy != wk {
 		t.Fatalf("answered: %d %v\n%s\n%s", code, err, out, e)
 	}
+	if r.Size == nil || r.Size.Messages < 3 || r.Size.Chars < len("what is 6*7") || r.Size.EstTokens != r.Size.Chars/4 {
+		t.Errorf("the conversation's size so far: %+v\n%s", r.Size, out)
+	}
 	code, out, _ = run(t, "", "task", "box", "nobody here", "--wait-reply", "2s", "--json")
 	r = resultView{}
 	if err := json.Unmarshal([]byte(out), &r); err != nil || code != exitTimeout || r.Answered || len(r.Answers) != 0 || !strings.HasPrefix(r.Thread, r.ID[:4]) {

@@ -14,10 +14,10 @@ const lib = /** @type {any} */ (globalThis).AVLib;
  * @typedef {{me: string, title?: string}} Participant
  * @typedef {{thread: string, subject?: string, participants: Participant[], audience?: string[],
  *   messages: number, first: string, last: string, last_from: string, withdrawn?: number,
- *   threads?: string[], hidden?: boolean}} Conversation
+ *   threads?: string[], hidden?: boolean, state?: string, state_by?: string}} Conversation
  * @typedef {{id: string, from: string, from_title?: string, from_model?: string, to: string, re?: string, body: string,
  *   at: string, prio?: string, kind?: string, retracted?: object, read_by: number, readers?: string[],
- *   taken_by?: string, recipients: string[]}} ThreadMessage
+ *   taken_by?: string, state?: string, state_by?: string, recipients: string[]}} ThreadMessage
  * @typedef {{title: string, rev: number, demo: boolean, sessions: number, messages: number,
  *   last_pull: string|null, error: string}} Status
  */
@@ -200,10 +200,14 @@ function ago(iso) {
   return Math.floor(s / 86400) + "d ago";
 }
 
-/** @param {string} iso */
+/** Local time: the clock alone for today, else the date and the zone too (as the CLI shows it).
+ * @param {string} iso */
 function clock(iso) {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) {
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 
 /** @param {Participant} p */
@@ -256,6 +260,7 @@ function conversation(c) {
   let meta = c.messages + " message(s) · last " + ago(c.last) + " by " + c.last_from;
   if (c.threads && c.threads.length > 1) meta += " · one message sent to " + c.threads.length + " sessions";
   if (c.withdrawn) meta += " · " + c.withdrawn + " withdrawn";
+  if (c.state) meta += " · " + c.state + (c.state_by ? " (" + c.state_by + ")" : "");
   b.appendChild(el("div", "meta", meta));
   b.addEventListener("click", () => {
     navigate({ thread: c.thread }, true);
@@ -277,6 +282,9 @@ function message(m) {
   if (m.prio && m.prio !== "ask") head.appendChild(el("span", "tag", m.prio));
   if (m.kind === "task" && !m.retracted) {
     head.appendChild(m.taken_by ? el("span", "tag taken", "taken by " + m.taken_by) : el("span", "tag open", "open: nobody took it yet"));
+  }
+  if (m.state && !m.retracted) {
+    head.appendChild(el("span", "tag state state-" + m.state, "state: " + m.state + (m.state_by ? " by " + m.state_by : "")));
   }
   if (m.read_by > 0) {
     const r = el("span", "readers", "read by " + m.read_by);

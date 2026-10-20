@@ -127,6 +127,13 @@ func Run(args []string, stdin io.Reader, out io.Writer) {
 	}
 }
 
+// personPeekBudget bounds the session start's look at what waits for the person, and
+// personPeekHeadroom is what it leaves of the hook's deadline for the rest of the run.
+const (
+	personPeekBudget   = 800 * time.Millisecond
+	personPeekHeadroom = 400 * time.Millisecond
+)
+
 // ackBudget bounds the acknowledgements sent after a hook has written its output. A message
 // is acknowledged only once it has been handed over, so a slow node costs an
 // acknowledgement (the message is shown again next time), never a message nobody saw.
@@ -145,13 +152,18 @@ type ackSet struct {
 	c    *client.Client
 	me   string
 	jobs []ackJob
+	told []msg.Message // what waits for the person and the output named (see person.go)
 }
 
 func (a *ackSet) add(id, via string, chars int) { a.jobs = append(a.jobs, ackJob{id, via, chars}) }
 
 // send acknowledges everything in parallel, giving up on whatever is not done within budget.
 func (a *ackSet) send(budget time.Duration) {
-	if a == nil || len(a.jobs) == 0 {
+	if a == nil {
+		return
+	}
+	noteTold(a.me, a.told) // only now that the output naming them was handed over
+	if len(a.jobs) == 0 {
 		return
 	}
 	jobs := a.jobs
@@ -184,6 +196,7 @@ func (a *ackSet) send(budget time.Duration) {
 // run prints what the session should see to out and returns the acknowledgements owed for it
 // (nil when nothing was printed).
 func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, note *meshNote) *ackSet {
+	start := time.Now()
 	tool := toolArg(args)
 	in := readInput(stdin)
 
@@ -244,8 +257,15 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 			fmt.Fprintln(out, notice)
 		}
 	}
+	acks := &ackSet{c: c, me: me}
+	// What waits for the person on this machine: one line, every session start, since nothing else
+	// tells them (see person.go). It keeps clear of the deadline, which would cost all the output.
+	if ps := personWaiting(c, me, min(personPeekBudget, timeout-time.Since(start)-personPeekHeadroom), quietNow(), nil); len(ps) > 0 {
+		fmt.Fprintln(out, view.PersonWaiting(ps))
+		acks.told = ps
+	}
 	if len(ms) == 0 {
-		return nil
+		return acks
 	}
 	// Urgent first, then ask; fyi is only counted, so low-value traffic costs one
 	// short line instead of a message body.
@@ -291,7 +311,6 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	}
 	// The receipts say what each message cost: the characters shown at session
 	// start, or none for fyi, which is only counted.
-	acks := &ackSet{c: c, me: me}
 	for _, m := range shown {
 		acks.add(m.ID, msg.ViaHook, injectedChars(m))
 	}
@@ -428,13 +447,19 @@ func toolJSON(out io.Writer, tool, event, text string) {
 }
 
 // hookInput is what the tool passes the hook on stdin. Claude Code, Codex and Gemini CLI share
-// these snake_case fields; Codex also says which model the session runs.
+// these snake_case fields; Codex also says which model the session runs. Antigravity passes
+// camelCase protojson fields (conversationId, workspacePaths, transcriptPath, modelName).
 type hookInput struct {
 	SessionID string `json:"session_id"`
 	CWD       string `json:"cwd"`
 	Model     string `json:"model"`
 	// TranscriptPath is the session's transcript file, where Claude Code records the session's title.
 	TranscriptPath string `json:"transcript_path"`
+
+	ConversationID      string   `json:"conversationId"`
+	WorkspacePaths      []string `json:"workspacePaths"`
+	CamelTranscriptPath string   `json:"transcriptPath"`
+	ModelName           string   `json:"modelName"`
 }
 
 func readInput(stdin io.Reader) hookInput {
@@ -442,6 +467,18 @@ func readInput(stdin io.Reader) hookInput {
 	if stdin != nil {
 		b, _ := io.ReadAll(io.LimitReader(stdin, 1<<20))
 		_ = json.Unmarshal(b, &in)
+	}
+	if in.SessionID == "" {
+		in.SessionID = in.ConversationID
+	}
+	if in.CWD == "" && len(in.WorkspacePaths) > 0 {
+		in.CWD = in.WorkspacePaths[0]
+	}
+	if in.TranscriptPath == "" {
+		in.TranscriptPath = in.CamelTranscriptPath
+	}
+	if in.Model == "" && in.ModelName != "" && !strings.EqualFold(in.ModelName, "auto") {
+		in.Model = in.ModelName
 	}
 	return in
 }

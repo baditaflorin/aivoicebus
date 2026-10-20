@@ -56,12 +56,12 @@ func trustCodexCmd(args []string, s Streams) error {
 		return exitError{exitFailure}
 	}
 	if fi, err := os.Stdin.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-		return errors.New("trust-codex starts Codex, which needs a terminal: run it in one, not from a pipe or a script")
+		return errors.New("trust-codex starts Codex, which needs a terminal: ask the user to run `aivoicebus trust-codex` in one")
 	}
 	codex, err := exec.LookPath("codex")
 	if err != nil {
 		if _, e := os.Stat(codexBundled); e != nil {
-			return errors.New("no codex on PATH (or in ChatGPT.app): install Codex first")
+			return errors.New("no codex on PATH (or in ChatGPT.app): ask the user to install Codex, then run it again")
 		}
 		codex = codexBundled
 	}
@@ -73,7 +73,7 @@ func trustCodexCmd(args []string, s Streams) error {
 	fmt.Fprintln(s.Out, "\"Trust all\" trusts every hook Codex lists as new or changed, not only aivoicebus's.")
 	fmt.Fprint(s.Out, "Press Enter to start Codex (Ctrl-C to stop here)... ")
 	if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
-		return errors.New("stopped; nothing was started")
+		return errors.New("stopped; nothing was started. Run it again to go ahead")
 	}
 	cmd := exec.Command(codex)
 	cmd.Dir = home

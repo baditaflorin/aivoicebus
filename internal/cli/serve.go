@@ -84,7 +84,7 @@ func checkListenAddr(addr string, allowPublic bool) (warn string, err error) {
 	}
 	if !allowPublic {
 		return "", errors.New("--addr " + addr + " is " + what + ": this node speaks plain HTTP with a shared token, so anyone who can reach it can read the traffic. " +
-			"Listen on loopback or a private-network address, or pass --allow-public if something else (a TLS proxy, a firewall) protects it")
+			"Listen on loopback or a private-network address, or run it again with --allow-public if something else (a TLS proxy, a firewall) protects it")
 	}
 	return "this node listens on " + what + " (" + addr + ") over plain HTTP: the token and every message are readable by anyone on the path; terminate TLS in front of it", nil
 }

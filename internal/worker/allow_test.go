@@ -133,6 +133,16 @@ func TestDecide(t *testing.T) {
 		{msg.Message{From: "desk/claude.z9", To: "lap", At: now}, false, "not a task"},
 		{func() msg.Message {
 			m := task("desk/claude.z9", "lap", time.Minute)
+			m.Body = msg.TokenHandTag + " lap\nhands lap its token"
+			return m
+		}(), false, "the person there takes it (aivoicebus token install ID)"},
+		{func() msg.Message {
+			m := task("desk/claude.z9", "lap", time.Minute)
+			m.Body = msg.PersonTag + " swap the disk in the hall"
+			return m
+		}(), false, "meant for the person on this machine (aivoicebus claim"},
+		{func() msg.Message {
+			m := task("desk/claude.z9", "lap", time.Minute)
 			m.Verified = msg.VerifiedUnsigned
 			return m
 		}(), false, "not signed"},

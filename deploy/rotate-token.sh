@@ -5,6 +5,13 @@
 #   deploy/rotate-token.sh add [--apply]     # 1. nodes accept the old AND a new token
 #   deploy/rotate-token.sh promote [--apply] # 2. nodes use the new token to talk to each other
 #   deploy/rotate-token.sh retire [--apply]  # 3. nodes drop the old token; this machine switches
+#   deploy/rotate-token.sh --check           # read-only: would a rotation now cut any machine off?
+#
+# --check asks the nodes which token each machine heard from in the last 7 days last used
+# (`aivoicebus token report`, AIVOICEBUS_BIN names the binary) and exits 1 while any machine other
+# than the nodes and this one is still on the shared token, or not proven either way. Such a
+# machine needs its own token first: deploy/machine-token.sh add HOST --apply, then
+# `aivoicebus token hand HOST`. It changes nothing, on the nodes or here.
 #
 # Between `add` and `retire`, move every machine to the new token (it waits at
 # ~/.config/aivoicebus/token.next; a client bundle built then carries it, see
@@ -33,11 +40,12 @@ NEXT_FILE="$TOKEN_FILE.next"
 export AIVOICEBUS_NODE_TOKENS_FILE="${AIVOICEBUS_NODE_TOKENS_FILE:-$CONF/token.nodes}"
 PAYLOAD="$AIVOICEBUS_NODE_TOKENS_FILE"
 
-usage() { echo "usage: $0 status | add | promote | retire  [--apply]" >&2; exit 2; }
+usage() { echo "usage: $0 status | add | promote | retire  [--apply]   |   $0 --check" >&2; exit 2; }
 [ $# -ge 1 ] || usage
 CMD="$1"; shift
 APPLY=0
 for a in "$@"; do case "$a" in --apply) APPLY=1 ;; *) usage ;; esac; done
+[ "$CMD" != --check ] || [ "$APPLY" = 0 ] || usage # read-only: there is nothing to apply
 [ -s "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE" >&2; exit 1; }
 
 # status prints one line per node: which of the two tokens it accepts, and sets the counts.
@@ -105,6 +113,21 @@ roll_out() {
 write_payload() { (umask 077; printf '%s\n%s\n' "$1" "$2" >"$PAYLOAD"); }
 
 case "$CMD" in
+--check)
+  BIN="${AIVOICEBUS_BIN:-aivoicebus}"
+  command -v "$BIN" >/dev/null 2>&1 || { echo "no aivoicebus binary ($BIN); set AIVOICEBUS_BIN" >&2; exit 1; }
+  names=""
+  for n in "${NODES[@]}"; do IFS=: read -r name alias _ <<<"$n"; names="$names,$name,$alias"; done
+  rc=0
+  # The token goes by file, never on a command line; the nodes are the ones in deploy/nodes.conf.
+  env -u AIVOICEBUS_TOKEN AIVOICEBUS_URL="$(node_urls)" AIVOICEBUS_TOKEN_FILE="$TOKEN_FILE" \
+    "$BIN" token report --check --nodes "${names#,}" || rc=$?
+  case "$rc" in
+    0) echo "no machine would be cut off: a rotation may start ($0 add, a dry run first)" ;;
+    1) echo "do not rotate the shared token now: the machines marked above would be cut off at retire. Nothing was changed." >&2; exit 1 ;;
+    *) echo "could not tell (exit $rc); do not rotate until it can. Nothing was changed." >&2; exit "$rc" ;;
+  esac
+  ;;
 status)
   echo "token rotation: phase $(phase)"
   status

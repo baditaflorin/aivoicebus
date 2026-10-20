@@ -25,6 +25,8 @@ import (
 // selector messages wait for the next session start, so a busy session costs no extra
 // tokens. That includes a plain retraction notice (ask priority, from the node); a
 // leak notice is urgent and so arrives through the urgent path like any urgent message.
+// What starts waiting for the person on this machine meanwhile (a [token hand], an approval) is
+// urgent by nature: it gets the session start's one line, once per message per session (person.go).
 var (
 	// PromptDeadline bounds the whole check; past it the hook gives up without a word.
 	PromptDeadline = 700 * time.Millisecond
@@ -60,6 +62,7 @@ func runPromptEvent(args []string, stdin io.Reader, out io.Writer) {
 // promptCheck prints any urgent message and any reply to this session to out and returns
 // the acknowledgements owed for them.
 func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every time.Duration, note *meshNote) *ackSet {
+	start := time.Now()
 	tool := toolArg(args)
 	in := readInput(stdin)
 	// The session-start hook exported the identity for the shell commands of this
@@ -110,8 +113,17 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 		}
 	}
 	listed := append(urgent, replies...)
-	if len(listed) == 0 {
+	told := func(id string) bool { return config.Told(me, id) }
+	ps := personWaiting(c, me, deadline-time.Since(start)-150*time.Millisecond, quiet, told)
+	if len(listed) == 0 && len(ps) == 0 {
 		return nil
+	}
+	acks := &ackSet{c: c, me: me, told: ps}
+	if len(ps) > 0 {
+		fmt.Fprintln(out, view.PersonWaiting(ps))
+	}
+	if len(listed) == 0 {
+		return acks
 	}
 	shown := listed
 	if len(shown) > maxPromptShown {
@@ -133,7 +145,6 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 		}
 		fmt.Fprintf(out, "[aivoicebus] +%d more %s; `aivoicebus inbox` shows them when the user asks.\n", more, what)
 	}
-	acks := &ackSet{c: c, me: me}
 	for _, m := range shown {
 		acks.add(m.ID, msg.ViaHook, injectedChars(m))
 	}

@@ -24,7 +24,7 @@ func TestADigestSaysWhoTookItTheLastWordsAndWhetherItEnded(t *testing.T) {
 	Digest(&b, ms)
 	out := b.String()
 	for _, want := range []string{"UNTRUSTED", "4 message(s) from 2 session(s)", "task by lap/claude.a1 -> build: \"run the integration suite and report\"",
-		"taken by build/codex.b2", "last from build/codex.b2 (2, ", "\"2 fail: login, cookie\"", "last from lap/claude.a1 (2, ", "open: the last word is lap/claude.a1's"} {
+		"taken by build/codex.b2", "size: 4 message(s), 89 characters (about 22 tokens to read)", "last from build/codex.b2 (2, ", "\"2 fail: login, cookie\"", "last from lap/claude.a1 (2, ", "open: the last word is lap/claude.a1's"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("digest lacks %q:\n%s", want, out)
 		}

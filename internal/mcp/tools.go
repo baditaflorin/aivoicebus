@@ -34,7 +34,7 @@ type tool struct {
 var tools = map[string]tool{}
 
 func init() {
-	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, claimTool, waitTool, taskTool, queueTool, statusTool, pingTool, getTool} {
+	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, claimTool, waitTool, stuckTool, taskTool, askTool, queueTool, statusTool, pingTool, getTool, stateTool, shareLsTool, shareGetTool, sharePutTool, shareNotesTool} {
 		tools[t.name] = t
 	}
 }
@@ -153,7 +153,7 @@ var sendTool = tool{
 			return "", err
 		}
 		if a.Re != "" && !msg.ValidID(strings.ToLower(strings.TrimSpace(a.Re))) { // a prefix can be planted by a peer
-			return "", errors.New("re must be the full 10-character message id (an abbreviation could name a message a peer planted)")
+			return "", errors.New("re must be the full 10-character message id (an abbreviation could name a message a peer planted): call it again with the full id from aivoicebus_inbox")
 		}
 		c, err := s.Client()
 		if err != nil {
@@ -252,7 +252,8 @@ var whoTool = tool{
 		if err != nil {
 			return "", err
 		}
-		cutoff := time.Now().Add(-span)
+		now := time.Now()
+		cutoff := now.Add(-span)
 		var b strings.Builder
 		fmt.Fprintln(&b, view.UntrustedBanner) // identities and labels are whatever sessions declared about themselves
 		// The most recent first, and only the labels that pick a target: the whole roster with
@@ -275,11 +276,7 @@ var whoTool = tool{
 					}
 				}
 			}
-			listening := ""
-			if e.Listening {
-				listening = " [listening now]"
-			}
-			fmt.Fprintf(&b, "%-32s seen %s%s%s  %s\n", view.Name(e.Me, 64), e.Seen.Local().Format("01-02 15:04"), listening, view.TitleSuffix(e.Title), view.Name(labels.String(), 300))
+			fmt.Fprintf(&b, "%s  %s\n", view.Session(e, now), view.Name(labels.String(), 300))
 		}
 		if n == 0 {
 			return "(no matching session seen in that time)", nil
@@ -305,7 +302,7 @@ var threadTool = tool{
 			return "", err
 		}
 		if !msg.ValidID(a.ID) && !outbox.IsAbbreviation(a.ID) {
-			return "", errors.New("id must be a 10-character message id")
+			return "", errors.New("id must be a 10-character message id: call it again with one from aivoicebus_inbox")
 		}
 		c, err := s.Client()
 		if err != nil {
@@ -322,7 +319,7 @@ var threadTool = tool{
 			return "", err
 		}
 		if len(ms) == 0 {
-			return "(no such thread)", nil
+			return "(no such thread: check the id with aivoicebus_inbox, or try again in a minute if it was just sent)", nil
 		}
 		if a.Digest {
 			var b strings.Builder
@@ -366,11 +363,11 @@ var ackTool = tool{
 			return "", err
 		}
 		if len(a.IDs) == 0 || len(a.IDs) > 100 {
-			return "", errors.New("give between 1 and 100 ids")
+			return "", errors.New("give between 1 and 100 ids: call it again with fewer")
 		}
 		for _, id := range a.IDs {
 			if !msg.ValidID(id) && !outbox.IsAbbreviation(id) {
-				return "", fmt.Errorf("%q is not a message id", id)
+				return "", fmt.Errorf("%q is not a message id: call it again with ids from aivoicebus_inbox", id)
 			}
 		}
 		c, err := s.Client()
@@ -419,7 +416,7 @@ var retractTool = tool{
 		var id string
 		if a.ID != nil {
 			if id = *a.ID; !msg.ValidRetractID(id) && !outbox.IsAbbreviation(id) {
-				return "", errors.New("id must be a 10-character message id (leave it out for this session's own last message)")
+				return "", errors.New("id must be a 10-character message id (leave it out for this session's own last message): call it again with a full id")
 			}
 		}
 		c, err := s.Client()

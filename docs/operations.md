@@ -5,6 +5,10 @@ Everything here is a script in `deploy/`, a command of the binary, or a check in
 `--apply`**, touch one node at a time, and stop at the first node that does not come back
 healthy. None of them prints a token. The node list is `deploy/nodes.conf`.
 
+Commands that start with `deploy/` or `scripts/` are files in this repository: run them from the
+root of an aivoicebus checkout (`git clone https://github.com/baditaflorin/aivoicebus && cd aivoicebus`),
+not from any other directory, where the shell says `no such file or directory`.
+
 ## Is it healthy?
 
     aivoicebus mesh            # every node: release, clock, records, peer links; lists what is wrong
@@ -18,6 +22,50 @@ clocks), nodes on different releases, and a node approaching its memory limit
 `/v1/health`, both readable with the observer token. Requests are counted per token and told
 apart by fingerprint (`shared-ab12cd`), so before retiring a token you can see whether anything
 still uses it.
+
+## If something leaked
+
+A token, key or secret was in a message, a log or a screenshot. Run one command, on the machine
+you deploy from, in your own terminal:
+
+    aivoicebus incident shared              # the mesh's shared token
+    aivoicebus incident machine laptop-a    # the machine token of laptop-a
+    aivoicebus incident observer            # the dashboard's read-only token
+    aivoicebus incident secret github       # a credential saved with `aivoicebus secret save github`
+    aivoicebus incident message 3fa9c0e1d2  # a message held one, and it is none of these
+    #   add --msg ID (repeatable) for messages you know held it
+
+By default it only **plans**, and changes nothing: it shows
+
+1. how the credential is revoked or rotated, the deploy script it runs and that script's dry run
+   (`deploy/rotate-token.sh add` then `promote` for the shared token, `deploy/machine-token.sh
+   revoke HOST` for a machine token), or, marked `[you]`, what only you can do (revoke a saved
+   secret where it was issued; the observer token is re-made with `deploy/install.sh
+   --gen-observer-token` and a full install);
+2. the messages that held it: those you named, and every message on the nodes whose text holds
+   the credential's value (searched with the shared token, never printed);
+3. who read them and when (the nodes' receipts: reader, time, how it reached them; who took it as
+   a task; replies) and what this machine's audit log says about them;
+4. that the incident is written to the audit log.
+
+`aivoicebus incident ... --apply` does it, after you type `incident` at the prompt: the credential
+**first** (it stops at the first script that fails, and then retracts nothing: a retraction
+notice about a credential that still works only points at it), then each message is retracted as
+a leak (as its sender, with the shared token, when another machine sent it; the nodes tell every
+session that read it at its next inbox read), then the audit entry (`aivoicebus audit`:
+`incident-start` and `incident`, with what was done and what was not). A saved secret's copy on
+this machine is removed. `--apply` refuses in an agent's session (`AIVOICEBUS_AGENT`, or an agent
+tool above the process) and without a terminal, like `approve`; the plan itself is safe for anyone
+to read. No secret is printed: everything it shows, the deploy scripts' output included, passes
+through a mask of every credential this machine holds.
+
+What it leaves to you, and says so: the shared token keeps working until every machine has moved
+to the new one and you run `deploy/rotate-token.sh retire --apply` (or pass `--retire` to retire it
+at once, cutting off machines not moved yet; `deploy/rotate-token.sh --check` names them); a revoked machine cannot reach the mesh until it gets
+a new token (`deploy/machine-token.sh add HOST --apply`, installed by hand or with a client bundle,
+since `token hand` needs that machine to read its mail). The text stays in node logs, exports and
+the dashboard archive (see "Retracting a message" below): treat it as exposed. The scripts are
+found in `./deploy`, `$AIVOICEBUS_DEPLOY_DIR` or `--deploy DIR`.
 
 ## Malformed input and floods
 
@@ -162,7 +210,8 @@ which change nothing: it should be 0. A non-zero value means someone tried to ta
 machine's message by declaring an identity, or a client with a wrong identity; the records are in
 the log (`origin` says which node wrote each), so look there.
 
-**A leaked secret.** (1) Rotate the credential now: retraction cannot unsend it. (2)
+**A leaked secret.** `aivoicebus incident` does all of this in order (see "If something leaked"
+above); by hand: (1) Rotate the credential now: retraction cannot unsend it. (2)
 `aivoicebus retract --leak <id>` from the sender's machine (or the operator's shell on it): the
 tombstone says it may have held a credential, and the CLI prints how many other sessions had read it. (3) Check `aivoicebus thread <id>` on two nodes shows the tombstone; a node that
 still shows the text is on a release that predates retraction (`aivoicebus mesh`). (4) Remember the text is
@@ -238,14 +287,29 @@ refused. Each node must come back with its peer links up before the next is touc
       deploy/rotate-token.sh retire --apply    # the old token stops working; this machine switches
 
   A machine still on the old token stops working at `retire`; `status` shows who accepts what.
-  That machine does not fail loudly: see "A machine that has gone deaf" below.
+  That machine does not fail loudly: see "A machine that has gone deaf" below. Before `add`, ask
+  whether a rotation would cut anyone off (read-only; it changes nothing, here or on a node):
+
+      deploy/rotate-token.sh --check           # exit 0: nobody would be cut off; exit 1: the marked machines would
+
+  It runs `aivoicebus token report` against the nodes in deploy/nodes.conf: every machine heard from
+  in the last 7 days, the kind of token the nodes last saw it use (`/v1/token/seen` on every node, the
+  newest answer wins), and the machine tokens in `machine-tokens/`. It refuses while any machine other
+  than the nodes and this one is on the shared token, or is not proven either way (no node has seen
+  it since the node started), or while a node does not answer. Move such a machine to its own token
+  first (`machine-token.sh add HOST --apply`, then `aivoicebus token hand HOST`).
 - **Machine**: bound to one machine, so nobody can speak as another machine with it:
 
       deploy/machine-token.sh add laptop-a --apply    # writes ~/.config/aivoicebus/machine-tokens/<host>
       deploy/machine-token.sh revoke laptop-a --apply
 
-  Copy the file to that machine as `~/.config/aivoicebus/token` (never to the machine you deploy
-  from). It cannot replicate, so keep one shared token for the nodes themselves. What it limits:
+  Hand it over with `aivoicebus token hand laptop-a`: the person on laptop-a runs `aivoicebus token
+  install ID` in their own terminal (the task goes to `laptop-a/human`; agents there cannot take it) and approves, and the token goes as a one-time encrypted file, checked on
+  both ends ([reference.md](reference.md), "Machine tokens"). If nobody can approve on laptop-a (no
+  terminal, approver key or notify URL), install refuses at once and says so; if `hand` runs out of
+  time, it says whether nobody took the task, nobody approved it, or the install never answered.
+  Never put it on the machine you deploy
+  from. It cannot replicate, so keep one shared token for the nodes themselves. What it limits:
   sending, acknowledging and reading mail *as that machine only*, and the bulk replication
   feed (`/v1/sync`, so `aivoicebus export` needs the shared or observer token). What it does not
   hide: like any agent token it can read a thread by id, the roster and health. If a machine is
@@ -328,4 +392,18 @@ Every client of 0.7.0 or later signs every message with its machine key. Once ev
 one, start the nodes with `serve --require-signed` (or `AIVOICEBUS_REQUIRE_SIGNED=1` in the node's
 environment): a node then refuses, with 403, a message that carries no signature or whose
 signature does not verify. Join and selftest probes are exempt. Before switching it on, check that
-no machine still runs a client older than 0.7.0 (a reader flags an unsigned message as unsigned).
+nobody would be refused:
+
+    aivoicebus mesh --signed-check     # READY: no unsigned message in the last 7 days on any node
+
+NOT READY names each sender that sent a message without a valid signature in that window (a client
+older than 0.7.0, or one that could not sign); update those machines and wait until the check says
+READY. Then, on the machine you deploy from, the switch is one line (each node in turn gets
+`AIVOICEBUS_REQUIRE_SIGNED=1` in its node.env and is restarted, binary and token untouched):
+
+    AIVOICEBUS_NODE_REQUIRE_SIGNED=1 deploy/install.sh --apply --peers-only
+
+Every later install and rollout keeps the setting as each node has it; `AIVOICEBUS_NODE_REQUIRE_SIGNED=0`
+with the same command switches it off. A node added later starts without it unless the same
+variable is set for deploy/add-node.sh (which runs install.sh), or the line is run again after. `mesh --signed-check` then lists each node as "already refuses
+unsigned ones", and `/metrics` counts what was refused (`aivoicebus_refused_total{reason="unsigned"}`).

@@ -22,6 +22,9 @@
 # Adding a node: put its line in deploy/nodes.conf, install it (--apply <node>), then refresh the
 # others' peer lists WITHOUT touching their binary or rollback copy: --apply --peers-only.
 # A re-install of the same binary no longer overwrites aivoicebus.prev (only a changed binary does).
+# Signed messages only: AIVOICEBUS_NODE_REQUIRE_SIGNED=1 puts AIVOICEBUS_REQUIRE_SIGNED=1 in each
+# node's node.env (serve --require-signed: a message without a valid signature is refused), =0 takes
+# it out; unset, every install keeps what the node has. Check first: aivoicebus mesh --signed-check.
 # A temporary BOOTSTRAP_ARGS line in node.env (deploy/bootstrap-share.sh) is preserved.
 # Rotating the shared token: deploy/rotate-token.sh drives --tokens-only, which rewrites the token
 # files and restarts each node (one at a time) without touching its binary or unit. If
@@ -97,6 +100,8 @@ for a in "$@"; do
     *) ONLY="$a" ;;
   esac
 done
+REQSIG="${AIVOICEBUS_NODE_REQUIRE_SIGNED:-}"
+case "$REQSIG" in "" | 0 | 1) ;; *) echo "AIVOICEBUS_NODE_REQUIRE_SIGNED is 1 (refuse unsigned messages), 0 (take them again) or unset (keep what each node has)" >&2; exit 2 ;; esac
 [ -s "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE; run: $0 --gen-token" >&2; exit 1; }
 [ "$(wc -c < "$TOKEN_FILE")" -ge 24 ] || { echo "token shorter than 24 chars" >&2; exit 1; }
 check_tokens
@@ -140,6 +145,7 @@ for n in "${NODES[@]}"; do IFS=: read -r name alias ip <<<"$n"
   if [ "$APPLY" = 0 ]; then
     [ "$TOKENS_ONLY" = 0 ] || echo "   would: write the token file ($(node_tokens | grep -c .) token(s)) to /etc/aivoicebus/token (600)"
     [ "$PEERS_ONLY" = 0 ] || echo "   would: rewrite node.env with these peers and restart the service (binary and rollback copy untouched)"
+    case "$REQSIG" in 1) echo "   would: refuse unsigned messages (AIVOICEBUS_REQUIRE_SIGNED=1 in node.env)" ;; 0) echo "   would: take unsigned messages again (no AIVOICEBUS_REQUIRE_SIGNED in node.env)" ;; esac
     [ "$PEERS_ONLY" = 1 ] && continue
     echo "   would: copy binary -> /usr/local/bin/aivoicebus (old one kept as aivoicebus.prev when it differs), unit -> /etc/systemd/system/aivoicebus.service,"
     echo "          token -> /etc/aivoicebus/token (600), node.env (NODE=$name ADDR=$ip:$PORT), enable --now, wait /healthz"
@@ -192,8 +198,14 @@ for n in "${NODES[@]}"; do IFS=: read -r name alias ip <<<"$n"
     install -d -m 755 /srv/aivoicebus-release
     keep=\$(grep '^BOOTSTRAP_ARGS=' /etc/aivoicebus/node.env 2>/dev/null || true)
     keepobs=\$(grep '^OBSERVER_ARGS=' /etc/aivoicebus/node.env 2>/dev/null || true)
+    keepsig=\$(grep '^AIVOICEBUS_REQUIRE_SIGNED=' /etc/aivoicebus/node.env 2>/dev/null || true)
     printf 'NODE=%s\nADDR=%s\nPEERS=%s\nRELEASE_ARGS=--release-dir /srv/aivoicebus-release\n' '$name' '$ip:$PORT' '$peers' > /etc/aivoicebus/node.env
     [ -z \"\$keep\" ] || echo \"\$keep\" >> /etc/aivoicebus/node.env
+    case '$REQSIG' in   # signed messages only: set, taken out, or kept as the node has it
+      1) echo 'AIVOICEBUS_REQUIRE_SIGNED=1' >> /etc/aivoicebus/node.env ;;
+      0) ;;
+      *) [ -z \"\$keepsig\" ] || echo \"\$keepsig\" >> /etc/aivoicebus/node.env ;;
+    esac
     if [ '$PEERS_ONLY' = 1 ]; then
       [ -z \"\$keepobs\" ] || echo \"\$keepobs\" >> /etc/aivoicebus/node.env   # the observer setup stays as the node has it
     elif [ '$OBS' = 1 ]; then

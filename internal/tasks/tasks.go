@@ -5,6 +5,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -34,13 +35,18 @@ func Find(c *client.Client, id string) (msg.Message, []msg.Message, error) {
 	}
 	for _, m := range ms {
 		if m.ID == id {
-			if m.Kind != msg.KindTask {
+			switch {
+			case m.Kind != msg.KindTask:
 				return msg.Message{}, nil, outbox.Usagef("%s is not a task (it is a %s); answer it with: aivoicebus reply --re %s", id, KindWord(m.Kind), id)
+			case m.Retracted != nil: // a withdrawn task is nobody's to take
+				return msg.Message{}, nil, fmt.Errorf("task %s was withdrawn by its sender, so nothing was claimed: ask the sender for a fresh one if the work is still wanted", id)
+			case m.Exp != nil && time.Now().After(*m.Exp):
+				return msg.Message{}, nil, fmt.Errorf("task %s expired at %s, so nothing was claimed: ask the sender for a fresh one if the work is still wanted", id, m.Exp.Local().Format("15:04"))
 			}
 			return m, ms, nil
 		}
 	}
-	return msg.Message{}, nil, outbox.NotFoundf("task %s was not found on the nodes (claim takes the full 10-character id)", id)
+	return msg.Message{}, nil, outbox.NotFoundf("task %s was not found on the nodes (claim takes the full 10-character id; a task expires): check the id with `aivoicebus inbox --all`, or ask the sender for a fresh one", id)
 }
 
 // KindWord names a kind for a person: "plain message" for none.
@@ -62,7 +68,24 @@ func Owner(c *client.Client, task msg.Message) (msg.TakeRef, bool, error) {
 }
 
 // ErrOwnTask is a claim on a task this session sent.
-var ErrOwnTask = errors.New("you sent this task; a session that receives it claims it")
+var ErrOwnTask = errors.New("you sent this task; a session that receives it claims it. To take it back, run `aivoicebus cancel ID`")
+
+// Caller is who claims a task: a person at a terminal, or an agent (an agent's session, the MCP
+// server, a worker). Only a person takes a task meant for the person (msg.PersonOnly).
+type Caller int
+
+const (
+	Person Caller = iota
+	Agent
+)
+
+// PersonOnlyError is an agent's claim of a task meant for the person on the machine. Nothing was sent.
+type PersonOnlyError struct{ Task msg.Message }
+
+func (e *PersonOnlyError) Error() string {
+	return fmt.Sprintf("task %s is for the person on the machine, not for an agent: an agent never takes it. Tell your user it is waiting; they run, in their own terminal: %s",
+		e.Task.ID, msg.PersonStep(e.Task))
+}
 
 // Claimed is how a claim went.
 type Claimed struct {
@@ -81,7 +104,8 @@ var BeforeSend func()
 // for a claim made on another node at the same moment to replicate, and reads the thread again:
 // the earliest claim wins, so a later look can find the task is someone else's after all. A task
 // is marked read once it is this session's. warn gets what a send warns about (a weak credential shape).
-func Claim(c *client.Client, me, id, body string, settle time.Duration, warn io.Writer) (Claimed, error) {
+// An Agent's claim of a task meant for the person (msg.PersonOnly) is refused with a *PersonOnlyError.
+func Claim(c *client.Client, me string, who Caller, id, body string, settle time.Duration, warn io.Writer) (Claimed, error) {
 	task, ms, err := Find(c, id)
 	if err != nil {
 		return Claimed{}, err
@@ -89,6 +113,9 @@ func Claim(c *client.Client, me, id, body string, settle time.Duration, warn io.
 	r := Claimed{Task: task}
 	if task.From == me {
 		return r, ErrOwnTask
+	}
+	if who != Person && msg.PersonOnly(task) {
+		return r, &PersonOnlyError{Task: task}
 	}
 	if owner, taken := msg.TaskOwner(task.From, Takes(ms, id)); taken {
 		r.Owner, r.Mine, r.Already = owner, owner.From == me, owner.From == me
@@ -125,16 +152,48 @@ func Claim(c *client.Client, me, id, body string, settle time.Duration, warn io.
 	return r, nil
 }
 
+// What a standing-by wait is for (wait --only, aivoicebus_wait only): every message, tasks
+// only, or replies only (a message that answers another: an answer, a claim, an end...).
+const (
+	OnlyAll     = "all"
+	OnlyTasks   = "tasks"
+	OnlyReplies = "replies"
+)
+
+// ValidOnly reports whether o is one of the Only words ("" is all).
+func ValidOnly(o string) bool { return o == "" || o == OnlyAll || o == OnlyTasks || o == OnlyReplies }
+
 // Filter says which arriving messages end a wait. With Progress set, a claim (someone took the
 // task) does not end it: it is reported through Progress and marked read, and the wait goes on
 // for the answer itself.
+//
+// With Person set, a message meant for the person (msg.PersonOnly) never ends the wait as a
+// message: it goes to Person, which says whether it is news to tell the person about (then the
+// wait ends, returning what else came, maybe nothing). The wait also looks at what waits for the
+// machine's person (<machine>/human), where a node can show it without making that a session
+// (msg.FeatureInboxPeek). With Only "replies" neither is looked at.
 type Filter struct {
 	Thread, From string
+	Only         string
 	Progress     func(msg.Message)
+	Person       func(msg.Message) bool
+	// Stop, when set, picks claims and progress messages that end the wait like an answer instead
+	// of going to Progress (a wait for a conversation state stops on a state message).
+	Stop func(msg.Message) bool
 }
 
 // Match reports whether m is what the wait is for.
 func (f Filter) Match(m msg.Message) bool {
+	switch f.Only {
+	case OnlyTasks:
+		if m.Kind != msg.KindTask {
+			return false
+		}
+	case OnlyReplies:
+		if m.Re == "" {
+			return false
+		}
+	}
 	if f.Thread != "" && m.Thread != f.Thread {
 		return false
 	}
@@ -145,10 +204,10 @@ func (f Filter) Match(m msg.Message) bool {
 }
 
 // ErrTimeout is a wait that saw nothing arrive.
-var ErrTimeout = errors.New("nothing arrived")
+var ErrTimeout = errors.New("nothing arrived") // nextstep: every caller says what to do after a timeout
 
-// Wait polls the inbox until unread messages that match f are there, d has passed (ErrTimeout) or
-// ctx is done (ErrTimeout too). Each poll is one small request; the caller's agent spends no
+// Wait polls the inbox until unread messages that match f are there (or f.Person has news to
+// tell: then what it returns may be empty), d has passed (ErrTimeout) or ctx is done (ErrTimeout too). Each poll is one small request; the caller's agent spends no
 // tokens while it waits.
 func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every time.Duration) ([]msg.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, d)
@@ -156,10 +215,12 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 	deadline, _ := ctx.Deadline()
 	// A node that holds reads open (msg.FeatureInboxWait) answers as soon as something arrives;
 	// with an older one this asks every `every`.
-	held := false
-	if h, err := c.Health(); err == nil && h.Has(msg.FeatureInboxWait) {
-		held = true
+	held, peek := false, false
+	if h, err := c.Health(); err == nil {
+		held, peek = h.Has(msg.FeatureInboxWait), h.Has(msg.FeatureInboxPeek)
 	}
+	person := f.Person != nil && f.Only != OnlyReplies
+	peek = peek && person && !msg.IsHuman(me)
 	var gen uint64
 	hasGen := false
 	for {
@@ -189,18 +250,31 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 			}
 		}
 		var got []msg.Message
+		tell := false
 		for _, m := range ms {
 			if !f.Match(m) {
 				continue
 			}
-			if (m.Kind == msg.KindClaim || m.Kind == msg.KindProgress) && f.Progress != nil {
+			if person && msg.PersonOnly(m) {
+				tell = f.Person(m) || tell
+				continue
+			}
+			if (m.Kind == msg.KindClaim || m.Kind == msg.KindProgress) && f.Progress != nil && (f.Stop == nil || !f.Stop(m)) {
 				f.Progress(m)
 				_ = c.AckVia(m.ID, me, msg.ViaCLI, 0)
 				continue
 			}
 			got = append(got, m)
 		}
-		if len(got) > 0 {
+		if peek {
+			hs, _ := c.Peek(msg.HumanOf(me))
+			for _, m := range hs {
+				if m.From != me && f.Match(m) && msg.PersonOnly(m) {
+					tell = f.Person(m) || tell
+				}
+			}
+		}
+		if len(got) > 0 || tell {
 			sort.SliceStable(got, func(i, j int) bool { return got[i].At.Before(got[j].At) })
 			return got, nil
 		}

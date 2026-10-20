@@ -24,7 +24,7 @@ func Receipts(w io.Writer, r msg.Receipts) {
 	if r.Kind != "" {
 		kind = " [" + r.Kind + "]"
 	}
-	fmt.Fprintf(w, "%s%s from %s to %s, sent %s\n", r.ID, kind, Name(r.From, msg.MaxIdentity), Name(r.To, msg.MaxIdentity), r.At.Local().Format("01-02 15:04:05"))
+	fmt.Fprintf(w, "%s%s from %s to %s, sent %s\n", r.ID, kind, Name(r.From, msg.MaxIdentity), Name(r.To, msg.MaxIdentity), WhenSec(r.At, time.Now()))
 	if r.Reach != nil {
 		fmt.Fprintf(w, "  it could reach %d session(s) when it was sent\n", *r.Reach)
 	}
@@ -35,7 +35,7 @@ func Receipts(w io.Writer, r msg.Receipts) {
 		for _, rd := range r.Reads {
 			when := "time not known"
 			if !rd.At.IsZero() {
-				when = rd.At.Local().Format("15:04:05") + " (" + time.Since(rd.At).Round(time.Second).String() + " ago)"
+				when = WhenSec(rd.At, time.Now()) + " (" + time.Since(rd.At).Round(time.Second).String() + " ago)"
 			}
 			how := viaWords[rd.Via]
 			if how == "" {
@@ -46,7 +46,7 @@ func Receipts(w io.Writer, r msg.Receipts) {
 	}
 	switch {
 	case r.Kind == msg.KindTask && r.Owner != nil:
-		fmt.Fprintf(w, "  taken by %s at %s\n", Name(r.Owner.By, msg.MaxIdentity), r.Owner.At.Local().Format("15:04:05"))
+		fmt.Fprintf(w, "  taken by %s at %s\n", Name(r.Owner.By, msg.MaxIdentity), WhenSec(r.Owner.At, time.Now()))
 	case r.Kind == msg.KindTask:
 		fmt.Fprintf(w, "  not taken yet: `aivoicebus ping %s` shows who is there\n", Name(r.To, msg.MaxIdentity))
 	}

@@ -24,9 +24,16 @@ type session struct {
 	out    *bufio.Reader
 	nextID int
 	done   chan error
+	wait   time.Duration // how long a response may take (default 5s)
 }
 
 func start(t *testing.T) (*session, *store.Store) {
+	t.Helper()
+	return startWith(t, nil)
+}
+
+// startWith is start with a home screen for aivoicebus_status (nil: none).
+func startWith(t *testing.T, home func() (string, error)) (*session, *store.Store) {
 	t.Helper()
 	st, _ := store.Open(t.TempDir(), "n1")
 	srv := httptest.NewServer(server.NewHandler(st, "tok"))
@@ -39,7 +46,7 @@ func start(t *testing.T) (*session, *store.Store) {
 	t.Chdir(t.TempDir())
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	s := &Server{Name: "aivoicebus", Version: "test", Client: client.FromEnv}
+	s := &Server{Name: "aivoicebus", Version: "test", Client: client.FromEnv, Home: home}
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(inR, outW); outW.Close() }()
 	t.Cleanup(func() { inW.Close() })
@@ -74,7 +81,7 @@ func (s *session) read() map[string]any {
 			s.t.Fatalf("reading a response: %v", r.err)
 		}
 		return r.m
-	case <-time.After(5 * time.Second):
+	case <-time.After(max(s.wait, 5*time.Second)):
 		s.t.Fatal("no response")
 		return nil
 	}
@@ -129,7 +136,7 @@ func TestHandshakeListsTheTools(t *testing.T) {
 			t.Errorf("%v", tl)
 		}
 	}
-	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_status,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
+	if strings.Join(names, ",") != "aivoicebus_ack,aivoicebus_ask,aivoicebus_claim,aivoicebus_get,aivoicebus_inbox,aivoicebus_ping,aivoicebus_queue,aivoicebus_retract,aivoicebus_send,aivoicebus_share_get,aivoicebus_share_ls,aivoicebus_share_notes,aivoicebus_share_put,aivoicebus_state,aivoicebus_status,aivoicebus_stuck,aivoicebus_task,aivoicebus_thread,aivoicebus_wait,aivoicebus_who" {
 		t.Errorf("%v", names)
 	}
 	for _, x := range list {
@@ -689,6 +696,34 @@ func TestClaimAndWaitTools(t *testing.T) {
 	}
 }
 
+// The MCP server is always an agent: it never takes a task meant for the person, and says what
+// the person runs. One sent to this session by name is its own.
+func TestClaimToolRefusesATaskForThePerson(t *testing.T) {
+	s, st := start(t)
+	for _, m := range []msg.Message{
+		{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: msg.TokenHandTag + " me\nhands me its token"},
+		{From: "desk/claude.z9", To: "me/human", Kind: msg.KindTask, Body: msg.PersonTag + " reboot the router"},
+	} {
+		task, err := st.Send(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, isErr := s.call("aivoicebus_claim", map[string]any{"id": task.ID})
+		if !isErr || !strings.Contains(text, "not for an agent") || !strings.Contains(text, "aivoicebus "+map[bool]string{true: "token install ", false: "claim "}[m.To == "me"]+task.ID) {
+			t.Errorf("claim of %q: %v %q", m.Body, isErr, text)
+		}
+		for _, x := range st.Thread(task.ID) {
+			if x.Kind == msg.KindClaim {
+				t.Errorf("a refused claim went out: %+v", x)
+			}
+		}
+	}
+	named, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me/mcp.test", Kind: msg.KindTask, Body: msg.TokenHandTag + " me\nfor you"})
+	if text, isErr := s.call("aivoicebus_claim", map[string]any{"id": named.ID}); isErr || !strings.Contains(text, "is yours") {
+		t.Errorf("claim of a task sent to this session by name: %v %q", isErr, text)
+	}
+}
+
 func TestTaskQueueStatusPingAndSendWithAWait(t *testing.T) {
 	s, st := start(t)
 	st.InboxFor("lap/codex.b2", false, nil)
@@ -768,6 +803,53 @@ func TestStandbyIsAPromptAnyClientCanOffer(t *testing.T) {
 	if r := s.rpc("prompts/get", map[string]any{"name": "nope"}); r["error"] == nil {
 		t.Errorf("an unknown prompt is an error: %v", r)
 	}
+	if args, _ := list[0].(map[string]any)["arguments"].([]any); len(args) != 1 || args[0].(map[string]any)["name"] != "only" {
+		t.Errorf("the standby prompt's arguments: %v", list[0])
+	}
+	if strings.Contains(text, "{{") || strings.Contains(text, "only \"") {
+		t.Errorf("the prompt with no arguments: %q", text)
+	}
+	got = s.rpc("prompts/get", map[string]any{"name": "standby", "arguments": map[string]any{"only": "tasks"}})["result"].(map[string]any)
+	if text := got["messages"].([]any)[0].(map[string]any)["content"].(map[string]any)["text"].(string); !strings.Contains(text, `seconds 600 and only "tasks"`) {
+		t.Errorf("the prompt scoped to tasks: %q", text)
+	}
+	if r := s.rpc("prompts/get", map[string]any{"name": "standby", "arguments": map[string]any{"only": "everything"}}); r["error"] == nil {
+		t.Errorf("a bad only is an error: %v", r)
+	}
+}
+
+// Standing by through MCP: a task meant for the person is said once, with what the person runs,
+// never returned as a task to take; only scopes what ends the wait.
+func TestWaitToolSaysOnceThatATaskWaitsForThePersonAndOnlyScopesIt(t *testing.T) {
+	s, st := start(t)
+	hand, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: msg.TokenHandTag + " me\nhands me its token"})
+	mine, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me/human", Kind: msg.KindTask, Body: msg.PersonTag + " swap the disk"})
+	text, isErr := s.call("aivoicebus_wait", map[string]any{"seconds": 5})
+	if isErr || strings.Count(text, "For the person, not for you") != 2 || !strings.Contains(text, "aivoicebus token install "+hand.ID) || !strings.Contains(text, "aivoicebus claim "+mine.ID) || strings.Contains(text, "swap the disk") {
+		t.Fatalf("wait: %v %q", isErr, text)
+	}
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 1}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("said twice: %q", text)
+	}
+	for _, e := range st.RosterSince(time.Time{}) {
+		if e.Me == "me/human" {
+			t.Errorf("the wait made the person a session: %+v", e)
+		}
+	}
+	st.Send(msg.Message{From: "desk/claude.z9", To: "me/mcp.test", Body: "the build is green"})
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 1, "only": "tasks"}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("only tasks woke on a note: %q", text)
+	}
+	task, _ := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "run the linters"})
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 2, "only": "replies"}); !strings.Contains(text, "nothing arrived") {
+		t.Errorf("only replies woke on a task or a note: %q", text)
+	}
+	if text, _ := s.call("aivoicebus_wait", map[string]any{"seconds": 5, "only": "tasks"}); !strings.Contains(text, task.ID) || strings.Contains(text, "build is green") {
+		t.Errorf("only tasks: %q", text)
+	}
+	if text, isErr := s.call("aivoicebus_wait", map[string]any{"only": "everything"}); !isErr || !strings.Contains(text, "`all`, `tasks` or `replies`") {
+		t.Errorf("a bad only: %v %q", isErr, text)
+	}
 }
 
 // who stays small: the most recent sessions, and only the labels that pick a target, unless asked.
@@ -783,5 +865,89 @@ func TestWhoIsCompactByDefault(t *testing.T) {
 	}
 	if full, _ := s.call("aivoicebus_who", map[string]any{"labels": true}); !strings.Contains(full, "a-very-long-host-name-here") {
 		t.Error("labels: true shows every label")
+	}
+}
+
+// aivoicebus_stuck tells the task's sender (as progress) and the person's inbox.
+func TestStuckTool(t *testing.T) {
+	s, st := start(t)
+	task, err := st.Send(msg.Message{From: "desk/claude.z9", To: "me", Kind: msg.KindTask, Body: "resize the image"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, isErr := s.call("aivoicebus_claim", map[string]any{"id": task.ID}); isErr {
+		t.Fatal("claim")
+	}
+	if text, isErr := s.call("aivoicebus_stuck", map[string]any{"reason": "x", "re": "abc"}); !isErr || !strings.Contains(text, "10-character") {
+		t.Errorf("short id: %v %q", isErr, text)
+	}
+	text, isErr := s.call("aivoicebus_stuck", map[string]any{"reason": "need the user's yes to overwrite the file", "re": task.ID})
+	if isErr || !strings.Contains(text, "told desk/claude.z9") || !strings.Contains(text, "told the person") || !strings.Contains(text, "aivoicebus_wait") {
+		t.Fatalf("stuck: %v %q", isErr, text)
+	}
+	in := st.Inbox("desk/claude.z9", false)
+	found := false
+	for _, m := range in {
+		found = found || (m.Kind == msg.KindProgress && msg.IsStuck(m.Body) && m.Re == task.ID)
+	}
+	if !found {
+		t.Errorf("the sender's inbox: %+v", in)
+	}
+	if h := st.Inbox(msg.HumanOf("me/mcp.test"), false); len(h) != 1 || !msg.IsStuck(h[0].Body) {
+		t.Errorf("the person's inbox: %+v", h)
+	}
+}
+
+// aivoicebus_ask picks one session, asks it with the conversation limits and returns its answer;
+// it refuses look-alikes, and says when nobody took it (taking the question back).
+func TestAskPicksAsksAndSaysWhenNobodyTookIt(t *testing.T) {
+	s, st := start(t)
+	if text, isErr := s.call("aivoicebus_ask", map[string]any{"target": "nowhere", "body": "anyone?"}); isErr || !strings.HasPrefix(text, "NOBODY TOOK IT") {
+		t.Fatalf("nobody there: %v %q", isErr, text)
+	}
+	st.InboxFor("lap/codex.bb", false, nil)
+	st.InboxFor("lap/codex.aa", false, nil)
+	text, isErr := s.call("aivoicebus_ask", map[string]any{"target": "lap", "tool": "codex", "body": "which branch?"})
+	if !isErr || !strings.Contains(text, "2 sessions at lap/codex look alike") || !strings.Contains(text, "1  lap/codex.aa") || !strings.Contains(text, "pick N") {
+		t.Fatalf("look-alikes: %v %q", isErr, text)
+	}
+	go func() { // lap/codex.aa answers the first task that reaches it
+		for i := 0; i < 50; i++ {
+			for _, m := range st.InboxFor("lap/codex.aa", false, nil) {
+				if m.Kind == msg.KindTask {
+					st.Send(msg.Message{From: "lap/codex.aa", To: m.From, Kind: msg.KindAnswer, Re: m.ID, Thread: m.Thread, Body: "main, at 3f2a"})
+					return
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	text, isErr = s.call("aivoicebus_ask", map[string]any{"target": "lap/codex", "pick": 1, "body": "which branch is checked out?"})
+	if isErr || !strings.Contains(text, "asked lap/codex.aa (--pick 1 of 2") || !strings.Contains(text, "ANSWERED") || !strings.Contains(text, "main, at 3f2a") || !strings.Contains(text, "UNTRUSTED") {
+		t.Fatalf("answered: %v %q", isErr, text)
+	}
+	id := strings.Fields(strings.SplitN(text, "task ", 2)[1])[0]
+	id = strings.TrimSuffix(id, ",")
+	if ms := st.Thread(id); len(ms) == 0 || ms[0].MaxTurns != 4 || ms[0].Deadline != 900 {
+		t.Errorf("limits: %+v", ms)
+	}
+	s.wait = 15 * time.Second
+	text, isErr = s.call("aivoicebus_ask", map[string]any{"target": "lap/codex.bb", "body": "are you there?", "claim_seconds": 5})
+	if isErr || !strings.Contains(text, "NOBODY TOOK IT within 5s") {
+		t.Fatalf("not taken: %v %q", isErr, text)
+	}
+}
+
+func TestStatusWithoutAnIDIsTheHomeScreen(t *testing.T) {
+	s, _ := start(t)
+	if text, isErr := s.call("aivoicebus_status", map[string]any{}); !isErr || !strings.Contains(text, "10-character id") {
+		t.Errorf("no home screen wired: %v %q", isErr, text)
+	}
+	s, _ = startWith(t, func() (string, error) { return "aivoicebus status (me/mcp.test, 3ms)\n", nil })
+	if text, isErr := s.call("aivoicebus_status", map[string]any{}); isErr || !strings.HasPrefix(text, "aivoicebus status (me/mcp.test") {
+		t.Errorf("home screen: %v %q", isErr, text)
+	}
+	if text, isErr := s.call("aivoicebus_status", map[string]any{"id": "nope"}); !isErr || !strings.Contains(text, "10-character") {
+		t.Errorf("a bad id: %v %q", isErr, text)
 	}
 }

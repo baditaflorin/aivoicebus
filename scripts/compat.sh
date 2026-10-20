@@ -57,6 +57,14 @@ feature_since() {
     quarantine) echo 0.1.0 ;; # Merge and replay replace an invalid replicated record by a placeholder
     features) echo 0.1.0 ;;   # /v1/health lists the node's features
     retract) echo 0.1.0 ;;    # a retraction ack hides its message (inbox) and tombstones it (thread)
+    tasks) echo 0.2.0 ;;      # holds a task (msg.TaskSince); the CLI refuses to send one to an older mesh
+    progress) echo 0.10.0 ;;  # holds a --kind progress message (an older node quarantines it)
+    states) echo 0.11.0 ;;    # a conversation state passes a used-up turn limit when it closes the conversation
+    share) echo 0.12.0 ;;     # /v1/share/...: a thread's shared space (versions of sealed files, notes)
+    loopkey) echo 0.10.0 ;;   # the loop check (a third message alike, numbers aside) and the pair brake (8, then 24 replies in 2 minutes)
+    brakes) echo 0.12.0 ;;    # repeats judged by similarity: new replies pass the pair brake to 48, numbers are words, rewordings are repeats
+    signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
+    budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -94,7 +102,7 @@ for v in "${OLDV[@]}"; do
   [ "$mv" = "$v" ] || die "$rd holds release $mv, not $v"
   i=$((i + 1))
   cp "$rd/aivoicebus-linux-amd64" "$W/aivoicebus-$v" && chmod 755 "$W/aivoicebus-$v"
-  "$W/aivoicebus-$v" version 2>&1 | grep -qF "$v" || die "the $v binary does not say it is $v"
+  grep -qF "$v" <<<"$("$W/aivoicebus-$v" version 2>&1)" || die "the $v binary does not say it is $v"
   NAME[$i]=o${v//./}; BIN[$i]=$W/aivoicebus-$v; VER[$i]=$v
 done
 N=${#NAME[@]}
@@ -143,9 +151,12 @@ cli() { # INDEX-OF-NODE BINARY IDENTITY ARGS...: a CLI of any version against on
 vv() { get "$1" /v1/health | py 'import json,sys; print(json.dumps(json.load(sys.stdin)["log"],sort_keys=True))'; }
 hfield() { get "$1" /v1/health | py 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1],"absent"))' "$2"; }
 feed() { get "$1" '/v1/sync?vv=%7B%7D'; } # one page; the gate's data fits in it
+# A mark matches only as a whole word: node names are versions without their dots, so o010
+# (0.1.0) is a prefix of o0100 (0.10.0), and a plain substring test found both.
 id_of() { # PORT MARK -> the id of the message whose body holds MARK
-  feed "$1" | py 'import json,sys
-ids=[r["msg"]["id"] for r in json.load(sys.stdin) or [] if r.get("msg") and sys.argv[1] in r["msg"]["body"]]
+  feed "$1" | py 'import json,re,sys
+has=lambda b: re.search(re.escape(sys.argv[1])+r"(?![0-9A-Za-z_])", b)
+ids=[r["msg"]["id"] for r in json.load(sys.stdin) or [] if r.get("msg") and has(r["msg"]["body"])]
 print(ids[0] if len(ids)==1 else "")' "$2"
 }
 inbox_has() { # PORT ME ID -> yes|no
@@ -221,9 +232,10 @@ done
 check_converged "version vectors equal"
 for i in "${!NAME[@]}"; do
   for j in "${!NAME[@]}"; do
-    got=$(feed "${PORT[$j]}" | py 'import json,sys
+    got=$(feed "${PORT[$j]}" | py 'import json,re,sys
 from datetime import datetime as D
-m=[r["msg"] for r in json.load(sys.stdin) or [] if r.get("msg") and sys.argv[1] in r["msg"]["body"]]
+has=lambda b: re.search(re.escape(sys.argv[1])+r"(?![0-9A-Za-z_])", b)
+m=[r["msg"] for r in json.load(sys.stdin) or [] if r.get("msg") and has(r["msg"]["body"])]
 if len(m)!=1: print("held %d" % len(m)); sys.exit()
 m=m[0]; t=lambda s: D.fromisoformat(s.replace("Z","+00:00"))
 ttl=int((t(m["exp"])-t(m["at"])).total_seconds()) if m.get("exp") else 0
@@ -337,6 +349,188 @@ for ((i = 1; i < N; i++)); do
   done
   stop "$i"; start "$i"
 done
+
+scenario "conversation states"
+# A state is a progress message whose first line starts with [state NAME] (msg/state.go): written by
+# this tree's CLI through an old node, every node keeps it unchanged, an old CLI shows it as the
+# ordinary message it is, and this tree's CLI folds the same state from any node. A client sends no
+# progress (so no state) to a mesh with a node from before progress, which would quarantine it.
+sent_id() { awk '$1=="sent"{print $2; exit}' "$1"; }
+allprog=1; for k in "${!NAME[@]}"; do has "$k" progress || allprog=; done
+via=$((N - 1)) # the oldest node
+echo "  the taker writes through ${NAME[$via]}"
+alltasks=1; for k in "${!NAME[@]}"; do has "$k" tasks || alltasks=; done
+cli 0 "$NEW" cs-boss/claude.b1 task cs-lap "states MARK-CS-task" --ttl 2h >"$W/cs.out" 2>"$W/cs.err"; rc=$?
+if [ -z "$alltasks" ]; then
+  # A node from before tasks is in the mesh: the CLI refuses the task (as it has since 0.2.0), so there
+  # is no conversation to give a state to, and nothing is written.
+  check "$rc $(grep -c 'cannot hold a task' "$W/cs.err")" "1 1" "new CLI refuses a task to a mesh with a node before 0.2.0 (so no states either)"
+  check_converged "version vectors equal"
+else
+check "$rc" 0 "new CLI sends a task on new"
+T=$(sent_id "$W/cs.out")
+converge
+cli "$via" "$NEW" cs-lap/codex.t1 claim "$T" --settle 0s >/dev/null 2>&1; check "$?" 0 "new CLI claims it through ${NAME[$via]}"
+cli "$via" "$NEW" cs-lap/codex.t1 state "$T" ready "MARK-CS-ready" >/dev/null 2>"$W/cs.err"; rc=$?
+if [ -z "$allprog" ]; then
+  check "$rc $(grep -c 'older than 0.10.0' "$W/cs.err")" "1 1" "new CLI refuses to send a state to a mesh with a node before 0.10.0"
+  check_converged "version vectors equal"
+  for k in "${!NAME[@]}"; do
+    got=$(feed "${PORT[$k]}" | py 'import json,sys; print(sum(1 for r in json.load(sys.stdin) or [] if r.get("msg") and "MARK-CS-ready" in r["msg"]["body"]))')
+    check "$got" 0 "${NAME[$k]} holds no state message"
+  done
+  check_quarantined 1 "quarantined nothing more"
+else
+  check "$rc" 0 "new CLI says ready through ${NAME[$via]}"
+  cli "$via" "$NEW" cs-lap/codex.t1 state "$T" taken "MARK-CS-back" >/dev/null 2>&1; check "$?" 1 "new CLI refuses ready -> taken, sending nothing"
+  cli "$via" "$NEW" cs-lap/codex.t1 state "$T" done "MARK-CS-done" >/dev/null 2>&1; check "$?" 0 "new CLI says done through ${NAME[$via]}"
+  check_converged "version vectors equal"
+  for k in "${!NAME[@]}"; do
+    got=$(feed "${PORT[$k]}" | py 'import json,sys
+m=[r["msg"] for r in json.load(sys.stdin) or [] if r.get("msg") and "MARK-CS-" in r["msg"]["body"] and r["msg"].get("kind")=="progress"]
+print(" ".join(sorted("%s:%s" % (x["kind"], x["body"]) for x in m)) or "none")')
+    check "$got" "progress:[state done] MARK-CS-done progress:[state ready] MARK-CS-ready" "${NAME[$k]} holds the two state messages as progress, bodies unchanged"
+    got=$(cli "$k" "$NEW" cs-boss/claude.b1 state "$T" --json | py 'import json,sys; s=json.load(sys.stdin)["state"]; print(s["state"], s["taker"], "->".join(h["state"] for h in s["history"]), len(s.get("ignored") or []))')
+    check "$got" "done cs-lap/codex.t1 offered->taken->ready->done 0" "new CLI folds the same state from ${NAME[$k]}"
+    if [ "${VER[$k]}" != new ]; then
+      out=$(cli "$k" "${BIN[$k]}" cs-boss/claude.b1 thread "$T" 2>&1); rc=$?
+      check "$rc $(grep -c -F '[state ready] MARK-CS-ready' <<<"$out")" "0 1" "the ${VER[$k]} CLI shows the state as an ordinary message"
+    fi
+  done
+  # a used-up turn limit: a closing state passes on a node that knows states, and counts as the
+  # progress message it is (refused) on an older one. Each node is asked alone: write through it,
+  # with the task made there.
+  for k in "${!NAME[@]}"; do
+    cli "$k" "$NEW" cs-boss/claude.b1 task cs-lap "turns MARK-CS-turns-${NAME[$k]}" --ttl 2h --max-turns 2 >"$W/cs.out" 2>/dev/null
+    t=$(sent_id "$W/cs.out")
+    cli "$k" "$NEW" cs-lap/codex.t1 claim "$t" --settle 0s >/dev/null 2>&1
+    cli "$k" "$NEW" cs-lap/codex.t1 reply --re "$t" "the second turn MARK-CS-r-${NAME[$k]}" >/dev/null 2>&1
+    cli "$k" "$NEW" cs-lap/codex.t1 state "$t" done "closing MARK-CS-close-${NAME[$k]}" >/dev/null 2>"$W/cs.err"; rc=$?
+    [ "$rc" = 0 ] || rc=refused
+    want=refused; has "$k" states && want=0
+    check "$rc" "$want" "${NAME[$k]} (${VER[$k]}): done after the turn limit $([ $want = 0 ] && echo passes || echo is refused)"
+  done
+  check_converged "version vectors equal"
+fi
+fi # alltasks
+
+scenario "shared spaces"
+# A thread's shared space is a node's own log, apart from the message log: a node from before it
+# answers 404 under /v1/share/ and its message log is untouched. Only this tree's node holds one here
+# (its replication between nodes is the lab's and the unit tests'). Raw calls: the share CLI seals
+# with keys a scratch HOME has none of, and what is checked is the node.
+ST=$(id_of "${PORT[0]}" MARK-S1-new)
+for i in "${!NAME[@]}"; do
+  got=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "http://127.0.0.1:${PORT[$i]}/v1/share/index?thread=$ST")
+  feat=$(get "${PORT[$i]}" /v1/health | py 'import json,sys; print("yes" if "share" in (json.load(sys.stdin).get("features") or []) else "no")')
+  want="404 no"; has "$i" share && want="200 yes"
+  check "$got $feat" "$want" "${NAME[$i]} (${VER[$i]}) holds shared spaces iff it has them, and says so"
+done
+chunk=$(py 'import base64,os,json; print(json.dumps({"data": base64.b64encode(b"AVBS1"+os.urandom(4096)).decode()}))')
+check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" "$chunk")" 200 "new takes a sealed chunk"
+SHA=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$W/last.out")
+ver=$(py 'import json,os,sys; print(json.dumps({"thread":sys.argv[1],"ver":{"id":os.urandom(16).hex(),"name":os.urandom(16).hex(),"kid":os.urandom(8).hex(),"chunks":[sys.argv[2]],"meta":"bWV0YQ==","by":"h0/compat.sh1"}}))' "$ST" "$SHA")
+check "$(post "${PORT[0]}" /v1/share/put "$ver")" 200 "new takes a version of it"
+check "$(py 'import json,sys; print(json.load(open(sys.argv[1]))["ver"]["num"])' "$W/last.out")" 1 "  numbered 1"
+check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" '{"data":"cGxhaW4gdGV4dCBwbGFpbiB0ZXh0IHBsYWluIHRleHQ="}')" 400 "new refuses a plaintext chunk"
+# The CLI: through this tree's node it shares and reads back; through an older node it says the
+# node holds no shared spaces and points at --via pipe, and stores nothing.
+cli 0 "$NEW" h0/compat.sh1 send --to h9/compat.sh9 "share root MARK-SH-root" >"$W/sh.out" 2>/dev/null
+SR=$(awk '$1=="sent"{print $2; exit}' "$W/sh.out")
+printf 'shared text MARK-SH-text\n' >"$W/sh.txt"
+# Who is in a thread is read from signed messages: with a node from before signing in the mesh no
+# client signs, so the CLI refuses and says why.
+allsign=1; for k in "${!NAME[@]}"; do has "$k" signing || allsign=; done
+out=$(cli 0 "$NEW" h0/compat.sh1 share put "$SR" "$W/sh.txt" 2>&1); rc=$?
+if [ -n "$allsign" ]; then
+  check "$rc" 0 "new CLI shares a file through new"
+  check "$(cli 0 "$NEW" h0/compat.sh1 share get "$SR" sh.txt 2>/dev/null)" "shared text MARK-SH-text" "new CLI reads it back through new"
+else
+  check "$rc $(grep -c 'first message is not signed' <<<"$out")" "1 1" "new CLI refuses to share in an unsigned thread (a node before 0.7.0 is in the mesh), saying why"
+fi
+converge
+for ((i = 1; i < N; i++)); do
+  out=$(cli "$i" "$NEW" h0/compat.sh1 share ls "$SR" 2>&1); rc=$?
+  check "$rc $(grep -c 'holds no shared spaces' <<<"$out") $(grep -c -- '--via pipe' <<<"$out")" "1 1 1" "new CLI through ${NAME[$i]} (${VER[$i]}) says it holds no shared spaces, and what to do"
+done
+check_converged "message logs stay equal on all $N nodes"
+check_quarantined 1 "quarantined nothing more"
+
+scenario "a conversation's character budget"
+# The CLI sends --budget-chars only when every node it knows (the one it asks and that node's
+# peers) enforces it: in this mixed mesh it refuses through any node, sending nothing. The nodes
+# are then asked with raw requests, each alone: a node that enforces budgets (0.12.0 on) refuses a
+# reply that would pass one with 409 and takes one that fits and an [end]; an older node ignores
+# the field it does not know, and takes the reply.
+for k in "${!NAME[@]}"; do
+  cli "$k" "$NEW" "bc-${NAME[$k]}/claude.a1" send --to "bc-${NAME[$k]}/codex.b2" --budget-chars 80 "budget by CLI MARK-BC-${NAME[$k]}" >"$W/bg.out" 2>"$W/bg.err"; rc=$?
+  check "$rc $(grep -c 'does not enforce --budget-chars' "$W/bg.err") $(sent_id "$W/bg.out")" "1 1 " "new CLI refuses --budget-chars through ${NAME[$k]} in a mesh with older nodes, sending nothing"
+done
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; a=bg-$n/claude.a1; b=bg-$n/codex.b2; p=${PORT[$k]}
+  check "$(post "$p" /v1/send '{"from":"'"$a"'","to":"'"$b"'","body":"budget root MARK-BG-'"$n"'","budget_chars":80}')" 200 "$n: a conversation with budget_chars 80 starts"
+  root=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$W/last.out")
+  check "$(post "$p" /v1/send '{"from":"'"$b"'","to":"'"$a"'","re":"'"$root"'","body":"this reply fits in the budget"}')" 200 "$n: a reply that fits goes"
+  want=200; has "$k" budget && want=409
+  check "$(post "$p" /v1/send '{"from":"'"$a"'","to":"'"$b"'","re":"'"$root"'","body":"and this one is far too long to fit in what is left of it"}')" "$want" \
+    "$n (${VER[$k]}): a reply past the budget $([ $want = 409 ] && echo is refused || echo goes, the field unknown there)"
+  if has "$k" tasks; then
+    check "$(post "$p" /v1/send '{"from":"'"$a"'","to":"'"$b"'","re":"'"$root"'","kind":"end","body":"closing: the budget is used"}')" 200 "$n: an [end] goes"
+  fi
+  bgroot[$k]=$root
+done
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  check "$(thread_of "${PORT[$k]}" "${bgroot[0]}")" "budget root MARK-BG-new" "${NAME[$k]} holds the new node's budget conversation, body unchanged"
+done
+got=$(cli 0 "$NEW" "bg-new/claude.a1" thread --digest "${bgroot[0]}" 2>/dev/null | grep -c 'of its 80 characters')
+check "$got" 1 "new CLI's digest shows the size against the budget"
+
+scenario "the brakes tell a loop from progress"
+# Each node is asked alone (written through it, with sessions of its own). A burst of 30 replies that
+# each say something new: a node with the new brakes takes them all; one with the old pair brake
+# (0.10.0: 8, 0.10.1 on: 24 in 2 minutes) refuses one before the 30th; older nodes have no brake.
+# Counting up one number at a time: the old loop check refuses the third number, the new one takes
+# it (numbers are words). The same thanks in other words: the new loop check refuses it within six.
+words=(amber basalt cinder dahlia egret fennel garnet heron indigo juniper kestrel lichen mango
+  nutmeg obsidian papaya quince russet sorrel tamarind umber vetiver wisteria xenon yarrow zinnia
+  acorn bramble clover drizzle)
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; a=bk-$n/claude.a1; b=bk-$n/codex.b2
+  cli "$k" "$NEW" "$a" send --to "$b" "burst root MARK-BK-$n" >"$W/bk.out" 2>/dev/null
+  root=$(sent_id "$W/bk.out")
+  if [ -z "$root" ]; then check "no root" sent "${NAME[$k]}: the burst starts"; continue; fi
+  ok=0
+  for i in $(seq 0 29); do
+    from=$a; [ $((i % 2)) = 0 ] && from=$b
+    cli "$k" "$NEW" "$from" reply --re "$root" "${words[$i]} ${words[$(((i * 7 + 3) % 30))]} report $i on ${words[$(((i * 11 + 5) % 30))]}" >/dev/null 2>&1 || break
+    ok=$((ok + 1))
+  done
+  want=30; if has "$k" loopkey && ! has "$k" brakes; then want=refused; fi
+  got=$ok; [ "$want" = refused ] && [ "$ok" -lt 30 ] && got=refused
+  check "$got" "$want" "${NAME[$k]} (${VER[$k]}): 30 fast replies that each say something new $([ $want = 30 ] && echo all go || echo are stopped by the old pair brake)"
+
+  a=ct-$n/claude.a1; b=ct-$n/codex.b2
+  cli "$k" "$NEW" "$a" send --to "$b" "count with me MARK-CT-$n" >"$W/bk.out" 2>/dev/null
+  root=$(sent_id "$W/bk.out"); ok=0
+  for i in 1 2 3; do cli "$k" "$NEW" "$b" reply --re "$root" "$i" >/dev/null 2>&1 && ok=$((ok + 1)); done
+  want=3; if has "$k" loopkey && ! has "$k" brakes; then want=2; fi
+  check "$ok" "$want" "${NAME[$k]} (${VER[$k]}): counting 1 2 3 $([ $want = 3 ] && echo goes || echo is refused at the third number)"
+
+  if has "$k" brakes; then
+    a=th-$n/claude.a1; b=th-$n/codex.b2
+    cli "$k" "$NEW" "$b" send --to "$a" "the summary MARK-TH-$n" >"$W/bk.out" 2>/dev/null
+    root=$(sent_id "$W/bk.out"); at=0; i=0
+    for line in "$a|Thanks! Let me know if you need anything else." "$b|You're welcome! Let me know if there is anything else you need." \
+      "$a|Thanks again! Let me know if you need anything else at all." "$b|You're very welcome! Let me know if there is anything else you need." \
+      "$a|Thanks! Do let me know if you need anything else." "$b|You are welcome! Let me know if there's anything else you need."; do
+      i=$((i + 1))
+      cli "$k" "$NEW" "${line%%|*}" reply --re "$root" "${line#*|}" >/dev/null 2>"$W/bk.err" || { at=$i; break; }
+    done
+    check "$at $(grep -c 'loop check' "$W/bk.err")" "5 1" "${NAME[$k]}: the same thanks in other words is refused by the loop check at the 5th reply"
+  fi
+done
+check_converged "version vectors equal"
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done

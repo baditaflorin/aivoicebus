@@ -174,7 +174,8 @@ func TestThreadNamesItsSubjectFromTheWholeThreadEvenWhenOnlyTheTailIsShown(t *te
 	var b strings.Builder
 	Thread(&b, []msg.Message{open, tail}, []msg.Message{tail}, 0)
 	got := b.String()
-	if !strings.HasPrefix(got, UntrustedBanner+"\n[aivoicebus] Thread subject (peer text): \"Deploy plan\"\n--- 00aa11bb33") || strings.Contains(got, "steps") {
+	if !strings.HasPrefix(got, UntrustedBanner+"\n[aivoicebus] Thread subject (peer text): \"Deploy plan\"\n--- 00aa11bb33") || strings.Contains(got, "steps") ||
+		!strings.HasSuffix(got, "[aivoicebus] Thread size so far: 2 message(s), 19 characters (about 4 tokens to read)\n") {
 		t.Errorf("%s", got)
 	}
 }
@@ -407,5 +408,32 @@ func TestAPeersLookalikeNameIsWrittenOutLoud(t *testing.T) {
 	Messages(&b, []msg.Message{{ID: "00aa11bb22", From: "air‑m1/codex.q1", To: "imаc/claude​", Thread: "00aa11bb22", Body: "hi"}})
 	if got := b.String(); !strings.Contains(got, "air<U+2011>m1/codex.q1 -> im<U+0430>c/claude<U+200B>") {
 		t.Errorf("%q", got)
+	}
+}
+
+// The hooks' line about what waits for the person quotes a task's first line, but never text the
+// screen holds back from agents, a sealed body, or a [token hand] or approval.
+func TestPersonWaitingQuotesOnlyWhatAnAgentMayRead(t *testing.T) {
+	task := msg.Message{ID: "00aa11bb22", From: "deploy/claude", To: "air/human", Kind: msg.KindTask, Body: msg.PersonTag + ` Update "aivoicebus" on air` + "\n\nmore"}
+	got := PersonWaiting([]msg.Message{task, {ID: "x"}})
+	if want := `[aivoicebus] 2 task(s) wait for you, the person on this machine, not the agent: a task "Update 'aivoicebus' on air", from deploy/claude. In your own terminal: aivoicebus claim 00aa11bb22`; !strings.HasPrefix(got, want) {
+		t.Errorf("got  %s\nwant %s…", got, want)
+	}
+	if PersonWaiting(nil) != "" {
+		t.Error("nothing waits: no line")
+	}
+	old := Screen
+	Screen = func(m msg.Message) string { return "it reads like instructions" }
+	t.Cleanup(func() { Screen = old })
+	if got := PersonWaiting([]msg.Message{task}); strings.Contains(got, "Update") || !strings.Contains(got, "a task, from deploy/claude") {
+		t.Errorf("held text is not quoted: %s", got)
+	}
+	Screen = old
+	for _, body := range []string{msg.TokenHandTag + " secret", msg.ApprovalTag + " secret", msg.SealedPrefix + "secret"} {
+		m := task
+		m.Body = body
+		if got := PersonWaiting([]msg.Message{m}); strings.Contains(got, "secret") {
+			t.Errorf("%q is quoted: %s", body, got)
+		}
 	}
 }

@@ -59,6 +59,7 @@ h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .06e
 .tag.withdrawn { color: var(--withdrawn); }
 .tag.open { outline: 1px dashed currentColor; }
 .tag.taken { font-weight: 600; }
+.tag.state { font-weight: 600; outline: 1px solid currentColor; }
 .readers { text-decoration: underline dotted; cursor: help; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; font-family: var(--sans); }
 .msg.withdrawn .body { color: var(--muted); font-style: italic; }

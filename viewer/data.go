@@ -81,6 +81,10 @@ type Conversation struct {
 	Threads []string `json:"threads,omitempty"`
 	// Hidden is true when every participant is an automation identity (see Automated).
 	Hidden bool `json:"hidden,omitempty"`
+	// State is the conversation's state (msg/state.go: offered, taken, ready, ...), "" when it has
+	// none or is a fan-out of several threads; StateBy said it.
+	State   string `json:"state,omitempty"`
+	StateBy string `json:"state_by,omitempty"`
 }
 
 // fanoutWindow is how far apart the copies of one message to several sessions may be sent: a sender
@@ -95,6 +99,9 @@ type ThreadMessage struct {
 	Readers []string `json:"readers,omitempty"`
 	// TakenBy is, for a task, the session that took it ("" while nobody has).
 	TakenBy string `json:"taken_by,omitempty"`
+	// State is, on the message that opened the thread, the conversation's state and who said it.
+	State   string `json:"state,omitempty"`
+	StateBy string `json:"state_by,omitempty"`
 	// Recipients are the sessions this text went to: one, or all the copies of a fan-out.
 	Recipients []string `json:"recipients"`
 }
@@ -299,6 +306,11 @@ func Conversations(ms []msg.Message, titles map[string]string, session string) [
 			}
 		}
 		a.c.Subject = view.Subject(a.all)
+		if len(a.threads) == 1 {
+			if st := msg.ThreadState(a.all); st.State != "" {
+				a.c.State, a.c.StateBy = st.State, clean(st.By, nameShown)
+			}
+		}
 		automated := len(a.names) > 0
 		for me, title := range a.names {
 			if title == "" {

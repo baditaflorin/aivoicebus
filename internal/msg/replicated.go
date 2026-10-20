@@ -86,6 +86,9 @@ func (m *Message) validateReplicated() error {
 	if m.Deadline < 0 || m.Deadline > MaxDeadline {
 		return errors.New("deadline is out of range")
 	}
+	if m.BudgetChars < 0 || m.BudgetChars > MaxBudgetChars {
+		return errors.New("budget_chars is out of range")
+	}
 	return nil
 }
 

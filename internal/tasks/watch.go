@@ -70,11 +70,11 @@ func NotifyActions(url, title, text, actions string) error {
 	}
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
-		return fmt.Errorf("the notify URL's host %s did not answer", req.URL.Host) // the error would quote the URL
+		return fmt.Errorf("the notify URL's host %s did not answer: check it with `aivoicebus watch notify test`", req.URL.Host) // the error would quote the URL
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("the notify URL's host %s answered %s", req.URL.Host, resp.Status) // the URL itself may be a secret
+		return fmt.Errorf("the notify URL's host %s answered %s: check it with `aivoicebus watch notify test`", req.URL.Host, resp.Status) // the URL itself may be a secret
 	}
 	return nil
 }

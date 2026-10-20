@@ -18,7 +18,7 @@ const maxSecretFile = 64 << 10
 
 // SecretValues lists the credentials this machine holds, so a message that contains one can
 // be refused before it leaves: the token in the environment and every line of the token file in
-// use, of the files in secretFiles, of machine-tokens/ and of the credentials/ directory. A `name:token` line (token.nodes)
+// use, of the files in secretFiles, of machine-tokens/ (and AIVOICEBUS_MACHINE_TOKENS_DIR) and of the credentials/ directory. A `name:token` line (token.nodes)
 // gives both the whole line and the token. Whatever is missing or unreadable is skipped, no
 // error is reported and nothing is logged: the values are exactly what must not leak.
 //
@@ -48,9 +48,15 @@ func SecretValues() []string {
 	for _, name := range secretFiles {
 		add(dir + "/" + name)
 	}
-	if entries, err := os.ReadDir(dir + "/machine-tokens"); err == nil {
-		for _, e := range entries {
-			add(dir + "/machine-tokens/" + e.Name())
+	mt := []string{dir + "/machine-tokens"}
+	if d := os.Getenv("AIVOICEBUS_MACHINE_TOKENS_DIR"); d != "" && d != mt[0] { // where deploy/machine-token.sh was told to keep them
+		mt = append(mt, d)
+	}
+	for _, d := range mt {
+		if entries, err := os.ReadDir(d); err == nil {
+			for _, e := range entries {
+				add(d + "/" + e.Name())
+			}
 		}
 	}
 	// credentials a person handed over with `aivoicebus secret save`: one token file per name
@@ -92,3 +98,7 @@ func splitLines(text string) []string {
 	}
 	return out
 }
+
+// SecretFileLines is the credential(s) in one token file: its non-blank lines, without comments
+// (none if it is missing or not a regular file). For matching and masking only, never printing.
+func SecretFileLines(path string) []string { return splitLines(readSecretFile(path)) }

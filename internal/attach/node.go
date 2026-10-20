@@ -78,7 +78,7 @@ func (n *Node) do(ctx context.Context, method, u string, body []byte, timeout ti
 }
 
 // Put implements FileStore: the first node that takes it holds it.
-func (n *Node) Put(ctx context.Context, data []byte, burn bool) (Link, string, error) {
+func (n *Node) Put(ctx context.Context, data []byte, meta Meta, burn bool) (Link, string, error) {
 	if len(n.URLs) == 0 {
 		return Link{}, "", errors.New("no node is configured (AIVOICEBUS_URL)")
 	}
@@ -86,7 +86,14 @@ func (n *Node) Put(ctx context.Context, data []byte, burn bool) (Link, string, e
 	if err != nil {
 		return Link{}, "", err
 	}
-	env, err := seal(key, data)
+	sum := sha256.Sum256(data)
+	meta.Size, meta.SHA256 = int64(len(data)), hex.EncodeToString(sum[:])
+	var env []byte
+	if MetaInside() || len(meta.Extra) > 0 { // metadata asked for by the sender is always sealed
+		env, err = sealMeta(key, meta, data)
+	} else {
+		env, err = seal(key, data)
+	}
 	if err != nil {
 		return Link{}, "", err
 	}
@@ -116,9 +123,8 @@ func (n *Node) Put(ctx context.Context, data []byte, burn bool) (Link, string, e
 			if json.Unmarshal(msgb, &r) != nil || !reNodePath.MatchString("/v1/files/"+r.ID) {
 				return Link{}, "", fmt.Errorf("node %s answered with no usable id", b.Host)
 			}
-			sum := sha256.Sum256(data)
 			path := base + "/v1/files/" + r.ID
-			return Link{URL: path + "#" + key, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}, path + "/read", nil
+			return Link{URL: path + "#" + key, Name: meta.Name, Size: meta.Size, SHA256: meta.SHA256}, path + "/read", nil
 		case resp.StatusCode == http.StatusNotFound:
 			errs = append(errs, b.Host+": does not hold files (it runs an older release)")
 		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
@@ -132,29 +138,35 @@ func (n *Node) Put(ctx context.Context, data []byte, burn bool) (Link, string, e
 
 // Get implements FileStore. It fetches only from the configured node the link names.
 func (n *Node) Get(ctx context.Context, l Link) ([]byte, error) {
+	f, err := n.GetFile(ctx, l)
+	return f.Data, err
+}
+
+// GetFile implements FileStore, like Pipe.GetFile.
+func (n *Node) GetFile(ctx context.Context, l Link) (File, error) {
 	u, err := url.Parse(l.URL)
 	if err != nil || !n.Handles(u) {
-		return nil, errors.New("not a link to one of this machine's nodes")
+		return File{}, errors.New("not a link to one of this machine's nodes")
 	}
 	resp, err := getOnce(ctx, n.base(u)+u.Path, http.Header{"Authorization": {"Bearer " + n.Token}})
 	if err != nil {
-		return nil, fmt.Errorf("fetch from the node: %v", err)
+		return File{}, fmt.Errorf("fetch from the node: %v", err)
 	}
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, ErrGone
+		return File{}, ErrGone
 	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("the node answered %s", resp.Status)
+		return File{}, fmt.Errorf("the node answered %s", resp.Status)
 	}
 	env, err := io.ReadAll(io.LimitReader(resp.Body, maxEnvelope+1))
 	if err != nil {
-		return nil, err
+		return File{}, err
 	}
 	if len(env) > maxEnvelope {
-		return nil, errors.New("the node's answer is larger than any file it accepts")
+		return File{}, errors.New("the node's answer is larger than any file it accepts")
 	}
-	return open(u.Fragment, env)
+	return fileFrom(u.Fragment, env)
 }
 
 // WatchRead implements FileStore: it long-polls the node, which answers about every 25s.

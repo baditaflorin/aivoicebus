@@ -86,7 +86,7 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 				req = m
 			}
 		}
-		approval, ask := strings.HasPrefix(req.Body, "[approval needed]"), strings.HasPrefix(req.Body, msg.AskPrefix)
+		approval, ask := strings.HasPrefix(req.Body, msg.ApprovalTag), strings.HasPrefix(req.Body, msg.AskPrefix)
 		if req.ID == "" || req.Retracted != nil || (!approval && !ask) || now.Sub(req.At) > decideMaxAge {
 			http.Error(w, "no such open approval request or question on this node", http.StatusNotFound)
 			return
@@ -112,6 +112,7 @@ func decideHandler(s *store.Store) http.HandlerFunc {
 		d.done(id)
 		countDecide("recorded")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("recorded: " + say + ". The worker on " + msg.HostOf(req.From) + " reads it within seconds.\n"))
+		// whoever asked: a write-mode worker, a token install or an agent's question
+		_, _ = w.Write([]byte("recorded: " + say + ". " + msg.HostOf(req.From) + " reads it within seconds.\n"))
 	}
 }

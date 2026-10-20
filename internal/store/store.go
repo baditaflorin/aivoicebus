@@ -19,7 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
+	"unicode/utf8"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
@@ -202,11 +202,12 @@ const (
 // shared token lets anyone claim any sender); the send counts are kept in ratelimits.json,
 // so a restart does not forget them.
 const (
-	defaultSendLimit    = 20               // messages one sender may send per sendWindow
+	defaultSendLimit    = 60               // messages one sender may send per sendWindow: a conversing agent sends 20 easily
 	defaultRetractLimit = 60               // retractions one identity may write per sendWindow
 	sendWindow          = time.Hour        // the span the limit is counted over
 	machineLimit        = 300              // messages one machine may send per sendWindow, all its sessions together
-	pairLimit           = 24               // messages between the same two sessions per pairWindow: a handoff takes ~10
+	pairLimit           = 24               // replies between the same two sessions per pairWindow, once one repeats (msg.RepeatSimilarity): a handoff takes ~10
+	pairFreshLimit      = 48               // the same, saying something new each time: one every 2.5 s, faster than an agent reads and thinks
 	pairWindow          = 2 * time.Minute  // a loop answers in seconds; a person-paced conversation does not
 	dupWindow           = 10 * time.Minute // an identical message within this span is the same message
 	maxSenders          = 2000             // senders remembered for rate limiting
@@ -219,12 +220,17 @@ type RateLimitError struct {
 	RetryAfter time.Duration
 	What       string // what is counted, when it is not messages ("retractions")
 	Scope      string // "" (a sender, an hour), "machine" (an hour) or "pair" (two sessions, pairWindow)
+	Repeat     int    // for "pair": how alike the refused reply is to one before it, in percent (0: it was new)
 }
 
 func (e *RateLimitError) Error() string {
 	switch e.Scope {
 	case "pair":
-		return fmt.Sprintf("rate limit: %d messages between the same two sessions in %s is the most: this looks like two agents answering each other in a loop. Stop, and ask the user whether to go on (try again in %s).", e.Limit, pairWindow, e.RetryAfter.Round(time.Second)+time.Second)
+		wait := e.RetryAfter.Round(time.Second) + time.Second
+		if e.Repeat > 0 {
+			return fmt.Sprintf("rate limit: %d replies between the same two sessions in %s, and this one is %d%% the same words as one this sender sent before (the pair brake): this looks like two agents answering each other in a loop. Say what is new, or stop and ask the user whether to go on (try again in %s).", e.Limit, pairWindow, e.Repeat, wait)
+		}
+		return fmt.Sprintf("rate limit: %d replies between the same two sessions in %s is the most, even when each says something new (the pair brake): this looks like two agents answering each other in a loop. Slow down, or stop and ask the user whether to go on (try again in %s).", e.Limit, pairWindow, wait)
 	case "machine":
 		return fmt.Sprintf("rate limit: %d messages an hour from one machine is the most, and this machine has sent them (whatever its sessions are called). Try again in %s, or ask the user.", e.Limit, max(e.RetryAfter.Round(time.Minute), time.Minute))
 	}
@@ -880,13 +886,17 @@ func (s *Store) Merge(recs []msg.Record) (int, error) {
 	n := 0
 	for _, r := range recs {
 		r, ok := s.vetLocked(r)
+		held := false // a client writes one message to several nodes: each copy is a record of its own
+		if ok && r.Msg != nil {
+			_, held = s.byIDLocked(r.Msg.ID)
+		}
 		if ok && s.applyLocked(r) {
 			if err := appendLine(filepath.Join(s.dir, "log.jsonl"), r); err != nil {
 				return n, err
 			}
 			n++
-			if r.Msg != nil {
-				s.notePairLocked(*r.Msg) // a loop's other side may write through another node
+			if r.Msg != nil && !held {
+				s.notePairLocked(*r.Msg) // a loop's other side may write through another node; counted once per message
 			}
 		}
 	}
@@ -961,7 +971,19 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 			return p, nil
 		}
 	}
-	if err := s.allowSendLocked(m.From, m.To, m.Re, m.Kind, now); err != nil {
+	if m.Thread == "" {
+		m.Thread = m.ID
+		if m.Re != "" {
+			if p, ok := s.byIDLocked(m.Re); ok {
+				m.Thread = p.Thread
+			}
+		}
+	}
+	sim, twice := 0.0, false
+	if m.Thread != m.ID {
+		sim, twice = s.echoLocked(m, now)
+	}
+	if err := s.allowSendLocked(m.From, m.To, m.Re, pairKind(m), sim, now); err != nil {
 		s.limited++
 		reason := "rate_sender"
 		var rl *RateLimitError
@@ -976,23 +998,17 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 		exp := m.At.Add(time.Duration(m.TTL) * time.Second)
 		m.Exp, m.TTL = &exp, 0
 	}
-	if m.Thread == "" {
-		m.Thread = m.ID
-		if m.Re != "" {
-			if p, ok := s.byIDLocked(m.Re); ok {
-				m.Thread = p.Thread
-			}
-		}
-	}
 	if m.Thread != m.ID {
-		m.MaxTurns, m.Deadline = 0, 0 // only the message that starts a thread sets its limits
-		if err := s.turnsLeftLocked(m); err != nil {
+		m.MaxTurns, m.Deadline, m.BudgetChars = 0, 0, 0 // only the message that starts a thread sets its limits
+		if err := s.turnsLeftLocked(m, sim, twice); err != nil {
 			s.limited++
 			switch e := err.Error(); {
 			case strings.Contains(e, "deadline passed"):
 				s.refusedBy["deadline"]++
 			case strings.Contains(e, "looks like a loop"):
 				s.refusedBy["loop"]++
+			case strings.Contains(e, "character budget"):
+				s.refusedBy["budget"]++
 			default:
 				s.refusedBy["turns"]++
 			}
@@ -1013,16 +1029,32 @@ func (s *Store) byIDLocked(id string) (msg.Message, bool) {
 	return msg.Message{}, false
 }
 
+// pairKind is m's kind as the pair brake sees it: kindState for a conversation state (msg.StateOf),
+// which the brake neither counts nor refuses: a handshake moving on is not two agents looping, and
+// the states are bounded by their own rules.
+func pairKind(m msg.Message) string {
+	if _, _, ok := msg.StateOf(m); ok {
+		return kindState
+	}
+	return m.Kind
+}
+
+// kindState stands for a state message where only the pair brake looks (never stored).
+const kindState = "\x00state"
+
 // allowSendLocked counts one send by from to to at now, or refuses it: sendLimit an hour per
 // sender, machineLimit an hour per machine (a new session name does not start the count again),
-// and pairLimit replies within pairWindow between the same two sessions, either way (two agents
-// answering each other in a loop; a burst of fresh notes, a CI bot's say, is not one). Nothing is
-// counted unless all three allow it. An [end] always passes the pair brake: ending is what stops a loop.
-func (s *Store) allowSendLocked(from, to, re, kind string, now time.Time) error {
+// and, between the same two sessions, either way, within pairWindow (two agents answering each
+// other in a loop; a burst of fresh notes, a CI bot's say, is not one): pairLimit replies when this
+// one repeats one before it (sim, see echoLocked, at least msg.RepeatSimilarity), pairFreshLimit
+// when it says something new. Nothing is counted unless all three allow it. An [end] always passes
+// the pair brake: ending is what stops a loop; a state message (kindState, see pairKind) passes it
+// and is not counted toward it.
+func (s *Store) allowSendLocked(from, to, re, kind string, sim float64, now time.Time) error {
 	host := msg.HostOf(from)
 	pair := ""
 	back := ""
-	if re != "" && msg.ValidIdentity(to) && strings.Contains(to, ".") && !strings.HasPrefix(to, "@") { // a reply to one session
+	if re != "" && kind != kindState && msg.ValidIdentity(to) && strings.Contains(to, ".") && !strings.HasPrefix(to, "@") { // a reply to one session
 		pair, back = from+"\x00"+to, to+"\x00"+from // counted per direction: a loop needs both sides
 	}
 	if wait, ok := under(s.sends, from, s.sendLimit, sendWindow, now); !ok {
@@ -1033,9 +1065,13 @@ func (s *Store) allowSendLocked(from, to, re, kind string, now time.Time) error 
 	}
 	if pair != "" {
 		mine, theirs := recent(s.pairSends[pair], pairWindow, now), recent(s.pairSends[back], pairWindow, now)
-		if mine >= 2 && theirs >= 2 && mine+theirs >= pairLimit && kind != msg.KindEnd {
+		limit, repeat := pairFreshLimit, 0
+		if sim >= msg.RepeatSimilarity {
+			limit, repeat = pairLimit, int(sim*100)
+		}
+		if mine >= 2 && theirs >= 2 && mine+theirs >= limit && kind != msg.KindEnd {
 			wait, _ := under(s.pairSends, pair, 0, pairWindow, now)
-			return &RateLimitError{Limit: pairLimit, RetryAfter: wait, Scope: "pair"}
+			return &RateLimitError{Limit: limit, RetryAfter: wait, Scope: "pair", Repeat: repeat}
 		}
 		note(s.pairSends, pair, pairWindow, now)
 	}
@@ -1069,7 +1105,7 @@ func under(used map[string][]time.Time, who string, limit int, window time.Durat
 // in already. Only replies of the last pairWindow count, at the time their own node gave them.
 func (s *Store) notePairLocked(m msg.Message) {
 	now := s.now()
-	if m.Re == "" || !msg.ValidIdentity(m.To) || !strings.Contains(m.To, ".") || strings.HasPrefix(m.To, "@") ||
+	if m.Re == "" || pairKind(m) == kindState || !msg.ValidIdentity(m.To) || !strings.Contains(m.To, ".") || strings.HasPrefix(m.To, "@") ||
 		m.At.Before(now.Add(-pairWindow)) || m.At.After(now.Add(maxClockAhead)) {
 		return
 	}
@@ -1169,11 +1205,18 @@ var ErrReservedID = errors.New("that message id is reserved for a retraction not
 // ErrTurnLimit is what Send says of one message too many in a thread that set max_turns.
 var ErrTurnLimit = errors.New("the conversation reached its turn limit or deadline")
 
-// turnsLeftLocked refuses m when its thread started with a turn limit that is used up. Claims do
-// not count, and an [end] always goes: closing a conversation is what the limit is for.
-func (s *Store) turnsLeftLocked(m msg.Message) error {
+// turnsLeftLocked refuses m when its thread started with a turn limit that is used up. Claims and
+// conversation states (msg.StateOf) do not count, and an [end] always goes: closing a conversation
+// is what the limit is for. So do the states that close one (msg.ClosingState: done, stuck,
+// declined); taken, ready or doing after the limit or the deadline is refused, as work that starts
+// in a conversation that is over. It also refuses a loop: twice (see echoLocked), with sim, how
+// alike m is to the sender's message it repeats.
+func (s *Store) turnsLeftLocked(m msg.Message, sim float64, twice bool) error {
 	root, ok := s.byIDLocked(m.Thread)
 	if !ok || m.Kind == msg.KindEnd || m.Kind == msg.KindClaim {
+		return nil
+	}
+	if st, _, isState := msg.StateOf(m); isState && msg.ClosingState(st) {
 		return nil
 	}
 	if root.Deadline > 0 {
@@ -1181,28 +1224,34 @@ func (s *Store) turnsLeftLocked(m msg.Message) error {
 			return fmt.Errorf("%w: its deadline passed at %s: close it with `reply --end`, or start a new conversation", ErrTurnLimit, end.UTC().Format(time.RFC3339))
 		}
 	}
-	if m.Kind != msg.KindProgress {
-		// The same thing said again and again in one thread is a loop, however slow: "thanks!",
-		// or counting up one number at a time. Numbers, case, punctuation and spacing aside.
-		key, n := loopKey(m.Body), 0
+	if root.BudgetChars > 0 {
+		used, n := 0, utf8.RuneCountInString(m.Body)
 		for _, i := range s.threads[m.Thread] {
-			if x := s.msgs[i]; x.From == m.From && x.Kind != msg.KindClaim && x.Kind != msg.KindProgress &&
-				x.At.After(s.now().Add(-time.Hour)) && loopKey(x.Body) == key {
-				n++
-			}
+			used += utf8.RuneCountInString(s.msgs[i].Body)
 		}
-		if n >= loopRepeats {
-			return fmt.Errorf("%w: this sender said the same thing %d times in this thread already (numbers and wording aside): it looks like a loop. Stop and ask the user, or close it with `reply --end`", ErrTurnLimit, n)
+		if used+n > root.BudgetChars {
+			return fmt.Errorf("%w: this message is %d characters and the conversation has %d left of its character budget of %d (--budget-chars): say it in fewer words, close it with `reply --end`, or start a new conversation", ErrTurnLimit, n, max(0, root.BudgetChars-used), root.BudgetChars)
 		}
+	}
+	if twice {
+		// The same thing said again and again in one thread is a loop, however slow: "thanks!",
+		// "you're welcome", a long report sent again with one number changed.
+		return fmt.Errorf("%w: this message is %d%% the same words as one this sender sent before in this thread, and so was the one before it: it looks like a loop (the loop check). Say what is new, send status updates as `--kind progress`, stop and ask the user, or close it with `reply --end`", ErrTurnLimit, int(sim*100))
 	}
 	if root.MaxTurns == 0 {
 		return nil
 	}
 	n := 0
 	for _, i := range s.threads[m.Thread] {
-		if s.msgs[i].Kind != msg.KindClaim {
+		if x := s.msgs[i]; x.Kind != msg.KindClaim && !isState(x) {
 			n++
 		}
+	}
+	if isState(m) { // not counted, but no new work after the limit either
+		if n >= root.MaxTurns {
+			return fmt.Errorf("%w (%d messages): a state that closes it (done, stuck, declined) still goes; %s does not", ErrTurnLimit, root.MaxTurns, stateName(m))
+		}
+		return nil
 	}
 	if n >= root.MaxTurns {
 		return fmt.Errorf("%w (%d messages): close it with `reply --end`, or start a new conversation", ErrTurnLimit, root.MaxTurns)
@@ -1210,27 +1259,45 @@ func (s *Store) turnsLeftLocked(m msg.Message) error {
 	return nil
 }
 
-// loopRepeats is how many times one sender may say the same thing in one thread within the hour.
-const loopRepeats = 2
+func isState(m msg.Message) bool { _, _, ok := msg.StateOf(m); return ok }
 
-// loopKey is a body with numbers, case, punctuation and spacing taken out.
-func loopKey(body string) string {
-	var b strings.Builder
-	digit := false
-	for _, r := range strings.ToLower(body) {
-		switch {
-		case unicode.IsDigit(r):
-			if !digit {
-				b.WriteByte('#')
-			}
-			digit = true
-			continue
-		case unicode.IsLetter(r):
-			b.WriteRune(r)
-		}
-		digit = false
+func stateName(m msg.Message) string { st, _, _ := msg.StateOf(m); return st }
+
+// echoScan bounds how far back in a thread echoLocked looks for the sender's messages.
+const echoScan = 500
+
+// echoLocked is how much m, a reply in a thread, repeats its sender there (msg.RepeatSimilarity):
+// sim, how alike it is to the most alike of the sender's last msg.RepeatLookback messages in the
+// thread within the hour, and twice, whether it repeats one (sim at least msg.RepeatSimilarity) and
+// the sender's message before it repeated one of its own predecessors too. Claims, progress
+// (status updates and conversation states), ends and retracted messages neither repeat nor are
+// repeated.
+func (s *Store) echoLocked(m msg.Message, now time.Time) (sim float64, twice bool) {
+	if m.Kind == msg.KindClaim || m.Kind == msg.KindProgress || m.Kind == msg.KindEnd {
+		return 0, false
 	}
-	return b.String()
+	var before []map[string]struct{} // the sender's messages, newest first
+	ids := s.threads[m.Thread]
+	for k := len(ids) - 1; k >= 0 && k >= len(ids)-echoScan && len(before) <= msg.RepeatLookback; k-- {
+		x := s.msgs[ids[k]]
+		if x.From != m.From || x.Kind == msg.KindClaim || x.Kind == msg.KindProgress || x.Kind == msg.KindEnd ||
+			!x.At.After(now.Add(-time.Hour)) || s.retractedLocked(x.ID, x.From) {
+			continue
+		}
+		before = append(before, msg.Shingles(x.Body))
+	}
+	most := func(of map[string]struct{}, among []map[string]struct{}) float64 {
+		best := 0.0
+		for _, b := range among[:min(len(among), msg.RepeatLookback)] {
+			best = max(best, msg.Jaccard(of, b))
+		}
+		return best
+	}
+	if len(before) == 0 {
+		return 0, false
+	}
+	sim = most(msg.Shingles(m.Body), before)
+	return sim, sim >= msg.RepeatSimilarity && most(before[0], before[1:]) >= msg.RepeatSimilarity
 }
 
 // ErrReplyToNotice is what Send says of a reply to a retraction notice, which is made up by nodes
@@ -1346,6 +1413,24 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
+	out := s.inboxLocked(me, all, labels, now)
+	if !all { // first: a reader that lists only the first few must not miss them
+		out = append(s.noticesLocked(me, now), out...)
+	}
+	return out
+}
+
+// Peek is what waits unread for me, read by someone else: an agent's standby looks at what waits
+// for its machine's person (<machine>/human) to tell them. It does not make me a session on the
+// roster (no person was there), and leaves my notices for me.
+func (s *Store) Peek(me string) []msg.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inboxLocked(me, false, nil, s.now().UTC())
+}
+
+// inboxLocked is what reaches me: unread unless all, never what I sent.
+func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, now time.Time) []msg.Message {
 	var out []msg.Message
 	for _, i := range s.candidatesLocked(me, labels) {
 		m := s.msgs[i]
@@ -1376,9 +1461,6 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 			m = tombstone(m, ret)
 		}
 		out = append(out, m)
-	}
-	if !all { // first: a reader that lists only the first few must not miss them
-		out = append(s.noticesLocked(me, now), out...)
 	}
 	return out
 }
@@ -1461,6 +1543,21 @@ func (s *Store) Messages() []msg.Message {
 	out := make([]msg.Message, len(s.msgs))
 	for i := range s.msgs {
 		out[i] = s.viewLocked(i)
+	}
+	return out
+}
+
+// ArrivedSince returns the messages held that a node took in at or after t, as their senders sent
+// them (not as a reader is shown them: a retracted one keeps its words and signature), so a check of
+// what was sent, such as who sends unsigned, sees what arrived.
+func (s *Store) ArrivedSince(t time.Time) []msg.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []msg.Message
+	for _, m := range s.msgs {
+		if !m.At.Before(t) {
+			out = append(out, m)
+		}
 	}
 	return out
 }
@@ -1575,7 +1672,7 @@ type Stats struct {
 	Quarantined int   // placeholders held, each in place of a record that failed msg.Record.ValidateReplicated
 	Refused     int64 // records dropped for an origin that cannot be kept, since start
 	// RefusedBy is the sends refused since start, by reason: rate_sender, rate_machine, rate_pair,
-	// turns, deadline, loop.
+	// turns, deadline, budget, loop.
 	RefusedBy map[string]int64
 	// LastHour is the messages this node took in during the last hour.
 	LastHour int
