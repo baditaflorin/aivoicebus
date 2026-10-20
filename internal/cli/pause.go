@@ -17,7 +17,8 @@ import (
 // schedules hold, and sessions are told to stop acting on peer messages, until --for runs out or
 // a person on this machine runs `aivoicebus resume`. Anyone may pull it, an agent included.
 func pauseCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: pause [all | MACHINE] [--for 1h] "why"   (default all; resume lifts it)`)
+	const usageText = `usage: pause [all | MACHINE] [--for 1h] "why"   (default all; resume lifts it)`
+	usage := outbox.Usagef("%s", usageText)
 	var target, reason string
 	d := time.Hour
 	var words []string
@@ -36,6 +37,14 @@ func pauseCmd(args []string, s Streams) error {
 				return outbox.Usagef("--for is 1m to 168h")
 			}
 			continue
+		}
+		switch a := args[i]; {
+		case a == "-h" || a == "-help" || a == "--help":
+			fmt.Fprintln(s.Out, usageText) // help, never a pause with "-h" as its reason
+			return exitError{0}
+		case strings.HasPrefix(a, "-") && a != "-":
+			// a mistyped flag is not a reason: pausing the mesh must never happen by accident
+			return outbox.Usagef("unknown flag %s (pause takes only --for): %s", a, usageText)
 		}
 		words = append(words, args[i])
 	}

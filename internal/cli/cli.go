@@ -97,6 +97,8 @@ func init() {
 		"unhold":      unholdCmd,
 		"tokens":      tokensCmd,
 		"fleet":       fleetCmd,
+		"completion":  completionCmd,
+		"__complete":  completeCmd,
 		"token":       tokenCmd,
 		"resume":      resumeCmd,
 		"approver":    approverCmd,
