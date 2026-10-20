@@ -39,9 +39,10 @@ func TestSizeOf(t *testing.T) {
 		{ID: "a000000004", From: "box/worker", Body: "[worker on box] exit 1 after 3s.\nno counts"},
 		{ID: "a000000005", From: "box/worker", Body: "[worker on box] exit 0 after 2s (100 tokens in, 20 out).\nmore"},
 	}
+	ms[0].Thread, ms[0].BudgetChars = ms[0].ID, 5000
 	z := SizeOf(ms)
 	want := 15 + 84 + 68 + 42 + 61
-	if z.Messages != 5 || z.Chars != want || z.EstTokens != want/CharsPerToken || z.Runs != 2 || z.TokensIn != 14312 || z.TokensOut != 25 || z.CostUSD != 0.0123 {
+	if z.Messages != 5 || z.Chars != want || z.EstTokens != want/CharsPerToken || z.Runs != 2 || z.TokensIn != 14312 || z.TokensOut != 25 || z.CostUSD != 0.0123 || z.BudgetChars != 5000 {
 		t.Errorf("%+v (want %d chars)", z, want)
 	}
 }

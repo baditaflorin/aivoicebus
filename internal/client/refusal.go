@@ -37,6 +37,8 @@ func reasonOf(code int, header, text string) string {
 			return msg.RefusedDeadline
 		case has("looks like a loop"):
 			return msg.RefusedLoop
+		case has("character budget"):
+			return msg.RefusedBudget
 		}
 		return msg.RefusedTurns
 	case http.StatusUnprocessableEntity:
@@ -117,6 +119,8 @@ func (e *StatusError) explain(reason string) (string, bool) {
 		return "this conversation reached its turn limit (--max-turns), so the message was not sent. Close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
 	case msg.RefusedDeadline:
 		return "this conversation's deadline (--deadline) passed, so the message was not sent. Close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
+	case msg.RefusedBudget:
+		return "the message was not sent: it would take this conversation past its character budget (--budget-chars; " + what + "). Say it in fewer words, close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
 	case msg.RefusedLoop:
 		return "the message was not sent (the loop check): this sender's last messages in this thread say mostly the same thing as ones before them, which looks like a loop. Say what is new, send status updates with `--kind progress`, stop and ask the user whether to go on, or close it with `aivoicebus reply --end --re ID`", true
 	case msg.RefusedRateSender:

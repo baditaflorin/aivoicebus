@@ -64,6 +64,7 @@ feature_since() {
     loopkey) echo 0.10.0 ;;   # the loop check (a third message alike, numbers aside) and the pair brake (8, then 24 replies in 2 minutes)
     brakes) echo 0.12.0 ;;    # repeats judged by similarity: new replies pass the pair brake to 48, numbers are words, rewordings are repeats
     signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
+    budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -454,6 +455,33 @@ for ((i = 1; i < N; i++)); do
 done
 check_converged "message logs stay equal on all $N nodes"
 check_quarantined 1 "quarantined nothing more"
+
+scenario "a conversation's character budget"
+# Each node alone: this tree's CLI sends --budget-chars only to a node that enforces it (it refuses,
+# writing nothing, through an older one); a node that does refuses a reply that would pass the
+# budget, takes one that fits, and always an [end].
+bgroot=
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; a=bg-$n/claude.a1; b=bg-$n/codex.b2
+  cli "$k" "$NEW" "$a" send --to "$b" --budget-chars 80 "budget root MARK-BG-$n" >"$W/bg.out" 2>"$W/bg.err"; rc=$?
+  if ! has "$k" budget; then
+    check "$rc $(grep -c 'does not enforce --budget-chars' "$W/bg.err") $(sent_id "$W/bg.out")" "1 1 " "${NAME[$k]} (${VER[$k]}): new CLI refuses --budget-chars through a node that does not enforce it, sending nothing"
+    continue
+  fi
+  root=$(sent_id "$W/bg.out"); bgroot=$root
+  check "$rc" 0 "${NAME[$k]}: new CLI starts a conversation with --budget-chars 80"
+  cli "$k" "$NEW" "$b" reply --re "$root" "this reply fits in the budget" >/dev/null 2>&1; check "$?" 0 "${NAME[$k]}: a reply that fits goes"
+  cli "$k" "$NEW" "$a" reply --re "$root" "and this one is far too long to fit in what is left of it" >/dev/null 2>"$W/bg.err"; rc=$?
+  check "$rc $(grep -c 'character budget' "$W/bg.err")" "1 1" "${NAME[$k]}: a reply that would pass the budget is refused"
+  cli "$k" "$NEW" "$a" reply --end --re "$root" "closing: the budget is used" >/dev/null 2>&1; check "$?" 0 "${NAME[$k]}: an [end] always goes"
+  got=$(cli "$k" "$NEW" "$a" thread --digest "$root" 2>/dev/null | grep -c 'of its 80 characters')
+  check "$got" 1 "${NAME[$k]}: the digest shows the size against the budget"
+done
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  check "$(thread_of "${PORT[$k]}" "$bgroot")" "budget root MARK-BG-new" "${NAME[$k]} holds the budget conversation's first message, body unchanged"
+done
+
 scenario "the brakes tell a loop from progress"
 # Each node is asked alone (written through it, with sessions of its own). A burst of 30 replies that
 # each say something new: a node with the new brakes takes them all; one with the old pair brake

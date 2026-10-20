@@ -38,6 +38,8 @@ func turnReason(err error) string {
 		return msg.RefusedDeadline
 	case strings.Contains(e, "looks like a loop"):
 		return msg.RefusedLoop
+	case strings.Contains(e, "character budget"):
+		return msg.RefusedBudget
 	}
 	return msg.RefusedTurns
 }

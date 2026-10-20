@@ -54,6 +54,8 @@ type Request struct {
 	MaxTurns int
 	// Deadline starts the thread with a deadline (msg.Message.Deadline); 0 is none.
 	Deadline time.Duration
+	// BudgetChars starts the thread with a character budget (msg.Message.BudgetChars); 0 is none.
+	BudgetChars int
 	// From sends as another identity of this same machine (the scheduler's), signed with the
 	// machine's key like any send; "" is this session. Another machine's name is refused.
 	From string
@@ -181,7 +183,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		return p, Usagef("refused: %s routes by capability, which any session can claim; an urgent message, a file or a log link never goes to such a route (name the session with --to, or use a pinned role; `aivoicebus who` lists them)", view.Name(to, 80))
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,
-		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns, Deadline: int64(r.Deadline / time.Second)}
+		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns, Deadline: int64(r.Deadline / time.Second), BudgetChars: r.BudgetChars}
 	if d, err := strconv.Atoi(os.Getenv("AIVOICEBUS_TASK_DEPTH")); err == nil && d > 0 {
 		// Sent from a run a worker started for a task: what this sends is one task deeper.
 		m.Depth = min(d, msg.MaxDepthField)
@@ -189,12 +191,23 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			return p, fmt.Errorf("refused: this would be a task %d tasks deep (a task sent from the run of a task sent from ...); more than %d is a chain reaction, not work: ask the user instead", d, msg.MaxTaskDepth)
 		}
 	}
-	if r.MaxTurns != 0 || r.Deadline != 0 {
+	if r.MaxTurns != 0 || r.Deadline != 0 || r.BudgetChars != 0 {
 		if r.Re != "" || r.Thread != "" {
-			return p, Usagef("--max-turns and --deadline go on the message that starts a conversation, not on a reply: run it again without them")
+			return p, Usagef("--max-turns, --deadline and --budget-chars go on the message that starts a conversation, not on a reply: run it again without them")
 		}
 		if old := nodeTooOldFor(c, msg.TurnsSince); old != "" {
 			return p, fmt.Errorf("refused: %s runs a release older than %s, which does not enforce --max-turns or --deadline: ask the user to update the nodes first", old, msg.TurnsSince)
+		}
+	}
+	if r.BudgetChars != 0 {
+		if r.BudgetChars < 0 || r.BudgetChars > msg.MaxBudgetChars {
+			return p, Usagef("--budget-chars is 1 to %d characters: run it again with a number in that range", msg.MaxBudgetChars)
+		}
+		if n := utf8.RuneCountInString(body); n > r.BudgetChars {
+			return p, Usagef("this message is %d characters, more than its own --budget-chars %d: run it again with a larger budget or a shorter message", n, r.BudgetChars)
+		}
+		if old := nodeTooOldFor(c, msg.BudgetSince); old != "" {
+			return p, fmt.Errorf("refused: %s runs a release older than %s, which does not enforce --budget-chars: ask the user to update the nodes first, or send it without --budget-chars", old, msg.BudgetSince)
 		}
 	}
 	if r.File {

@@ -129,6 +129,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	private := fs.Bool("private", false, "seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)")
 	deadline := fs.Duration("deadline", 0, "start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes")
 	maxTurns := fs.Int("max-turns", 0, "start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever")
+	budgetChars := fs.Int("budget-chars", 0, "start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs")
 	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
 	quietAfter := fs.Duration("quiet-after", tasks.QuietAfter, "with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never")
 	ackIt := new(bool)
@@ -216,7 +217,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		return err
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
-		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline}, s.Err)
+		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars}, s.Err)
 	if err != nil {
 		return err
 	}
@@ -311,7 +312,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			}
 			return withState(c, r) // the conversation's state when the wait ended
 		}
-		turns, closeAfter := *maxTurns, *deadline // the conversation's limits, for a copy moved on
+		turns, closeAfter, budget := *maxTurns, *deadline, *budgetChars // the conversation's limits, for a copy moved on
 		deliver := func(cur msg.Message, got []msg.Message, ack bool) error {
 			if !*asJSON {
 				showArrived(c, me, got, ack, s)
@@ -370,7 +371,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 				return exitError{exitNotFound}
 			}
 			np, err := outbox.Prepare(c, outbox.Request{To: next, Body: plan.Msg.Body, Prio: plan.Msg.Prio, Kind: msg.KindTask, Queue: true, TargetSaid: true,
-				MaxTurns: turns, Deadline: closeAfter}, io.Discard)
+				MaxTurns: turns, Deadline: closeAfter, BudgetChars: budget}, io.Discard)
 			if err != nil {
 				return fmt.Errorf("moving the task on to %s: %w", next, err)
 			}

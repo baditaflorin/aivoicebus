@@ -100,6 +100,9 @@ func Digest(w io.Writer, ms []msg.Message) {
 // tokens to read); agents reported 14212 tokens in, 5 out (1 run)".
 func SizeLine(z msg.ThreadSize) string {
 	line := fmt.Sprintf("%d message(s), %d characters (about %d tokens to read)", z.Messages, z.Chars, z.EstTokens)
+	if z.BudgetChars > 0 {
+		line = fmt.Sprintf("%d message(s), %d of its %d characters (--budget-chars; about %d tokens to read)", z.Messages, z.Chars, z.BudgetChars, z.EstTokens)
+	}
 	if z.Runs > 0 {
 		line += fmt.Sprintf("; agents reported %d tokens in, %d out (%d run(s))", z.TokensIn, z.TokensOut, z.Runs)
 		if z.CostUSD > 0 {
