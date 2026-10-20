@@ -313,7 +313,7 @@ func TestServeEndsCleanlyAtEndOfInput(t *testing.T) {
 
 func TestRetractToolTakesBackTheLastMessageSentAndSaysWhatItCannotDo(t *testing.T) {
 	s, st := start(t)
-	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "body": "sent to the wrong session"})
+	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "queue": true, "body": "sent to the wrong session"})
 	if isErr || !strings.HasPrefix(text, "sent ") {
 		t.Fatalf("%v %q", isErr, text)
 	}
@@ -387,7 +387,7 @@ func TestRetractToolCannotTakeBackAnotherMachinesMessageNorBeToldWho(t *testing.
 
 func TestSendThatOnlyWarnsAboutACredentialShapeTellsTheAgentHowToFlagIt(t *testing.T) {
 	s, _ := start(t)
-	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "a/b", "body": "the password: Xk9mQ2vL8nR4 for staging"})
+	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "a/b", "queue": true, "body": "the password: Xk9mQ2vL8nR4 for staging"})
 	id := strings.Fields(text)[1]
 	if isErr || !strings.Contains(text, "if that went out: call aivoicebus_retract with id "+id+" and leak true, then tell the user to rotate it") {
 		t.Errorf("%v %q", isErr, text)
@@ -417,7 +417,7 @@ func TestInboxAckOfAllDoesNotAcknowledgeATombstone(t *testing.T) {
 func TestRetractToolWithNoIdNeverTakesAnotherSessionsMessage(t *testing.T) {
 	s, st := start(t)
 	t.Setenv("AIVOICEBUS_ME", "me/mcp.other") // another session of this machine sends
-	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "body": "the first session's message"})
+	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "queue": true, "body": "the first session's message"})
 	if isErr {
 		t.Fatalf("%q", text)
 	}
@@ -450,7 +450,7 @@ func TestRetractToolWithNoIdNeverTakesAnotherSessionsMessage(t *testing.T) {
 
 func TestRetractToolRejectsAnEmptyIdInsteadOfTakingTheLastMessage(t *testing.T) {
 	s, st := start(t)
-	text, _ := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "body": "this session's own last message"})
+	text, _ := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "queue": true, "body": "this session's own last message"})
 	id := strings.Fields(text)[1]
 	for _, args := range []map[string]any{{"id": ""}, {"id": "", "leak": true}, {"id": "", "dry_run": true}} {
 		if text, isErr := s.call("aivoicebus_retract", args); !isErr || !strings.Contains(text, "id must be a 10-character message id") {
@@ -548,7 +548,7 @@ func TestThreadAndAckTakeTheFirstCharactersOfAnID(t *testing.T) {
 func TestRetractToolTakesOnlyAFullIDOrEightCharactersOfWhatThisMachineSent(t *testing.T) {
 	s, st := start(t)
 	st.Send(msg.Message{ID: "ab12cd0001", From: "x/claude.1", To: "me/mcp.test", Body: "planted by a peer"})
-	text, _ := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "body": "mine"})
+	text, _ := s.call("aivoicebus_send", map[string]any{"to": "air/codex.1", "queue": true, "body": "mine"})
 	id := strings.Fields(text)[1]
 	for name, short := range map[string]string{"seven characters": id[:7], "six": id[:6]} {
 		if text, isErr := s.call("aivoicebus_retract", map[string]any{"id": short}); !isErr || !strings.Contains(text, "at least 8") {

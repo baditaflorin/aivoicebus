@@ -9,6 +9,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/outbox"
 )
 
 // `ask` sends a question to one session and waits for its answer. Which session is decided here,
@@ -21,8 +22,8 @@ const (
 	AskMaxTurns    = 4
 	AskDeadline    = 15 * time.Minute
 	AskClaimWithin = 2 * time.Minute
-	AskWithin      = 30 * time.Minute // a session seen this recently is live
-	AskAlike       = 2 * time.Minute  // two sessions seen this close together are not told apart by it
+	AskWithin      = outbox.LiveWithin // a session seen this recently is live (send refuses a stale one at the same limit)
+	AskAlike       = 2 * time.Minute   // two sessions seen this close together are not told apart by it
 )
 
 // ErrNobody is an ask with no live session to go to.

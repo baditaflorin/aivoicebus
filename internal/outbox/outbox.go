@@ -49,7 +49,11 @@ type Request struct {
 	Keep                                  bool // a file that several sessions may read (not burned on the first read)
 	Attach                                bool // the body carries a log link (a file sets File)
 	TrustRole                             bool // use an unpinned role alias with a single claimant (--trust-role, AIVOICEBUS_TRUST_ROLES=1)
-	TargetSaid                            bool // the caller already told the sender whom a reply with no --to goes to
+	// Authored: the sender wrote this message by hand (send, reply, task, the MCP send tool), so it is
+	// also checked for an exact-session target nobody has seen lately and for a priority its own words
+	// contradict (checks.go). The tool's own messages (claims, progress, worker results) leave it off.
+	Authored   bool
+	TargetSaid bool // the caller already told the sender whom a reply with no --to goes to
 	// MaxTurns starts the thread with a turn limit (msg.Message.MaxTurns); 0 is none.
 	MaxTurns int
 	// Deadline starts the thread with a deadline (msg.Message.Deadline); 0 is none.
@@ -72,6 +76,7 @@ type Plan struct {
 	Alias   string              // how a role alias (@build) was resolved, "" when the target was not one
 	Role    *msg.RoleResolution // the same, for output that is read by programs
 	Expiry  time.Duration       // default lifetime that will apply; 0 when none
+	Lowered bool                // the message said it needs nothing and no priority was chosen, so it goes as fyi (Authored)
 
 	// Recipients names the sessions a message routed by capability (can=...) would reach, and
 	// CapNote warns when only one or two of them declared it: capabilities are claimed by the
@@ -98,6 +103,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	body := strings.TrimSpace(r.Body)
 	to := strings.ToLower(strings.TrimSpace(r.To))
+	named := to != "" // the sender chose the target; a reply's target is inferred from the message it answers
 	urgent := strings.EqualFold(r.Prio, msg.PrioUrgent)
 	if r.Re != "" && hexPrefix(strings.ToLower(r.Re)) { // --re 3fa9 names the message by its first characters
 		if len(r.Re) < 10 && (urgent || r.File || r.Attach) { // a peer can plant a message whose id starts with the same characters
@@ -242,6 +248,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 		return p, err
 	}
+	if r.Authored && !r.File && !r.Attach {
+		l := LintPriority(body, r.Prio, m.Kind)
+		if l.Lower {
+			m.Prio, p.Lowered = msg.PrioFYI, true
+		}
+		if l.Warning != "" {
+			fmt.Fprintln(warn, l.Warning)
+		}
+	}
 
 	if m.Kind == msg.KindTask || m.Kind == msg.KindClaim || m.Kind == msg.KindEnd {
 		// A node older than this quarantines the record instead of relaying it.
@@ -279,6 +294,16 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 
 	roster, rosterErr := c.RosterAll() // a decision, not a display: probes are counted
+	if now := time.Now(); r.Authored && rosterErr == nil {
+		if st, stale := StaleTarget(roster, to, me, now, LiveWithin); stale {
+			switch {
+			case !named: // the answer goes where its asker is, whatever happened since: say so and send it
+				fmt.Fprintln(warn, st.Warning(now, LiveWithin))
+			case !r.Queue && !r.Force:
+				return p, errors.New(st.Refusal(now, LiveWithin))
+			}
+		}
+	}
 	names, known := reachAmong(roster, rosterErr, to, me)
 	n := len(names)
 	if w := ListenerWarning(roster, to, me, time.Now()); w != "" {
@@ -332,6 +357,9 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if m.TTL == 0 && msg.IsBulletin(to) {
 		p.Expiry = msg.DefaultLife(m.Priority())
 		p.Notes = append(p.Notes, "expires in "+SpanText(p.Expiry)+" unless --ttl says otherwise")
+	}
+	if p.Lowered {
+		p.Notes = append(p.Notes, LoweredNote)
 	}
 	p.Msg = m
 	return p, nil
@@ -442,6 +470,9 @@ func (p Plan) Describe(w io.Writer) {
 		prio += ", " + m.Kind
 	}
 	fmt.Fprintf(w, "  priority  %s\n", prio)
+	if p.Lowered {
+		fmt.Fprintln(w, "            lowered to fyi because the words say nothing is needed; --prio ask to interrupt")
+	}
 	switch {
 	case m.TTL > 0:
 		fmt.Fprintf(w, "  expires   in %s\n", SpanText(time.Duration(m.TTL)*time.Second))

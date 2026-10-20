@@ -373,7 +373,7 @@ func TestAPrivateMessageIsSealedForItsMachine(t *testing.T) {
 	mesh(t)
 	present(t, sb)
 	t.Setenv("AIVOICEBUS_ME", sb)
-	run(t, "", "send", "--to", boss, "hello") // lap's key becomes known to the mesh with any signed message
+	run(t, "", "send", "--to", boss, "--queue", "hello") // lap's key becomes known to the mesh with any signed message
 	t.Setenv("AIVOICEBUS_ME", boss)
 	if code, _, e := run(t, "", "send", "--to", "all", "--private", "x"); code != exitUsage || !strings.Contains(e, "one machine") {
 		t.Errorf("private to all: %d %q", code, e)
@@ -485,7 +485,7 @@ func TestAnyGivesTheTaskToAListeningSession(t *testing.T) {
 func TestMaxTurnsEndsAConversation(t *testing.T) {
 	mesh(t)
 	t.Setenv("AIVOICEBUS_ME", boss)
-	code, out, e := run(t, "", "send", "--to", sa, "--max-turns", "3", "shall we loop?")
+	code, out, e := run(t, "", "send", "--to", sa, "--queue", "--max-turns", "3", "shall we loop?")
 	if code != 0 {
 		t.Fatalf("send: %d %s", code, e)
 	}

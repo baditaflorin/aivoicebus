@@ -25,7 +25,7 @@ func TestSendCombinesRolesCapsReplyAndJSONAndAlwaysSaysWhoItGoesTo(t *testing.T)
 	t.Chdir(t.TempDir())
 	session(t, "build-a/claude.b1", "role=build,repo=alpha,caps=run")
 	run(t, "", "inbox") // declares the role, the repo and the capability
-	if code, _, e := run(t, "", "send", "--to", "me/claude.0001", "ping"); code != 0 {
+	if code, _, e := run(t, "", "send", "--to", "me/claude.0001", "--queue", "ping"); code != 0 {
 		t.Fatalf("ping: %d %q", code, e)
 	}
 

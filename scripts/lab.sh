@@ -122,7 +122,7 @@ eventually "every node reports release 6.0.0" 10 versions_are 6.0.0
 eventually "aivoicebus mesh finds nothing wrong" 20 bash -c "AIVOICEBUS_URL='$ALLURLS' AIVOICEBUS_TOKEN='$(tok)' '$NEW' mesh"
 
 section "messages replicate between real processes"
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "hello from node 1" 2>&1)
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "hello from node 1" 2>&1)
 has "send to node 1 is accepted" "^sent " "$M"
 mesh_nodes() { AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh --json 2>/dev/null; }
 eventually "node 4 serves it to the reader" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 4)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox | grep -q 'hello from node 1'"
@@ -130,7 +130,7 @@ same_records() { [ "$(records_of 1)" = "$(records_of 2)" ] && [ "$(records_of 2)
 eventually "every node holds the same number of records" 20 same_records
 
 section "a sender takes a message back (retraction)"
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "to be taken back" 2>&1)
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "to be taken back" 2>&1)
 RID=$(printf '%s\n' "$M" | awk '/^sent /{print $2; exit}')
 has "the message is sent" "^sent " "$M"
 shows() { grep -q 'to be taken back' <<<"$(AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url "$1")" AIVOICEBUS_TOKEN="$(tok)" "$NEW" inbox 2>&1)"; }
@@ -179,7 +179,7 @@ AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url 2),$(url 1)" AIVOICEBUS_TOKEN="$(
 ms=$(( ($(date +%s%N) - start) / 1000000 ))
 [ $rc = 0 ] && [ $ms -lt 2000 ] && pass "status answered in ${ms}ms with the first node frozen" || fail "status took ${ms}ms (exit $rc)"
 start=$(date +%s%N)
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 2),$(url 1),$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "sent while node 2 is frozen" 2>&1)
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 2),$(url 1),$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "sent while node 2 is frozen" 2>&1)
 ms=$(( ($(date +%s%N) - start) / 1000000 ))
 has "a send still succeeds" "^sent " "$M"
 [ $ms -lt 4000 ] && pass "send took ${ms}ms" || fail "send took ${ms}ms"
@@ -194,15 +194,15 @@ nodectl 4 start
 eventually "node 4 is back" 15 curl -fsS "http://127.0.0.14:$PORT/healthz"
 holds_at_least() { [ "$(records_of "$1")" -ge "$2" ]; }
 eventually "node 4 holds everything again ($want records)" 25 holds_at_least 4 "$want"
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 4)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "written to the recovered node" 2>&1)
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 4)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "written to the recovered node" 2>&1)
 has "and takes writes after recovering" "^sent " "$M"
 eventually "its new record reaches node 1" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 1)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'recovered node'"
 # shellcheck disable=SC2034 # the output is not inspected; the call only has to succeed against the recovered node
 s4=$(AIVOICEBUS_URL="$(url 4)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh --json 2>&1)
 
 section "the per-prompt hook: urgent only, shown once"
-AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/claude.abcd --prio ask "just an ask" >/dev/null 2>&1
-AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/claude.abcd --prio urgent "CI is red, hold merges" >/dev/null 2>&1
+AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/claude.abcd --queue --prio ask "just an ask" >/dev/null 2>&1
+AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/claude.abcd --queue --prio urgent "CI is red, hold merges" >/dev/null 2>&1
 hook() { (cd "$LAB" && echo '{"session_id":"abcd-0001"}' | AIVOICEBUS_HOST=lab AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" HOME="$LAB/hookhome" "$NEW" hook --tool claude --event prompt 2>&1); }
 mkdir -p "$LAB/hookhome"
 out=$(hook); has "urgent shows on the next prompt" "CI is red, hold merges" "$out"; lacks "the ask waits" "just an ask" "$out"; has "behind the untrusted banner" "UNTRUSTED" "$out"
@@ -253,16 +253,16 @@ out=$(deploy/rotate-token.sh add 2>&1); has "a dry run changes nothing" "dry run
 out=$(deploy/rotate-token.sh add --apply 2>&1); has "add: new token made, nodes restarted" "added. Every node accepts both tokens" "$out"
 NEXT="$TOKEN_FILE.next"
 for i in 1 2 3 4; do [ "$(code "$LAB/old.token" "$(url $i)/v1/who")" = 200 ] && [ "$(code "$NEXT" "$(url $i)/v1/who")" = 200 ] && pass "node $i accepts both tokens" || fail "node $i does not accept both"; done
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$NEXT")" "$NEW" send --to lab/reader "sent with the NEW token during rotation" 2>&1); has "a send with the new token works" "^sent " "$M"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$NEXT")" "$NEW" send --to lab/reader --queue "sent with the NEW token during rotation" 2>&1); has "a send with the new token works" "^sent " "$M"
 eventually "and replicates to node 3" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 3)' AIVOICEBUS_TOKEN='$(cat "$LAB/old.token")' '$NEW' inbox --all | grep -q 'NEW token during'"
 out=$(deploy/rotate-token.sh promote --apply 2>&1); has "promote: nodes now talk with the new token" "promoted" "$out"
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(cat "$LAB/old.token")" "$NEW" send --to lab/reader "sent with the OLD token after promote" 2>&1); has "old-token machines still work" "^sent " "$M"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(cat "$LAB/old.token")" "$NEW" send --to lab/reader --queue "sent with the OLD token after promote" 2>&1); has "old-token machines still work" "^sent " "$M"
 eventually "and it replicates under the new inter-node token" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 4)' AIVOICEBUS_TOKEN='$(cat "$NEXT")' '$NEW' inbox --all | grep -q 'OLD token after'"
 out=$(deploy/rotate-token.sh retire --apply 2>&1); has "retire: the old token is gone" "retired. The old token is gone" "$out"
 for i in 1 2 3 4; do [ "$(code "$LAB/old.token" "$(url $i)/v1/who")" = 401 ] && pass "node $i refuses the old token" || fail "node $i still accepts the old token"; done
 [ ! -e "$NEXT" ] && pass "the staging file is gone" || fail "token.next left behind"
 [ "$(code "$TOKEN_FILE" "$(url 1)/v1/who")" = 200 ] && pass "this machine's token file is now the new token" || fail "local token file not switched"
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "sent after the old token was retired" 2>&1); has "sending after retirement works" "^sent " "$M"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "sent after the old token was retired" 2>&1); has "sending after retirement works" "^sent " "$M"
 eventually "and replication still works between nodes" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 1)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'after the old token was retired'"
 # A peer link reconnects a moment after the rotation, longer on a loaded host: wait for it, as the
 # replication check above does, and show the table if it never comes.
@@ -278,16 +278,16 @@ out=$(deploy/machine-token.sh add lab --apply 2>&1); has "add: the machine gets 
 [ "$(stat -c %a "$MT")" = 600 ] && pass "its file is mode 600" || fail "machine token mode $(stat -c %a "$MT")"
 lacks "and the token is never printed" "$(cat "$MT")" "$out"
 for i in 1 2 3 4; do [ "$(code "$MT" "$(url $i)/v1/who")" = 200 ] && pass "node $i accepts it" || fail "node $i rejects the machine token"; done
-M=$(AIVOICEBUS_ME=lab/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "from the machine itself" 2>&1); has "it sends as its own machine" "^sent " "$M"
+M=$(AIVOICEBUS_ME=lab/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader --queue "from the machine itself" 2>&1); has "it sends as its own machine" "^sent " "$M"
 before=$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")
 out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
 [ $rc = 0 ] && has "rotate-token --check: every client machine is on its own token, so a rotation cuts nobody off" "no machine would be cut off" "$out" || fail "rotate-token --check exit $rc: $out"
 has "and the report shows lab on its machine token" "^  lab .* machine  *made" "$out"
-M=$(AIVOICEBUS_ME=labtwo/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "from a machine on the shared token" 2>&1); has "a machine sends with the shared token" "^sent " "$M"
+M=$(AIVOICEBUS_ME=labtwo/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "from a machine on the shared token" 2>&1); has "a machine sends with the shared token" "^sent " "$M"
 out=$(AIVOICEBUS_BIN="$NEW" deploy/rotate-token.sh --check 2>&1); rc=$?
 [ $rc = 1 ] && has "rotate-token --check refuses, naming the machine on the shared token" "would cut off.*labtwo" "$out" || fail "rotate-token --check exit $rc: $out"
 [ "$before" = "$(cat "$TOKEN_FILE" "$MT" | sha256sum; ls -A "$HOME/.config/aivoicebus")" ] && pass "rotate-token --check changes no file" || fail "rotate-token --check changed a file"
-M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader "pretending to be another machine" 2>&1); has "it cannot send as another machine" "may only act as lab" "$M"
+M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" send --to lab/reader --queue "pretending to be another machine" 2>&1); has "it cannot send as another machine" "may only act as lab" "$M"
 M=$(AIVOICEBUS_ME=other/agent AIVOICEBUS_URL="$(url 2)" AIVOICEBUS_TOKEN="$(cat "$MT")" "$NEW" inbox 2>&1); has "or read another machine's mail" "may only act as lab" "$M"
 eventually "its message replicates (nodes talk with the shared token)" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 4)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'from the machine itself'"
 deploy/install.sh --apply --tokens-only n3 >/dev/null 2>&1
@@ -352,7 +352,7 @@ eventually "the new node holds as many records as node 1" 20 same_as_node1
 has "and counts the retraction it recovered" "^aivoicebus_retracted_messages 1$" "$(http "$TOKEN_FILE" "$(url 5)/metrics")"
 has "the next steps name the network rule" "Network: allow tcp:" "$out"
 for i in 1 2 3 4; do grep -q "127.0.0.15" "$LAB/nodes/lab_n$i/etc/aivoicebus/node.env" && pass "node $i lists n5 as a peer" || fail "node $i does not know n5"; done
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="http://127.0.0.15:$PORT" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "written on the new node" 2>&1); has "the new node takes writes" "^sent " "$M"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="http://127.0.0.15:$PORT" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "written on the new node" 2>&1); has "the new node takes writes" "^sent " "$M"
 eventually "and its record reaches node 2" 20 bash -c "AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL='$(url 2)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' inbox --all | grep -q 'written on the new node'"
 out=$(deploy/add-node.sh n5 lab_n6 127.0.0.16 2>&1); [ $? != 0 ] && has "a duplicate name is refused" "already in" "$out" || fail "duplicate node accepted"
 
@@ -782,7 +782,7 @@ mkdir -p "$LAB/sh-a" "$LAB/sh-b" "$LAB/sh-c"
 sa() { HOME="$LAB/sh-a" AIVOICEBUS_ME=labsa/agent.s1 AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "$@"; }
 sb() { HOME="$LAB/sh-b" AIVOICEBUS_ME=labsb/agent.s2 AIVOICEBUS_URL="$(url "${SBN:-3}")" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "$@"; }
 sc() { HOME="$LAB/sh-c" AIVOICEBUS_ME=labsc/agent.s3 AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "$@"; }
-M=$(sa send --to labsb/agent.s2 "a thread to share in" 2>&1); ST=$(awk '/^sent /{print $2; exit}' <<<"$M")
+M=$(sa send --to labsb/agent.s2 --queue "a thread to share in" 2>&1); ST=$(awk '/^sent /{print $2; exit}' <<<"$M")
 has "the thread starts on node 1" "^sent " "$M"
 sb_sees_thread() { sb thread "$ST" 2>&1 | grep -q 'a thread to share in'; }
 eventually "node 3 has it" 20 sb_sees_thread
@@ -835,7 +835,7 @@ out=$(AIVOICEBUS_NODE_REQUIRE_SIGNED=yes deploy/install.sh --apply --peers-only 
 out=$(AIVOICEBUS_NODE_REQUIRE_SIGNED=1 deploy/install.sh --apply --peers-only n1 2>&1); rc=$?
 [ $rc = 0 ] && grep -qx 'AIVOICEBUS_REQUIRE_SIGNED=1' "$LAB/nodes/lab_n1/etc/aivoicebus/node.env" && pass "the switch: AIVOICEBUS_NODE_REQUIRE_SIGNED=1 install.sh --peers-only writes it to node.env" || fail "switch exit $rc: $out"
 [ "$(unsigned 1 two)" = 403 ] && pass "the node then refuses an unsigned message" || fail "n1 still takes unsigned messages"
-M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "signed, after the switch" 2>&1); has "and still takes a signed one" "^sent " "$M"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "signed, after the switch" 2>&1); has "and still takes a signed one" "^sent " "$M"
 deploy/install.sh --apply --peers-only n1 >/dev/null 2>&1
 [ "$(unsigned 1 three)" = 403 ] && pass "a later install without the variable keeps the switch" || fail "a re-install dropped --require-signed"
 has "mesh --signed-check says which node already refuses them" "already refuses unsigned ones" "$(AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh --signed-check 2>&1)"

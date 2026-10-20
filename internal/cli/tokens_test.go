@@ -17,7 +17,7 @@ import (
 func TestTokensReportsContextAndWorkerRuns(t *testing.T) {
 	mesh(t)
 	t.Setenv("AIVOICEBUS_ME", boss)
-	run(t, "", "send", "--to", sa, "a fairly long message so the hook has something to show "+strings.Repeat("x", 400))
+	run(t, "", "send", "--to", sa, "--queue", "a fairly long message so the hook has something to show "+strings.Repeat("x", 400))
 	t.Setenv("AIVOICEBUS_ME", sa)
 	var out strings.Builder
 	hook.Run([]string{"--tool", "claude"}, strings.NewReader(`{"session_id":"s1"}`), &out)

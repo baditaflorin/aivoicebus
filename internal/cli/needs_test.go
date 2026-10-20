@@ -104,7 +104,7 @@ func TestTaskWithThreadAttachesTheDigestAsUntrusted(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("AIVOICEBUS_CAPS", "")
 	session(t, "boss/claude.ctx0", "")
-	_, out, e := run(t, "", "task", "web/claude.ctx2", "move the login page to the new router")
+	_, out, e := run(t, "", "task", "web/claude.ctx2", "move the login page to the new router", "--queue")
 	id := ""
 	for _, f := range strings.Fields(out) {
 		if len(f) == 10 && id == "" && f != "thread" {

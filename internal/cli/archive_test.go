@@ -66,7 +66,7 @@ func TestExportThenImportRestoresAWholeBoardIntoAFreshNode(t *testing.T) {
 	stores := nodes(t, 1, nil)
 	session(t, "a/claude.1", "")
 	for i := 0; i < 7; i++ {
-		run(t, "", "send", "--to", "b/codex.2", "--prio", "fyi", strings.Repeat("x", i+1))
+		run(t, "", "send", "--to", "b/codex.2", "--queue", "--prio", "fyi", strings.Repeat("x", i+1))
 	}
 	session(t, "b/codex.2", "")
 	_, out, _ := run(t, "", "inbox", "--ack")

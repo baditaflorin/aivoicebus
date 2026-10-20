@@ -133,10 +133,10 @@ var sendTool = tool{
 		"body":         str("the message text"),
 		"re":           str("id of the message this replies to"),
 		"thread":       str("thread id (default: new, or the reply's)"),
-		"prio":         map[string]any{"type": "string", "enum": msg.PrioNames(), "description": "fyi is only counted at session start; urgent is shown first and mid-session (default ask)"},
+		"prio":         map[string]any{"type": "string", "enum": msg.PrioNames(), "description": "fyi is only counted at session start; urgent is shown first and mid-session (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing)"},
 		"ttl":          str("how long the message stays relevant, such as 90m, 2h, 3d"),
 		"kind":         map[string]any{"type": "string", "enum": msg.KindNames(), "description": "question: stops being delivered to other sessions once someone answers; answer needs re"},
-		"queue":        flag("send a selector message even if no recently seen session matches it"),
+		"queue":        flag("send anyway when no recently seen session matches a selector, or the one session named was not seen in the last 30m (it waits for that session)"),
 		"dry_run":      flag("check and report only; nothing is sent"),
 		"confirm_caps": flag("a target routed by capability (can=...) is only previewed until this is true: capabilities are self-declared, so look at the sessions it resolved to first"),
 		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("after sending, wait this long for the answer in the thread and return it (at most %d): a conversation with another agent without the user relaying", maxWaitSeconds)},
@@ -162,7 +162,7 @@ var sendTool = tool{
 		var warn strings.Builder
 		// Force is deliberately not an argument: an agent cannot override a guardrail.
 		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, Re: a.Re, Thread: a.Thread,
-			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue}, &warn)
+			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true}, &warn)
 		if err != nil {
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}

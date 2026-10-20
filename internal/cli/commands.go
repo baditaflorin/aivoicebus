@@ -54,10 +54,16 @@ func hookCmd(args []string, s Streams) error {
 	return nil
 }
 
-func send(args []string, s Streams) error { return sendWith(args, s, false) }
+func send(args []string, s Streams) error { return sendImpl(args, s, false, true) }
 
 // reply is send with --re taken from the last unread message when it is not given.
-func reply(args []string, s Streams) error { return sendWith(args, s, true) }
+func reply(args []string, s Streams) error { return sendImpl(args, s, true, true) }
+
+// sendWith is send and reply for the commands that send as part of their own work (pause, room, start,
+// the worker's approval, ask): what they send is not checked for a stale target or a contradicted priority.
+func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
+	return sendImpl(args, s, reply, false, moves...)
+}
 
 // trailingFlags parses the flags written after the text (task laptop-b "do this" --wait-reply 10m):
 // the flag package stops at the first word that is not a flag, which would send "--wait-reply 10m"
@@ -85,7 +91,6 @@ func trailingFlags(fs *flag.FlagSet, s Streams) ([]string, error) {
 	return words, nil
 }
 
-// sendWith is send and reply. reply answers the newest unread message unless --re says which.
 // taskMove is task --fallback: the next targets, in order, and how long each has to take it.
 type taskMove struct {
 	next        []string
@@ -99,7 +104,9 @@ type taskMove struct {
 	pick func(machine string) (to, why string)
 }
 
-func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
+// sendImpl is send and reply. reply answers the newest unread message unless --re says which.
+// authored is a message somebody wrote by hand, which outbox.Prepare also checks (Request.Authored).
+func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove) error {
 	name := "send"
 	if reply {
 		name = "reply"
@@ -111,12 +118,12 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 	to := fs.String("to", "", "all | host | host/agent | */agent | host/* | @repo=x,branch=y | @here | @+group (see: aivoicebus usage); default for --re: whoever wrote that message")
 	re := fs.String("re", "", "reply to message id (or its first characters, if they name one message)")
 	thread := fs.String("thread", "", "thread id (default: new, or the reply's)")
-	prio := fs.String("prio", "", strings.Join(msg.PrioNames(), " | ")+" (default ask): fyi is only counted at session start, urgent is shown first")
+	prio := fs.String("prio", "", strings.Join(msg.PrioNames(), " | ")+" (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing): fyi is only counted at session start, urgent is shown first")
 	kind := fs.String("kind", "", strings.Join(msg.KindNames(), " | ")+": a question to several sessions stops being delivered once someone answers it (an answer needs --re)")
 	ttl := fs.String("ttl", "", "how long the message stays relevant, e.g. 90m, 2h, 3d; expired messages are not delivered. Default: 1d for fyi and 3d otherwise when it can reach several sessions, never for one session")
-	queue := fs.Bool("queue", false, "send a selector message even if no session seen in the last 24h matches it (it waits for one that starts later)")
+	queue := fs.Bool("queue", false, "send a selector message even if no session seen in the last 24h matches it, or one to a session not seen for 30m (it waits for one that starts later)")
 	dry := fs.Bool("dry-run", false, "check the message and say who it would reach and what it would cost, without sending")
-	force := fs.Bool("force", false, "send despite the guardrails (urgent to many sessions, a long body to many sessions)")
+	force := fs.Bool("force", false, "send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m)")
 	file := fs.String("file", "", "send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID")
 	via := fs.String("via", "", "with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe")
 	tail := fs.String("tail", "", "point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME")
@@ -201,7 +208,7 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 			return outbox.Usagef("--wait-state does not combine with --file or --tail: send it, then aivoicebus state ID --wait-state %s", ws.state)
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole, Authored: authored}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)
@@ -217,7 +224,8 @@ func sendWith(args []string, s Streams, reply bool, moves ...taskMove) error {
 		return err
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
-		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars}, s.Err)
+		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
+		Authored: authored}, s.Err)
 	if err != nil {
 		return err
 	}
