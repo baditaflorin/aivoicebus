@@ -17,6 +17,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/secrets"
+	"github.com/baditaflorin/aivoicebus/internal/sharestore"
 	"github.com/baditaflorin/aivoicebus/internal/store"
 	"github.com/baditaflorin/aivoicebus/internal/version"
 )
@@ -35,6 +36,8 @@ type handlerConfig struct {
 	board         *PeerBoard
 	metrics       *metrics
 	ready         func() bool
+	shares        *sharestore.Store
+	sharesReady   func() bool
 }
 
 // WithReleaseDir makes the node serve the release in dir (a manifest, its
@@ -153,8 +156,12 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}
 	health := func() msg.Health {
 		st := s.Stats()
+		features := msg.NodeFeatures()
+		if cfg.shares == nil { // a handler made without shared spaces (tests) does not claim them
+			features = slices.DeleteFunc(features, func(f string) bool { return f == msg.FeatureShare })
+		}
 		return msg.Health{Node: cfg.node, Version: cfg.version, Now: time.Now().UTC(), Log: s.VV(),
-			Messages: st.Messages, Acks: st.Acks, Sessions: st.Sessions, Quarantined: st.Quarantined, Retracted: st.Retracted, Features: msg.NodeFeatures(), Peers: cfg.board.Snapshot()}
+			Messages: st.Messages, Acks: st.Acks, Sessions: st.Sessions, Quarantined: st.Quarantined, Retracted: st.Retracted, Features: features, Peers: cfg.board.Snapshot()}
 	}
 	// retract is what /v1/retract and a /v1/ack of a retraction id both run, so the two cannot
 	// differ in who may do it, in what is refused, or in what counts against the allowance. It
@@ -444,6 +451,10 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	}))
 	// Files: the agent tokens only (never the observer), the upload with its own larger cap.
 	fileRoutes(mux, newFileBox(), func(h principalHandler) http.HandlerFunc { return guardCap(false, true, MaxFileEnvelope, h) }, wrap)
+	if cfg.shares != nil {
+		shareRoutes(mux, &cfg, func(h principalHandler) http.HandlerFunc { return guardCap(false, true, maxShareChunkBody, h) }, wrap,
+			func(h principalHandler) http.HandlerFunc { return guard(false, false, h) })
+	}
 	mux.HandleFunc("/v1/release/", wrap(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		name := strings.TrimPrefix(r.URL.Path, "/v1/release/")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
