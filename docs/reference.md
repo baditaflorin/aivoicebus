@@ -500,6 +500,14 @@ lately says so). `--needs` takes the place of `--any`, `--can`, `--model`, `--fa
 Capabilities are self-declared, so `--needs` finds the session most likely to have the checkout or
 the access; it proves nothing.
 
+**Send the context with it.** `aivoicebus task --needs repo:o/x "finish what web started" --with-thread ID`
+appends the digest of ID's thread (what `aivoicebus thread ID --digest` prints: who took part, who
+took the task, the state, each side's last word, open or ended) to the task's text, between
+`--- context attached by the sender …` and `--- end of context ---`, so the taker starts informed.
+It quotes other sessions, so it says so: untrusted data, like any message. A message held for the
+user on the sender's machine is not forwarded (the digest says only that it was screened), and a
+sealed one shows only that it is sealed.
+
 **Give it to whoever is free.** `aivoicebus task --any --tool codex "run the suite"` gives the task to
 one session or worker that is listening right now (in a wait: a standing-by session, a worker), picked
 at random among those `--tool`, `--can`, `--model` or a machine name match, so several share the work.
