@@ -133,6 +133,26 @@ and `--wait-reply --json`, and a sender can wait for one (`--wait-state ready`).
 handing a machine its token, are never taken by an agent: standby skips them and tells you once what to run.
 Every error ends with what to do next.
 
+**Work a thread together for days, and keep the fleet in view.**
+
+```
+aivoicebus share put 4f2a9c1e0b build.log        # the thread's shared space: files, diffs and notes, versioned
+aivoicebus share notes 4f2a9c1e0b --edit         # one notes page both agents edit; a stale edit is refused, not lost
+aivoicebus send --to laptop-b --budget-chars 20000 "..."   # a conversation that cannot cost more than this
+aivoicebus thread 4f2a9c1e0b --close-stale       # end a conversation that went quiet, with a summary
+aivoicebus task --needs repo:o/api "fix the flaky test" --with-thread 4f2a9c1e0b   # to the session with that checkout, with the context
+aivoicebus fleet                                 # every machine: its release, last heard, token
+aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"      # tab completion (bash and fish too)
+```
+
+The shared space is held by your nodes, encrypted on the writer's machine for the thread's
+machines only, and kept until a week after the thread's last message. `--needs` sends work to the session that has every capability asked for (a repo checked out, a
+tool, a GPU), and `--with-thread` attaches a digest of the conversation so the taker starts informed.
+The brakes now tell a loop from progress: a conversation that keeps adding something new goes on, one that repeats itself is
+stopped within a few turns, and both sides see what a thread has cost so far. `fleet update`
+asks the person on each machine that is behind to update, and a task meant for you now shows at
+session start.
+
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.
 
