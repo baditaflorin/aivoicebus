@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -110,4 +111,30 @@ func SizeLine(z msg.ThreadSize) string {
 		}
 	}
 	return line
+}
+
+// StaleSummary is the body of the [end] that `thread ID --close-stale` writes: why it closes, and
+// the thread in a few lines (its size, its state, each side's last word, quoted and cut), so a
+// reader who missed it knows where it stood. ms is one thread, its last message quiet since idle.
+func StaleSummary(ms []msg.Message, idle time.Duration, by string) string {
+	sort.SliceStable(ms, func(i, j int) bool { return ms[i].At.Before(ms[j].At) })
+	last := ms[len(ms)-1]
+	var b strings.Builder
+	fmt.Fprintf(&b, "[closed as stale] no message in this conversation for %s (the last from %s); closed by %s.\n",
+		idle.Round(time.Minute), Name(last.From, msg.MaxIdentity), by)
+	fmt.Fprintf(&b, "size: %s\n", SizeLine(msg.SizeOf(ms)))
+	if v := msg.ThreadState(ms); v.State != "" {
+		fmt.Fprintf(&b, "%s\n", StateLine(v))
+	}
+	seen := map[string]bool{}
+	for i := len(ms) - 1; i >= 0 && len(seen) < 4; i-- {
+		m := ms[i]
+		if seen[m.From] || m.Kind == msg.KindClaim || m.Retracted != nil {
+			continue
+		}
+		seen[m.From] = true
+		fmt.Fprintf(&b, "last from %s (%s): %q\n", Name(m.From, msg.MaxIdentity), m.At.UTC().Format("2006-01-02 15:04Z"), OneLine(sealedText(m), 100))
+	}
+	b.WriteString("If it is still needed, start it again with `aivoicebus send`.")
+	return b.String()
 }

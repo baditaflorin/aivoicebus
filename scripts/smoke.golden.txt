@@ -163,7 +163,7 @@ answer
 [aivoicebus] Thread size so far: 2 message(s), 17 characters (about 4 tokens to read)
 [exit 0]
 $ aivoicebus thread
-error: usage: thread <id> [--json | --digest]
+error: usage: thread <id> [--json | --digest | --close-stale [--stale-after 30m]]
 [exit 2]
 # acks, who, whole-host and whole-tool targets
 $ aivoicebus inbox --ack
