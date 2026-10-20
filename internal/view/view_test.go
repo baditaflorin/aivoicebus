@@ -174,7 +174,8 @@ func TestThreadNamesItsSubjectFromTheWholeThreadEvenWhenOnlyTheTailIsShown(t *te
 	var b strings.Builder
 	Thread(&b, []msg.Message{open, tail}, []msg.Message{tail}, 0)
 	got := b.String()
-	if !strings.HasPrefix(got, UntrustedBanner+"\n[aivoicebus] Thread subject (peer text): \"Deploy plan\"\n--- 00aa11bb33") || strings.Contains(got, "steps") {
+	if !strings.HasPrefix(got, UntrustedBanner+"\n[aivoicebus] Thread subject (peer text): \"Deploy plan\"\n--- 00aa11bb33") || strings.Contains(got, "steps") ||
+		!strings.HasSuffix(got, "[aivoicebus] Thread size so far: 2 message(s), 19 characters (about 4 tokens to read)\n") {
 		t.Errorf("%s", got)
 	}
 }

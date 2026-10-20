@@ -56,16 +56,29 @@ func statusCmd(args []string, s Streams) error {
 		}
 		return outbox.NotFoundf("message %s was not found on the nodes (status takes the full id): check it with `aivoicebus inbox --all`", fs.Arg(0))
 	}
+	ms, terr := c.Thread(fs.Arg(0))
 	if *asJSON {
-		return writeJSON(s.Out, r)
+		out := receiptsView{Receipts: r}
+		if terr == nil && len(ms) > 0 {
+			z := msg.SizeOf(ms)
+			out.Size = &z
+		}
+		return writeJSON(s.Out, out)
 	}
 	view.Receipts(s.Out, r)
-	if ms, err := c.Thread(fs.Arg(0)); err == nil { // the conversation's state, under who took it
+	if terr == nil && len(ms) > 0 { // the conversation's state, under who took it, and its size
 		if v := msg.ThreadState(ms); v.State != "" {
 			fmt.Fprintln(s.Out, "  "+view.StateLine(v))
 		}
+		fmt.Fprintln(s.Out, "  its thread: "+view.SizeLine(msg.SizeOf(ms)))
 	}
 	return nil
+}
+
+// receiptsView is `status ID --json`: the receipts, and the size of the message's thread.
+type receiptsView struct {
+	msg.Receipts
+	Size *msg.ThreadSize `json:"thread_size,omitempty"`
 }
 
 // homeStatus gathers the home screen for this session.
