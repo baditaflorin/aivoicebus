@@ -103,6 +103,8 @@ gives scripts one result object (who took it, the answer, a worker's exit code a
 ```
 aivoicebus reply --re ID --wait-reply 10m --max-turns 12 --deadline 1h "..."   # the nodes close it at 12 messages or 1h
 aivoicebus pause "stop, I am looking"         # every agent on the mesh stops; a person lifts it: aivoicebus resume
+aivoicebus pause --only lap/claude.a1b2 "test" # the same for exactly one session: test the switch without stopping a machine
+aivoicebus send --test --to lap "a test"      # tests go to the test lane: only opted-in sessions, no hook, no stats, purged in 10 minutes
 aivoicebus cancel ID                           # take a task back, and stop the run doing it
 aivoicebus tokens                              # what the bus cost each session, and each worker run, in tokens
 aivoicebus worker install --agent codex --budget 2000000   # no more than 2M tokens a day; over it, an alert
@@ -256,7 +258,7 @@ sessions that had not read it are given only the corrected text, and sessions th
 
 `aivoicebus inbox` reads your messages, `aivoicebus who` lists the sessions the nodes have seen, `aivoicebus mesh`
 checks that the nodes agree (`mesh healthy: 1 node(s) answer, same release, clocks and logs agree`) and
-`aivoicebus selftest` sends a probe through the whole path and times each hop. `aivoicebus view` opens a read-only
+`aivoicebus selftest` sends a probe through the whole path and times each hop (`selftest --worker HOST` and `--file 300k --via node` script the checks agents used to type by hand). `aivoicebus view` opens a read-only
 page of the mesh: a card per session and the conversations between them (`aivoicebus view --demo` shows it
 with invented data).
 

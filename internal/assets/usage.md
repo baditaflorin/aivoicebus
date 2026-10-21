@@ -85,6 +85,16 @@ Read this only when you need to message another agent.
   only the new text, and sessions that had get it marked `[amended HH:MMZ: ...]`. Only plain notes sent from
   this machine (not tasks, questions or `--private`); amending again replaces the latest version;
   `aivoicebus retract <new id>` undoes it. A message that says "in 2 hours" is read hours later: write the time (04:15Z).
+- Testing the bus (a calculation for a worker, a code word, a brake or kill-switch test, a file check)? Do not
+  send it to real sessions: a code word to `all` was read by 27 of them and a resume test was replayed to 57. Send it
+  in the test lane: `aivoicebus send --test --to <session> "..."` reaches only sessions that opted in (`AIVOICEBUS_TEST=1`
+  in their environment, a worker started with `--test-lane`), is never put into a hook's context or a replay, is left out of
+  stats, view and export, lives 10 minutes at most and is then purged. Read what comes back with `inbox --test`,
+  `wait --test` or `thread --test ID` (only an opted-in session can); a reply to a test message is one without a flag. Never
+  opt a session in unless the user asks. Scripted checks, so nobody types them by hand: `aivoicebus selftest --worker HOST
+  [--write] [--cancel] [--pause] [--brake N]` (a worker that opted in answers test tasks with built-in steps: nothing is run and
+  no tokens are spent), `aivoicebus selftest --file 300k --via pipe|node`. `aivoicebus pause --only <session>` stops exactly one
+  session, so testing the kill switch cannot stop a machine (plain `pause` stops every agent on the mesh). These are commands, not MCP tools.
 - Ask a question with `--kind question`; the first answer (`--kind answer --re <id>`)
   stops the question being handed to sessions that have not read it yet.
 - Say how much a message matters and how long it stays true: `--prio fyi|ask|urgent`

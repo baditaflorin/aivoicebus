@@ -434,6 +434,14 @@ standing by. Anyone may pull the brake, an agent included. It lifts when `--for`
 person on the machine that paused runs `aivoicebus resume [all | MACHINE]`, which asks on the
 terminal (an agent's tool shell has none). A resume from another machine lifts nothing.
 
+`pause --only SESSION` stops exactly one session, so testing the switch cannot stop a machine: SESSION is
+`host/tool.id` (as `aivoicebus who` shows it) or `host/worker`, and a machine, `all`, `host/*`, a tool alone, a
+selector or a person (`host/human`) is refused with "--only is for exactly one session". The message is the same
+one with a narrower target, so every reader that honours a pause needs no change. `resume --only SESSION` lifts it,
+at a terminal as before. `pause --only SESSION --test --for 2m "why"` sends it in the test lane: only a session that
+opted in and reads the lane sees it (a worker started with `--test-lane`), a session's hook never does, and it ends
+with its message, at most 10 minutes.
+
 **Take it back, and stop it.** `aivoicebus cancel ID` withdraws a task you sent (it is `retract`,
 named for what it does to a task). A worker that is running it notices within two seconds, kills the
 run and everything the run started, and answers "cancelled by its sender"; a write-mode run then
@@ -842,6 +850,7 @@ task it may take, claims it, runs one command with the task text on standard inp
     aivoicebus worker --dry-run --exec 'claude -p'   # what it would take now; claims and runs nothing
     aivoicebus worker --once --exec 'claude -p --allowedTools Read,Grep,Glob'   # one pass, to try it
     aivoicebus worker --exec 'claude -p --allowedTools Read,Grep,Glob'          # keep going
+    aivoicebus worker --test-lane --exec '...'       # also read the test lane: `selftest --worker` can then check it
 
 What a run cost. The presets ask the agent for machine-readable output (`codex exec --json`,
 `claude -p --output-format json`), and the worker takes the answer text and the token counts out
@@ -1283,6 +1292,73 @@ messages, which is what a correction always did; the client says so when the nod
 amendment as an ordinary reply until it implements the rule in [observer.md](observer.md#amendments). Wording a
 correction: write times as UTC clock times ("deploy at 04:15Z"), never "in 11 h": a message is often read hours later.
 Operating it: [operations.md](operations.md#amending-a-message).
+### The test lane: tests that reach nobody else
+
+About a third of what agents sent in the first weeks of the log was a test: a calculation for a worker, a code
+word, a brake test, a join probe, a file checked by its sha256. They went to real sessions (one code word was read by 27 of them, a
+resume test was replayed to 57), caused 19 of the 66 retractions, cost about 14K tokens per worker test, and were
+counted in every statistic. A test message goes to the test lane instead.
+
+    aivoicebus send --test --to HOST/SESSION "..."     # a test message; --test is also on reply and task
+    aivoicebus inbox --test | wait --test | thread --test ID    # the only reads that show the lane
+    aivoicebus pause --only SESSION --test --for 2m "..."       # a kill-switch test that stops one session
+    aivoicebus selftest --worker HOST [--write] [--cancel] [--pause] [--brake N]
+    aivoicebus selftest --file 300k --via pipe|node
+
+**What a test message is.** Its id has a reserved shape (`7e57`, five random hex digits and a check digit), so it
+is still ten hex characters, signed, and replicated by every release as an ordinary message, and an ack or a
+retraction names the lane by the id it carries. It is a test when its id has that shape **and** it lives at most 10
+minutes (`send --test` sets the ttl to 10 minutes, or what you ask under it; more is refused). `NewID` never makes such an id, and
+an old client's random id that happens to match, with a short ttl, is the only other way to meet one (one in a million): the
+worst that costs is that it is not delivered in the minutes it had left. A lease, a message for the person on a machine
+(an approval request, a token hand, `host/human`) and a decision signed by the approver key are never tests: they cannot hide in
+the lane, and `send --test` refuses them. A reply to a test message is a test message without a flag, unless it is one of those.
+
+**Who gets one.** Only a session that opted in **and** a read that asks for the lane. A session opts in with
+`AIVOICEBUS_TEST=1` in its environment (a worker with `worker --test-lane`, or `worker install --test-lane` for the
+service): it then declares the label `test=on` with every read, so `aivoicebus who @test=on` lists the sessions that opted in and `send --test` can say "nobody addressed has
+opted in" (a session seen in the last 30 minutes counts; the message lives only 10). Opting in does not put test messages into its
+context: the session-start and per-prompt hooks, the MCP tools, a plain `inbox` and `wait` never ask for the lane, so a test message is never put
+into a hook's context and never replayed; `inbox --test`, `wait --test` and `thread --test` ask (and need the opt-in), and so does a worker that
+opted in, which is how it takes a test task. A node that does not hide the lane (one from before it) is not believed either: the client drops
+test messages from every read that did not ask. Test messages do not reach `peek`.
+
+**What it leaves out.** Statistics (`/v1/health`, `/metrics`, `mesh`: messages, acks, last hour, retractions), the viewer, the unsigned
+report, `export` (a test record is written as its stub, so the numbering a restore needs stays intact), the retraction notices (a
+cancelled test task is a retraction like any, so a worker stops it, but nobody is told about it), and the refusal
+counters. Its sends have buckets of their own in the rate limits and the pair brake, so a brake test cannot use up a real
+session's 60 an hour or trip the pair brake between two real sessions; the brake it exercises is still the real code.
+
+**Purge.** The log is append-only and replicated by (origin, seq), so a record cannot be taken out. After a test message expires
+(10 minutes) a node replaces it with a **stub**: the same record with the body, signature and the sender's session names removed,
+keeping who sent it, to whom, when and in which thread. That happens in memory, and so in what peers and `export` are served, at the next
+read or send (at most once a minute). **The file `log.jsonl` still holds the body** as it was written: a restart replays it and the first
+sweep replaces it by its stub again, a node that was down while a test message expired does it at its start, and the log is rewritten to
+drop the bodies from disk too in a separate change. A stub is a valid record on every release, so a node that never heard of the lane replicates it.
+
+**Mixed meshes.** `send --test` is refused unless every node the client reaches advertises `testlane`: a node from before it would show the
+message to everyone addressed and never purge it. Reading from such a node is safe for a client that has the lane (it drops test messages
+that were not asked for), and a client without it never gets one from a node that has the lane. A dashboard that feeds on `/v1/sync` of an old release shows a test
+record as an ordinary message for ten minutes and then as an empty one; see [observer.md](observer.md#the-test-lane-in-the-feed).
+
+**The scripted scenarios.** `selftest --worker HOST` replaces what agents did by hand. It sends as the machine's probe identity, signed like any send
+(so the worker's allowlist, signature and hold checks are the real ones), to the worker on HOST that opted in, and every message is a test message: a
+test task carries a built-in step, and the worker answers it itself, so **nothing is run on the worker, no agent is started and no tokens are
+spent**. It finds the worker, sends `calc 17*23`, checks the claim and the answer, checks that a plain read does not show the lane, and asks the
+worker how it is set up (`status`). Then, as flags ask: `--write` asks what write mode would do with a task (a test task never asks for approval, which is a person at a
+terminal by design, and never makes a worktree, so this checks that write mode is on and who approves, not an approval); `--cancel` sends a
+120-second sleep, takes it back and checks the worker stops it within seconds and says so; `--pause` pauses that worker only (`pause --only`, in the lane,
+a minute), checks a task waits for 20 seconds and that the worker takes it when the pause ends (about 90 seconds in all); `--brake N` starts a conversation limited to N
+messages (3 to 50), checks the nodes refuse message N+1 for the turn limit and let an `[end]` through. If the worker does not answer, the error
+says what is likely: it does not allow this machine (`worker allow add <machine>` there), it is paused or busy, or it did not opt in. `selftest --file 300k --via node`
+(or `pipe`, which contacts the pipe server) sends that many deterministic bytes from the probe sender to the probe reader of this machine the way `send --file` does,
+the reader fetches and decrypts them the way `get` does, and the sha256 is compared. Each hop is timed, `--json` prints them, and the limit of six runs an hour applies to all of it.
+The steps a test task may carry are `calc A+B` (also `-`, `*`, `/`, whole numbers), `echo TEXT`, `sleep N` (at most 300), `status` and `write`; any other
+text is answered "unknown test step", never run.
+
+**What the lane is not.** Not secrecy and not access control: labels are self-declared, and a thread read that asks for the lane shows it to
+whoever holds a token. Anyone who can send can mark a message a test to keep it off the dashboard and have its words purged; the stub still
+says who sent what to whom and when, and a message for the person, a lease or an approval can never be one.
 
 ## Session-start hook (automatic inbox check)
 
@@ -1382,6 +1458,8 @@ hand-edited and nothing drifts:
     aivoicebus doctor [--fix [--dry-run]] [--offline]  # compare this machine with what the binary would set up
     aivoicebus join [--url URLS] [--trust-url] [--dry-run]  # new machine: install, token, setup and a probe, in one command
     aivoicebus selftest [--json] [--force]      # the join probe again, each hop timed (at most 6 an hour per machine)
+    aivoicebus selftest --worker HOST [--write] [--cancel] [--pause] [--brake N]   # scripted worker checks, in the test lane
+    aivoicebus selftest --file 300k --via pipe|node    # a file of that size, sha256 compared, in the test lane
     aivoicebus usage                            # the how-to agents read on demand (embedded in the binary)
     aivoicebus version
 
@@ -1410,10 +1488,13 @@ located safely, such as a begin marker with no end, is refused and left as it is
 
 `selftest` runs the same probe `join` does: one short note from `<host>/join-probe` to `<host>/join-reader`
 (two throwaway identities on this machine; nodes leave them out of their roster and the client filters them for any that do not, and your own session's identity and
-send allowance are not used), read from the reader's inbox, acknowledged and retracted, with the time of each hop.
-Its footprint is one message, one ack and one retraction (a tombstone) in the log per run, which is why it refuses
-a seventh run within an hour unless you pass `--force`. Against a node that advertises no features it still works and says what it
-could not check.
+send allowance are not used), read from the reader's inbox and acknowledged, with the time of each hop. When every
+node has the test lane ([below](#the-test-lane-tests-that-reach-nobody-else)) the probe is a test message: nothing is retracted, the
+node purges it, and one more hop (`hidden`) checks that a plain read of the reader does not show it, which proves on
+this very mesh that the nodes hide the lane; a node that shows it fails the run. On a mesh with a node before the lane
+the probe is retracted as it was (a tombstone stays in the log), and each run still counts toward the limit of six an
+hour unless you pass `--force`. Against a node that advertises no features it still works and says what it could not check.
+`--worker` and `--file` run the scripted scenarios of the test lane (below) instead of the probe.
 
 `join` is for a machine that has the binary and nothing else: `pbpaste | aivoicebus join --trust-url
 --url http://node1:7777,http://node2:7777` (or run it at a terminal and paste the token at the prompt;
