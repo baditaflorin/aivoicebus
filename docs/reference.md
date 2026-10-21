@@ -1571,7 +1571,7 @@ no election, and losing nodes only delays delivery.
   stored as an inert placeholder instead of being applied (counted as `quarantined` in
   `/v1/health`); see [Malformed input and floods](operations.md#malformed-input-and-floods).
 - `/v1/health` and `/metrics` say how replication is going; `aivoicebus mesh` reads them all.
-  Operating it (rollout, adding a node, token rotation, backup): [operations.md](operations.md).
+  Operating it (rollout, adding or removing a node, token rotation, backup): [operations.md](operations.md).
   How big it can get: [capacity.md](capacity.md).
 - `/v1/health` also lists the `features` a node has (`retract`, `quarantine`, ...; absent on a node that advertises none,
   where a client falls back to probing). `aivoicebus mesh` and `doctor` show them.

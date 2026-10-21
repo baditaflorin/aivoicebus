@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Helpers shared by the operator scripts (install.sh, rotate-token.sh, machine-token.sh,
-# rollout.sh, add-node.sh). Sourced, not run. Needs bash, curl and ssh, and the caller to
+# rollout.sh, add-node.sh, remove-node.sh). Sourced, not run. Needs bash, curl and ssh, and the caller to
 # have sourced deploy/nodes.sh (NODES, node_urls) and set PORT.
 #
 # Tokens only ever travel on stdin or in a file: curl gets its Authorization header from a
@@ -43,6 +43,26 @@ log_total() {
   local s=0 x
   for x in $(printf '%s' "$1" | grep -o '"log":{[^}]*}' | head -1 | grep -o ':[0-9][0-9]*' | tr -d :); do s=$((s + x)); done
   echo "$s"
+}
+
+# log_vector <health json>: the same version vector, one "origin count" line per origin, sorted.
+# remove-node.sh compares nodes by it origin by origin: a sum can hide a node that is ahead on one
+# origin and behind on another.
+log_vector() {
+  printf '%s' "$1" | grep -o '"log":{[^}]*}' | head -1 | sed 's/^"log":{//; s/}$//' | tr ',' '\n' |
+    sed -n 's/^"\([^"]*\)":\([0-9][0-9]*\)$/\1 \2/p' | sort
+}
+
+# vector_missing <have> <want>: what a node holding the vector <have> lacks of <want> (both as
+# log_vector prints them), one "origin missing-count" line per origin; nothing when it holds all of it.
+vector_missing() {
+  printf '%s\n%s\n' "$1" "--" "$2" | awk '$0 == "--" { w = 1; next } NF == 2 { if (w) want[$1] = $2; else have[$1] = $2 }
+    END { for (o in want) if (want[o] > have[o] + 0) print o, want[o] - have[o] }' | sort
+}
+
+# vector_max <vector>...: the per-origin maximum of the vectors given: what the nodes hold between them.
+vector_max() {
+  printf '%s\n' "$@" | awk 'NF == 2 && (!($1 in m) || $2 > m[$1]) { m[$1] = $2 } END { for (o in m) print o, m[o] }' | sort
 }
 
 # accepts <token-file> <ip>: the node accepts this token (/v1/who exists in every release).
