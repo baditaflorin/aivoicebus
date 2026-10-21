@@ -100,7 +100,7 @@ shares_of() {
   done
 }
 # shares_missing <have> <want>: the lines of <want> (as shares_of prints them) that <have> lacks.
-shares_missing() { printf '%s\n%s\n' "$1" "--" "$2" | awk '$0 == "--" { w = 1; next } NF == 3 { if (w) { if (!($0 in h)) print } else h[$0] = 1 }'; }
+shares_missing() { printf '%s\n--\n%s\n' "$1" "$2" | awk '$0 == "--" { w = 1; next } NF == 3 { if (w) { if (!($0 in h)) print } else h[$0] = 1 }'; }
 rest_shares() { local n ip; for n in "${REST[@]}"; do IFS=: read -r _ _ ip <<<"$n"; shares_of "$ip" || true; done | sort -u; }
 
 # behind <vector> [<shares>]: one line per remaining node that does not hold all of them; nothing when every one does.

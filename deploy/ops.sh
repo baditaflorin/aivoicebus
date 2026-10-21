@@ -56,7 +56,7 @@ log_vector() {
 # vector_missing <have> <want>: what a node holding the vector <have> lacks of <want> (both as
 # log_vector prints them), one "origin missing-count" line per origin; nothing when it holds all of it.
 vector_missing() {
-  printf '%s\n%s\n' "$1" "--" "$2" | awk '$0 == "--" { w = 1; next } NF == 2 { if (w) want[$1] = $2; else have[$1] = $2 }
+  printf '%s\n--\n%s\n' "$1" "$2" | awk '$0 == "--" { w = 1; next } NF == 2 { if (w) want[$1] = $2; else have[$1] = $2 }
     END { for (o in want) if (want[o] > have[o] + 0) print o, want[o] - have[o] }' | sort
 }
 
