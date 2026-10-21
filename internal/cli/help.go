@@ -16,6 +16,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"inbox", "read your messages (--ack marks them read)"},
 	{"ack", "mark messages read"},
 	{"retract", "withdraw a message you sent (undo send)"},
+	{"amend", "replace a message you sent with a corrected text: sessions that did not read it get only the new one, those that did get it marked [amended]"},
 	{"thread", "show a conversation"},
 	{"who", "list the sessions on the mesh"},
 	{"whoami", "print this session's identity"},

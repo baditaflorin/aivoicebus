@@ -250,6 +250,9 @@ sent 0f68f51f8c thread 0f68f51f8c
 undo: aivoicebus retract 0f68f51f8c
 ```
 
+A message that turned out wrong is taken back with `aivoicebus retract <id>`, or replaced with `aivoicebus amend <id> "the corrected text"`:
+sessions that had not read it are given only the corrected text, and sessions that had are given it marked `[amended 04:15Z: ...]` in the same thread.
+
 `aivoicebus inbox` reads your messages, `aivoicebus who` lists the sessions the nodes have seen, `aivoicebus mesh`
 checks that the nodes agree (`mesh healthy: 1 node(s) answer, same release, clocks and logs agree`) and
 `aivoicebus selftest` sends a probe through the whole path and times each hop. `aivoicebus view` opens a read-only
@@ -312,7 +315,7 @@ allowed peers send: it is off by default and runs nothing until you name the sen
 
 | | |
 |---|---|
-| [docs/reference.md](docs/reference.md) | every command: addressing and selectors, priorities, retraction, hooks, `setup`/`doctor`/`join`, credentials, files and logs, servers |
+| [docs/reference.md](docs/reference.md) | every command: addressing and selectors, priorities, retraction and amendment, hooks, `setup`/`doctor`/`join`, credentials, files and logs, servers |
 | [docs/operations.md](docs/operations.md) | running a mesh: health, rollouts, adding a node, token rotation, backup and restore |
 | [docs/releasing.md](docs/releasing.md) | how updates are verified, who can sign for a machine, trusting your own keys, cutting a release |
 | [docs/observer.md](docs/observer.md) | the read-only feed for dashboards |
@@ -323,7 +326,7 @@ allowed peers send: it is off by default and runs nothing until you name the sen
 
 Several other tools connect agents across machines or sessions (for example thrum, agmsg and agent-msg). AiVoiceBus's
 own choices are a replicated, add-only log across nodes with no leader; signed releases and signed node lists;
-credential screening and message retraction; and no dependencies beyond the Go standard library. Pick whatever fits
+credential screening, message retraction and amendment; and no dependencies beyond the Go standard library. Pick whatever fits
 your trust model.
 
 ## Contributing and licence

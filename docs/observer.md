@@ -61,6 +61,8 @@ characters and differ from the shared token.
 - An ack whose id starts with `retract:` or `retract-leak:` is a **retraction**, not a read
   receipt: see [Retractions](#retractions-undo-send) below. Hide the message it names, and do
   not count it as a read.
+- An ack whose id starts with `amend:` is an **amendment claim**, not a read receipt: see
+  [Amendments](#amendments) below. It changes which of two messages a reader is given; do not count it as a read.
 - `exp` is present only when the sender set a TTL. A message to a group
   (everyone, a selector, a host or a whole tool) also expires by default 1 day (fyi)
   or 3 days after `at`, evaluated by whoever reads it.
@@ -162,6 +164,40 @@ machine's messages; the real sender cannot undo that. A machine token can retrac
 machine and only what that machine sent. Nothing here is a security boundary: the tombstone names the
 retractor's machine, the `retracted` object and the feed carry the full identity and the time, and the
 record's `origin` says which node wrote it, so it is visible after the fact.
+
+## Amendments
+
+A sender can replace a message with a corrected one (`aivoicebus amend`). Like a retraction it is **not a new record
+shape**: the new text is an ordinary message, and the link is an ordinary ack, so `Record`, `ValidateReplicated` and the
+vectors are unchanged, and a node or dashboard that does not know amendments shows two ordinary messages.
+
+    {"origin":"node-a","seq":601,"msg":{"id":"77aa88bb99","from":"laptop/claude.a1b2","to":"air/codex","thread":"3f2a9c01de","re":"3f2a9c01de","body":"deploy at 13:00","prio":"urgent","at":"2026-10-21T04:15:00Z"}}
+    {"origin":"node-a","seq":602,"ack":{"id":"amend:77aa88bb99","by":"laptop/claude.a1b2","at":"2026-10-21T04:15:00Z"}}
+
+**The rule.** A message A **amends** the message O it answers (`A.re`) when all of these hold:
+
+- an ack with id `amend:` + A's id (ten lowercase hex digits, exactly; nothing else after the prefix) is in the log,
+  whose `by` is **on the same machine as A's `from`** (the text before the first `/`, case-insensitively), and its
+  `via` and `chars` are ignored;
+- A and O are both held; A's `from` and O's `from` are on the same machine; A's `to` and `thread` are O's; both have
+  no `kind`; neither is sent from the machine `aivoicebus`; A is not O;
+- A is not itself retracted (retract A and O is as before).
+
+It holds in any arrival order (the claim may come before A or O). The **effective** amendment of O is the latest by
+`at`, then by the greater id; an amendment that lost that race to a sibling is itself replaced. Amendments chain (A
+may be amended in turn); ids are chosen by senders, so a consumer follows a chain a bounded number of steps (32).
+An amendment claim is **not a read receipt**: do not count it as a read.
+
+**What a reader is given** (what nodes do; a consumer that shows one reader's view should do the same): a message that
+has an effective amendment is not delivered to a reader that has not read it; the amendment is, and for a reader that
+had read an earlier version of the chain in full (an ack that is not `hook-count`) it is shown as replacing that
+version. Thread and `--all` views show both, the original with a link forward. Nodes answer with two response-only
+fields, never stored, cleared from anything that arrives from outside: `amends` (`of`: the message it replaces;
+`read`: the nearest earlier version this reader had read, absent in a thread read) on the amendment, and `amended_by`
+(`by`, `at`) on the replaced message. A node advertises `amend` in `/v1/health` `features`.
+
+Authority is the machine, as for retraction (identities are self-declared, so it is as strong as sending is): a
+claim by an identity on another machine changes nothing.
 
 ## Reaching the nodes
 

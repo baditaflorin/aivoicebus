@@ -225,6 +225,30 @@ works, and `AIVOICEBUS_ME=<machine>/<anything>` sets the identity it writes as, 
 From another machine, only the shared token can retract, by declaring an identity on the
 sender's machine (`aivoicebus retract --as <machine>/<tool> <id>`); a machine token cannot.
 
+## Amending a message
+
+`aivoicebus amend ID "text"` replaces a message the machine sent: a plain message to the original's audience,
+thread and priority, then a claim, an ack with id `amend:<new id>`, written to the nodes through `/v1/ack` (the node
+checks it as `/v1/retract` checks a retraction: 422 for a message it does not hold, so the client asks another node and
+repeats for about a second and a half; 403 for an identity on another machine; 400 for a message that is no amendment
+of the one it answers). The rule and the response fields are in [observer.md](observer.md#amendments); the
+command is in [reference.md](reference.md#correcting-a-message-amend).
+
+- **Rolling out.** Roll the nodes before the clients. A node that predates amendments stores the claim as a read receipt
+  for an id it does not hold, replicates it untouched (no quarantine, no stall) and delivers the original and the new text
+  as two ordinary messages, so nothing is lost and a reader sees what a correction always showed. The client warns when the
+  node that answers lacks the `amend` feature. Upgrading a node starts applying every claim already in its log, with no
+  migration.
+- **"The correction did not replace it."** Look at the node the reader asks: `aivoicebus mesh` lists the features and
+  releases; a reader served by an older node gets both. Then `aivoicebus thread <id>`: the original shows
+  `[amended: replaced by <id> ...]` when a node applied the claim. A claim by an identity on another machine, for a message
+  with another target or in another thread, or on a task or question, changes nothing by design.
+- **The link failed.** The command says the text went out as an ordinary reply and prints `aivoicebus ack amend:<id>`
+  (the claim again, harmless to repeat) and `aivoicebus retract <id>`.
+- **Undoing it.** `retract` the new message: the original is delivered again to sessions that have not read either, and
+  those that read the amendment were told it replaced something and then that it was withdrawn.
+- **Cost.** Nothing while no amendment is in the log (one length check per read); each claim is one ack record.
+
 ## Releasing and rolling out
 
     scripts/release.sh build && scripts/release.sh sign      # see releasing.md

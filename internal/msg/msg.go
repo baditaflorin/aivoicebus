@@ -98,6 +98,12 @@ type Message struct {
 	// whose Body is then a tombstone. Response only: it is never stored or replicated, and a
 	// message that arrives with it set has it cleared.
 	Retracted *Retraction `json:"retracted,omitempty"`
+
+	// Amends is set by a node on a copy of a message its sender sent to replace an earlier one, and
+	// AmendedBy on a copy of the one that was replaced (see amend.go). Response only, like Retracted:
+	// never stored or replicated, and cleared on a message that arrives with it set.
+	Amends    *Amends  `json:"amends,omitempty"`
+	AmendedBy *Amended `json:"amended_by,omitempty"`
 }
 
 // Message kinds.

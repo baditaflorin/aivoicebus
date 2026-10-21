@@ -229,6 +229,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			return
 		}
 		m.Retracted = nil                 // what a node says about a message, never something a sender sets
+		m.Amends, m.AmendedBy = nil, nil  // likewise
 		m.Verified, m.Private = "", false // what a reading client finds, never something a sender sets
 		m.FromTitle = msg.CleanTitle(m.FromTitle)
 		m.FromModel = msg.CleanModel(m.FromModel)
@@ -371,6 +372,27 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			}
 			if _, done := retract(w, who, msg.RetractRequest{ID: mid, By: a.By, Leak: leak}); done {
 				js(w, map[string]bool{"ok": true})
+			}
+			return
+		}
+		if msg.HasAmendPrefix(a.ID) { // a claim that a message replaces the one it answers (msg/amend.go): checked here, never taken for a read receipt
+			aid, ok := msg.AmendedID(a.ID)
+			if !ok {
+				http.Error(w, "bad request: an amendment names the message that replaces another by its id (ten lowercase hex digits)", http.StatusBadRequest)
+				return
+			}
+			var notAmender *store.ErrNotAmender
+			switch err := s.Amend(aid, a.By); {
+			case err == nil:
+				js(w, map[string]bool{"ok": true})
+			case errors.Is(err, store.ErrUnknown): // another node may hold the message, or its original
+				refuse(w, msg.RefusedUnknown, err.Error(), http.StatusUnprocessableEntity)
+			case errors.As(err, &notAmender):
+				refuse(w, msg.RefusedNotSender, err.Error(), http.StatusForbidden)
+			case errors.Is(err, store.ErrNotAmendment), errors.Is(err, store.ErrBadAmend):
+				refuse(w, msg.RefusedBadRequest, err.Error(), http.StatusBadRequest)
+			default:
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
 			return
 		}

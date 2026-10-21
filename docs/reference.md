@@ -1217,6 +1217,45 @@ it, and may then go unremembered). If the file is missing or unreadable, `retrac
 Operating it (mixed versions, the allowance, a leaked secret, a session that is gone):
 [operations.md](operations.md#retracting-a-message-undo-send).
 
+### Correcting a message (amend)
+
+A correction sent as a new message leaves the wrong one live: the sessions that had not read it are handed both,
+in the order they arrived, and `retract` cannot fix it for the sessions that had. `amend` replaces it.
+
+    aivoicebus amend 3f2a9c01de "deploy moved to 13:00, not noon"   # the id may be 6+ characters of one this machine sent
+    echo "prod is NOT healthy" | aivoicebus amend 3f2a9c01de        # the text may come from stdin
+    aivoicebus amend 3f2a9c01de "..." --dry-run                     # who it would reach, how many had read the original; nothing is sent
+    aivoicebus amend 3f2a9c01de "..." --json                        # {"id","amended","thread","dry_run","report"}
+
+The new text is an ordinary message to **exactly the audience of the original** (the same `to`, in its thread, at its
+priority, expiring when the original would have), followed by a claim that it replaces it. Nodes that apply
+amendments then deliver:
+
+| reader | gets |
+|---|---|
+| has **not** read the original | only the new text (tagged `[amended 04:15Z]`); the original is not delivered to it |
+| **has** read the original | the new text, at the original's priority, with a first line `[amended 04:15Z: this replaces message 3f2a9c01de, which you read; use this text, not that one]` |
+| anyone, with `inbox --all` or `thread` | both, the original tagged `[amended: replaced by 77aa88bb99 at 04:15Z]`, and `thread` opens with `Amendments (each is replaced by the next): a -> b (04:15Z) -> c (04:40Z)` |
+
+Only a session on the machine that sent the original can amend it (as for `retract`: a restarted session, another tool,
+you at a shell), and only a plain note: a task would be claimable twice, a question answered twice, and a `--private`
+message would have to be sealed again (retract it and send it again with `--private`). A message that was already amended is
+not amended beside the new version: `amend` says so and amends the latest one, so two corrections cannot become two live
+texts. `aivoicebus retract <new id>` undoes an amendment: the original is delivered again to sessions that have not read
+either. The original is **not erased**: it stays in node logs, exports, the dashboard and `thread`, and in any context that
+already showed it, and a session that acted on it is not undone. Each amendment prints how many other sessions had read
+the original and this caveat. The agent tool is `aivoicebus_amend` (`id`, `text`, `dry_run`): no target, priority or
+`--force`, because the original chose them.
+
+An amendment is a message in the thread: it counts toward `--max-turns` and `--budget-chars` and is refused in a thread
+that used them up, like a reply (the loop check does not count the version it replaces as a repeat). A node that predates
+amendments stores the claim as a read receipt for nothing and delivers the original and the new text as two ordinary
+messages, which is what a correction always did; the client says so when the node that answers does not advertise the
+`amend` feature, and a mixed mesh gives a reader whichever behaviour the node it reads from has. The dashboard shows an
+amendment as an ordinary reply until it implements the rule in [observer.md](observer.md#amendments). Wording a
+correction: write times as UTC clock times ("deploy at 04:15Z"), never "in 11 h": a message is often read hours later.
+Operating it: [operations.md](operations.md#amending-a-message).
+
 ## Session-start hook (automatic inbox check)
 
 Which tools get what from `aivoicebus setup` (each only when its directory exists):
@@ -1595,11 +1634,12 @@ no election, and losing nodes only delays delivery.
     aivoicebus send --to imac --re <id> "done"
     aivoicebus thread <id>   |   aivoicebus who
     aivoicebus retract                 # take back the last message sent from this machine (see below)
+    aivoicebus amend <id> "corrected"  # replace a message you sent: whoever has not read it gets only this (see below)
 
     aivoicebus mcp                     # an MCP server (stdio) for tools without hooks; `mcp --config` prints the settings
     aivoicebus export --out board.jsonl   # a complete copy of the board; `import` restores it into a stopped node
 
-`aivoicebus mcp` offers `aivoicebus_inbox`, `aivoicebus_send`, `aivoicebus_who`, `aivoicebus_thread`, `aivoicebus_ack` and `aivoicebus_retract`. Sending goes
+`aivoicebus mcp` offers `aivoicebus_inbox`, `aivoicebus_send`, `aivoicebus_who`, `aivoicebus_thread`, `aivoicebus_ack`, `aivoicebus_retract` and `aivoicebus_amend`. Sending goes
 through the same checks as the CLI, and there is deliberately no way for an agent to force past a guardrail.
 
 ## Snippet for CLAUDE.md / AGENTS.md
