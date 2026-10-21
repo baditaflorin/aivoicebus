@@ -251,6 +251,25 @@ command is in [reference.md](reference.md#correcting-a-message-amend).
 - **Undoing it.** `retract` the new message: the original is delivered again to sessions that have not read either, and
   those that read the amendment were told it replaced something and then that it was withdrawn.
 - **Cost.** Nothing while no amendment is in the log (one length check per read); each claim is one ack record.
+## The test lane (tests that reach nobody else)
+
+Agents test the mesh with real messages; the lane is where those messages go instead (the feature `testlane` in `/v1/health`;
+[reference.md](reference.md#the-test-lane-tests-that-reach-nobody-else)). What an operator needs to know:
+
+- **Nothing to configure on a node.** A node of this release hides test messages from every read that does not ask for them, leaves them
+  out of `/v1/health`, `/metrics` and the viewer, gives their sends rate-limit buckets of their own, and purges them. Rolling out: send
+  `--test` only works once **every** node a client reaches advertises `testlane` (`aivoicebus mesh` lists the features), so update all
+  nodes first; until then `send --test` is refused with the name of the node that predates it, and `selftest` falls back to its old probe.
+- **The purge is in memory.** About ten minutes after a test message was sent, the next read or send replaces its record by a stub in
+  memory, and so in what `/v1/sync` and `export` serve. `log.jsonl` still holds the body as it was written: a restart replays it and the
+  sweep at start replaces it again, so a node that was down while a test message expired purges at its next start. Taking the bodies off the disk
+  is a separate change.
+- **A test message is not in an export's words.** `aivoicebus export` writes the stub, so a restore keeps the numbering and none of the test
+  traffic. A backup that copies the data directory holds the bodies.
+- **Statistics do not move for tests.** If a message count looks short against the number of sends, the lane is the difference: `aivoicebus selftest --worker HOST`
+  and agents' `send --test` leave stubs in the log, not statistics.
+- **Opting a worker in** is `aivoicebus worker install --agent ... --test-lane` (or `worker --test-lane`): it reads the lane and answers a test task by a built-in
+  step, never with its command, so a test costs no tokens and runs nothing. A worker that did not opt in is not touched by any test message.
 
 ## Releasing and rolling out
 

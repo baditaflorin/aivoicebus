@@ -198,6 +198,28 @@ fields, never stored, cleared from anything that arrives from outside: `amends` 
 
 Authority is the machine, as for retraction (identities are self-declared, so it is as strong as sending is): a
 claim by an identity on another machine changes nothing.
+## The test lane in the feed
+
+A message sent as a test (`aivoicebus send --test`, `selftest`; [reference.md](reference.md#the-test-lane-tests-that-reach-nobody-else))
+is an ordinary `msg` record in `/v1/sync`: a replicated log cannot lose a record, so a peer takes it in and numbers it like any other.
+A consumer that counts or shows messages leaves it out, by a rule that needs nothing but the record (shared vectors:
+the `testlane` key of `internal/msg/testdata/feed-vectors.json`, read by the node's tests):
+
+- A `msg` is a **test** when its `id` is a test id **and** it lives at most 10 minutes. A test id is ten lowercase hex digits: `7e57`, five
+  more, and a check digit, which is the sum of the first nine digits (each as its hex value) mod 16 as one hex digit
+  (`7e57123450`). It lives at most 10 minutes when `exp - at <= 10m` (both set, as a node stamps them). A lease, a message for the person on a
+  machine and a decision signed by the approver key are never tests, whatever their id.
+- An `ack` is about a test when its `id` is a test id, or `retract:` or `retract-leak:` followed by one. Leave those out of read counts too.
+- A cancelled test task is a retraction like any (the worker stops the run), so it can appear; it is not a statistic.
+
+**After about ten minutes the body is gone.** A node replaces an expired test message by a stub, and serves the stub in `/v1/sync` from then
+on: the same record with an empty `body`, no `key`, `box` or `sig`, and no `from_title` or `from_model`, keeping `id`, `from`, `to`,
+`thread`, `at` and `exp`. It is still a test by the rule above, and it is a valid record, so do not stop following an origin because
+a record has an empty body. Two nodes may hold the full record and its stub for a few minutes (the nodes purge on their own clocks, and a node
+that predates the lane never purges), so a consumer must not compare records of the same `(origin, seq)` across nodes byte for byte.
+`aivoicebus export` writes a test record as its stub. A node that has the lane never serves a test message to an inbox read that did not ask
+for it (`/v1/inbox?lane=test`, which needs a reader that declared the label `test=on`), nor to a thread read without `lane=test`, and
+`/v1/health` does not count it; `/v1/health` advertises the feature `testlane` when a node does all of this.
 
 ## Reaching the nodes
 
