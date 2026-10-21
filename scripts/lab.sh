@@ -150,6 +150,30 @@ has "node 2 counts it" "^aivoicebus_retracted_messages 1$" "$(http "$TOKEN_FILE"
 out=$(http "$TOKEN_FILE" "$(url 1)/v1/retract" -X POST -d '{"id":"'"$RID"'","by":"other/machine"}' -w ' %{http_code}')
 has "a session on another machine is refused" ' 403$' "$out"
 
+section "a sender replaces a message with a corrected one (amend)"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "deploy at noon" 2>&1)
+AID=$(printf '%s\n' "$M" | awk '/^sent /{print $2; exit}')
+inbox_of() { AIVOICEBUS_ME="lab/reader.$2" AIVOICEBUS_URL="$(url "$1")" AIVOICEBUS_TOKEN="$(tok)" "$NEW" inbox "${@:3}" 2>&1; }
+reads() { grep -q -- "$3" <<<"$(inbox_of "$1" "$2")"; }
+eventually "node 3 delivers the original to a session that reads it" 20 reads 3 r1 "deploy at noon"
+inbox_of 3 r1 --ack >/dev/null
+eventually "its read reaches every node" 20 same_records
+acks_before=$(health_field 1 acks)
+out=$(AIVOICEBUS_ME=lab/other AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" amend "$AID" "deploy at 13:00, not noon" 2>&1)
+has "another session on the sender's machine amends it" "^amended $AID as " "$out"
+has "and is told how many had read the original" "1 other session(s) had read $AID" "$out"
+only_new() { reads "$1" r2 "deploy at 13:00" && ! reads "$1" r2 "deploy at noon"; }
+eventually "node 4 gives a session that had not read it only the new text" 20 only_new 4
+eventually "node 1 gives it the same" 5 only_new 1
+told() { reads 2 r1 "this replaces message $AID, which you read" && reads 2 r1 "deploy at 13:00"; }
+eventually "a session that had read it is told what the new text replaces" 20 told
+out=$(http "$TOKEN_FILE" "$(url 3)/v1/thread?id=$AID")
+has "a thread keeps the original, with a link to what replaced it" '"amended_by":{"by":"' "$out"; has "and its words" "deploy at noon" "$out"
+eventually "every node holds the same number of records" 20 same_records
+[ "$(health_field 1 acks)" = "$acks_before" ] && pass "an amendment is not a read receipt (the ack count did not move)" || fail "the ack count moved: $acks_before -> $(health_field 1 acks)"
+out=$(AIVOICEBUS_ME=other/machine AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" amend "$AID" "I did not send this" 2>&1)
+has "a session on another machine is refused" "only that machine can amend it" "$out"
+
 section "records are counted from the version vector, whatever release holds them"
 log_of() { ( . deploy/ops.sh; log_total "$1" ); }
 # what a node that predates retraction and one that applies it say of the same ten records when one of them is a retraction: messages plus

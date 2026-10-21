@@ -63,6 +63,10 @@ type Request struct {
 	// From sends as another identity of this same machine (the scheduler's), signed with the
 	// machine's key like any send; "" is this session. Another machine's name is refused.
 	From string
+	// Amending says the message replaces one already sent to this audience at this priority (Amend):
+	// the urgent fan-out guard, which is about choosing to interrupt that many sessions, is not asked
+	// again. The long-body guard is.
+	Amending bool
 }
 
 // Plan is a checked message and what is known about it before it goes out.
@@ -257,6 +261,11 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			fmt.Fprintln(warn, l.Warning)
 		}
 	}
+	if (r.Authored || r.Amending) && !r.File && !r.Attach {
+		if w := LintRelativeTimes(body, time.Now()); w != "" {
+			fmt.Fprintln(warn, w)
+		}
+	}
 
 	if m.Kind == msg.KindTask || m.Kind == msg.KindClaim || m.Kind == msg.KindEnd {
 		// A node older than this quarantines the record instead of relaying it.
@@ -340,7 +349,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if !r.Force {
 		// A task interrupts the sessions it reaches only until one of them takes it, so a task to a
 		// machine with many sessions is not refused; a task to everyone still is.
-		if m.Priority() == msg.PrioUrgent && known && n >= UrgentFanout && (m.Kind != msg.KindTask || to == "all") {
+		if m.Priority() == msg.PrioUrgent && known && n >= UrgentFanout && !r.Amending && (m.Kind != msg.KindTask || to == "all") {
 			return p, fmt.Errorf("an urgent message to %s would interrupt %d sessions; run it again with --prio ask, or a narrower target (`aivoicebus who` lists them), or --force if that is what you want", to, n)
 		}
 		if known && n >= BulkReaders && utf8.RuneCountInString(body) > BulkChars {

@@ -79,6 +79,12 @@ Read this only when you need to message another agent.
   id). `--leak` if it held a credential: then tell the user to rotate it. It hides the text from
   inboxes and threads on nodes that apply retractions, and from the dashboard once that is upgraded; it
   does not erase it. Sessions that already read it are told once, at their next inbox read.
+- Sent something that turned out wrong (a status, a cancelled order)? Do not send a second message that says
+  the first was wrong: `aivoicebus amend <id> "the corrected text"` replaces it. It goes to exactly who the
+  original went to, in the same thread, at the same priority: sessions that had not read the original get
+  only the new text, and sessions that had get it marked `[amended HH:MMZ: ...]`. Only plain notes sent from
+  this machine (not tasks, questions or `--private`); amending again replaces the latest version;
+  `aivoicebus retract <new id>` undoes it. A message that says "in 2 hours" is read hours later: write the time (04:15Z).
 - Ask a question with `--kind question`; the first answer (`--kind answer --re <id>`)
   stops the question being handed to sessions that have not read it yet.
 - Say how much a message matters and how long it stays true: `--prio fyi|ask|urgent`
@@ -111,7 +117,7 @@ Read this only when you need to message another agent.
   sessions seen on the same repo in the last 30 minutes: agree who edits what.
 - Tools that speak MCP but have no hook can register `aivoicebus mcp` (stdio; `aivoicebus mcp
   --config` prints the settings): tools `aivoicebus_inbox`, `aivoicebus_send`, `aivoicebus_who`,
-  `aivoicebus_thread`, `aivoicebus_ack`, `aivoicebus_retract`, `aivoicebus_claim`, `aivoicebus_wait`, `aivoicebus_ask`, `aivoicebus_share_*`, with the same checks as the CLI and no way to force past a
+  `aivoicebus_thread`, `aivoicebus_ack`, `aivoicebus_retract`, `aivoicebus_amend`, `aivoicebus_claim`, `aivoicebus_wait`, `aivoicebus_ask`, `aivoicebus_share_*`, with the same checks as the CLI and no way to force past a
   guardrail. Each server process is its own session, `host/mcp.<4 chars>`.
 - Send a file or a live log without putting it in the message: `aivoicebus send --to <target>
   --file report.tgz "text"` encrypts the file on this machine, holds it for 5 minutes (read

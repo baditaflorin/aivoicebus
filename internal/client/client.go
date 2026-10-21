@@ -559,6 +559,40 @@ func (c *Client) Retract(id, by string, leak, dryRun bool) (msg.RetractResult, e
 	}
 }
 
+// Amend writes the claim that message aid, just sent, replaces the one it answers (msg/amend.go):
+// an ack with id "amend:<aid>" by identity by, which must be on the machine that sent it. It goes to
+// the nodes like any write, and a node that does not hold the message yet answers 422, so the next
+// one is asked, and the whole is repeated a few times over about a second and a half for a message
+// still replicating, as for a retraction. A node that predates amendments stores the ack as a read
+// receipt for nothing and says nothing: whether a node applies them is in its health (msg.FeatureAmend).
+func (c *Client) Amend(aid, by string) error {
+	req := msg.AckRequest{ID: msg.AmendPrefix + aid, By: by}
+	var unknownText string
+	unknown := false
+	soft := func(err error) bool {
+		var se *StatusError
+		if errors.As(err, &se) && se.Code == http.StatusUnprocessableEntity {
+			unknown, unknownText = true, se.Text
+			return true
+		}
+		return false
+	}
+	for try := 0; ; try++ {
+		unknown = false
+		err := c.quorumWith("/v1/ack", req, nil, c.writeQuorum(), soft)
+		switch {
+		case err == nil:
+			return nil
+		case unknown && try < 3: // the message may still be on its way to the nodes
+			time.Sleep(2 * c.hedgeDelay())
+		case unknown:
+			return &StatusError{Code: http.StatusUnprocessableEntity, Status: "422 Unprocessable Entity", Text: unknownText}
+		default:
+			return err
+		}
+	}
+}
+
 // Inbox returns the messages addressed to me; all includes already-acked ones.
 func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	q := "/v1/inbox?me=" + me

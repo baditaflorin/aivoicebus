@@ -114,6 +114,12 @@ type Store struct {
 
 	retracts     map[string][]time.Time // identity -> when its retractions were written recently, oldest first
 	retractLimit int                    // retractions an identity may write per sendWindow
+
+	// Amendments (see msg/amend.go and amend.go here): the claims the log carries, by the id of the
+	// message that is claimed to replace another, and, for each message id, the claimed amendments that
+	// reply to it. Whether a claim takes effect is decided when mail is read, like a retraction.
+	amendClaims map[string][]amendClaim
+	amendsOf    map[string][]string
 }
 
 // retractionRec is what one identity's retraction claims on one message, merged over every record
@@ -282,7 +288,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
-		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit}
+		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}}
 	for _, o := range opts {
 		o(s)
 	}
@@ -483,6 +489,8 @@ func (s *Store) applyLocked(r msg.Record) bool {
 	if r.Ack != nil {
 		if mid, leak, ok := msg.RetractedID(r.Ack.ID); ok {
 			s.addRetractionLocked(mid, r.Ack.By, r.Ack.At, leak, r.Origin+"/"+strconv.FormatUint(r.Seq, 10)) // its Via and Chars are not read
+		} else if aid, ok := msg.AmendedID(r.Ack.ID); ok {
+			s.addAmendClaimLocked(aid, r.Ack.By, r.Ack.At) // a claim, not a read receipt
 		} else {
 			s.addAck(*r.Ack)
 		}
@@ -519,9 +527,10 @@ func (s *Store) vetLocked(r msg.Record) (msg.Record, bool) {
 	err := r.ValidateReplicated()
 	switch {
 	case err == nil:
-		if r.Msg != nil && (r.Msg.Retracted != nil || r.Msg.Verified != "" || r.Msg.Private) { // response only: what a release that predates retraction does when it decodes and writes the record again; and what only a reading client may say
+		if r.Msg != nil && (r.Msg.Retracted != nil || r.Msg.Verified != "" || r.Msg.Private || r.Msg.Amends != nil || r.Msg.AmendedBy != nil) { // response only: what a release that predates retraction does when it decodes and writes the record again; and what only a reading client may say
 			m := *r.Msg
 			m.Retracted = nil
+			m.Amends, m.AmendedBy = nil, nil
 			m.Verified, m.Private = "", false
 			r.Msg = &m
 		}
@@ -577,6 +586,9 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	}
 	if c := s.retr[m.ID]; c != nil { // claims that arrived first can now be told apart
 		s.settleLocked(m.ID, c, m.From)
+	}
+	if len(s.amendClaims[m.ID]) > 0 { // an amendment claim that arrived first
+		s.indexAmendLocked(m)
 	}
 }
 
@@ -787,10 +799,10 @@ func (s *Store) retractedLocked(id, from string) bool {
 // whose body is the tombstone. The stored message is never changed.
 func (s *Store) viewLocked(i int) msg.Message {
 	m := s.msgs[i]
-	if len(s.retr) == 0 && len(s.forged) == 0 {
+	if len(s.retr) == 0 && len(s.forged) == 0 && len(s.amendsOf) == 0 {
 		return m
 	}
-	return s.tombstoneLocked(m)
+	return s.amendViewLocked(s.tombstoneLocked(m), "")
 }
 
 // tombstoneLocked is m, or if m was retracted a copy that tells who withdrew it and says nothing
@@ -948,6 +960,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m.Retracted = nil                 // what a node says about a message, not something a sender sets
+	m.Amends, m.AmendedBy = nil, nil  // likewise
 	m.Verified, m.Private = "", false // what a reading client finds, never stored
 	if !msg.ValidID(m.ID) {
 		m.ID = msg.NewID()
@@ -1271,17 +1284,19 @@ const echoScan = 500
 // thread within the hour, and twice, whether it repeats one (sim at least msg.RepeatSimilarity) and
 // the sender's message before it repeated one of its own predecessors too. Claims, progress
 // (status updates and conversation states), ends and retracted messages neither repeat nor are
-// repeated.
+// repeated, and a message that answers the sender's own earlier plain note to the same target (an
+// amendment, which is claimed after it is sent) does not repeat that note or the versions it replaced.
 func (s *Store) echoLocked(m msg.Message, now time.Time) (sim float64, twice bool) {
 	if m.Kind == msg.KindClaim || m.Kind == msg.KindProgress || m.Kind == msg.KindEnd {
 		return 0, false
 	}
 	var before []map[string]struct{} // the sender's messages, newest first
 	ids := s.threads[m.Thread]
+	replaced := s.replacedByShapeLocked(m) // a correction repeats what it corrects, which is its point
 	for k := len(ids) - 1; k >= 0 && k >= len(ids)-echoScan && len(before) <= msg.RepeatLookback; k-- {
 		x := s.msgs[ids[k]]
 		if x.From != m.From || x.Kind == msg.KindClaim || x.Kind == msg.KindProgress || x.Kind == msg.KindEnd ||
-			!x.At.After(now.Add(-time.Hour)) || s.retractedLocked(x.ID, x.From) {
+			!x.At.After(now.Add(-time.Hour)) || s.retractedLocked(x.ID, x.From) || replaced[x.ID] {
 			continue
 		}
 		before = append(before, msg.Shingles(x.Body))
@@ -1457,10 +1472,13 @@ func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, now time.Tim
 		if !all && (s.acks[m.ID][me] || s.closedForLocked(m, me)) {
 			continue
 		}
+		if !all && s.supersededLocked(m) { // replaced by its sender: this reader is given the new text instead
+			continue
+		}
 		if retracted {
 			m = tombstone(m, ret)
 		}
-		out = append(out, m)
+		out = append(out, s.amendViewLocked(m, me))
 	}
 	return out
 }

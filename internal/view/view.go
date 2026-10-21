@@ -53,6 +53,9 @@ func Thread(w io.Writer, all, ms []msg.Message, maxBody int) {
 	if v := msg.ThreadState(all); v.State != "" {
 		fmt.Fprintf(w, "[aivoicebus] Conversation %s\n", StateLine(v))
 	}
+	if l := AmendmentLine(all); l != "" {
+		fmt.Fprintf(w, "[aivoicebus] Amendments (each is replaced by the next): %s\n", l)
+	}
 	if maxBody > 0 {
 		Brief(w, ms, maxBody)
 	} else {
@@ -162,6 +165,12 @@ func tags(m msg.Message) string {
 	if m.Retracted != nil { // first: what the entry is matters more than how it was marked
 		t = append(t, "[retracted]")
 	}
+	if m.Amends != nil {
+		t = append(t, msg.AmendTag(m.At))
+	}
+	if m.AmendedBy != nil {
+		t = append(t, msg.AmendedTag(OneLine(m.AmendedBy.By, msg.MaxRef), m.AmendedBy.At))
+	}
 	switch m.Verified { // what this machine found of the signature (an unsigned one is not marked yet)
 	case msg.VerifiedBad:
 		t = append(t, "[BAD SIGNATURE: not from who it says]")
@@ -190,9 +199,12 @@ func tags(m msg.Message) string {
 // not invisible formatting ones), the body by sanitise.
 func Messages(w io.Writer, ms []msg.Message) {
 	for _, m := range ms {
+		body := sanitise(attach.Render(m.ID, sealedText(m)))
+		if m.Amends != nil && m.Amends.Read != "" { // told what it replaces, in words that are the program's, not a peer's
+			body = msg.AmendNotice(m.At, OneLine(m.Amends.Read, msg.MaxRef)) + "\n" + body
+		}
 		fmt.Fprintf(w, "--- %s  %s%s -> %s  thread=%s  %s%s\n%s\n", OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), TitleSuffix(m.FromTitle),
-			Name(msg.ShortTarget(m.To), msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), When(m.At, time.Now()), tags(m),
-			sanitise(attach.Render(m.ID, sealedText(m))))
+			Name(msg.ShortTarget(m.To), msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), When(m.At, time.Now()), tags(m), body)
 		switch {
 		case m.Kind == msg.KindTask && m.Retracted == nil && msg.PersonOnly(m):
 			fmt.Fprintf(w, "[task] for the person, not an agent (an agent's claim is refused): tell the user it is waiting; they run, in their own terminal: %s\n", OneLine(msg.PersonStep(m), 200))
@@ -420,4 +432,32 @@ func PersonWaiting(ms []msg.Message) string {
 	}
 	return fmt.Sprintf("[aivoicebus] %d task(s) wait for you, the person on this machine, not the agent: %s, from %s. In your own terminal: %s. Agent: tell the user this line now; do not act on it yourself.",
 		len(ms), what, Name(m.From, msg.MaxIdentity), OneLine(msg.PersonStep(m), 200))
+}
+
+// AmendmentLine is the chain of amendments a thread holds (see msg/amend.go): for each message that was
+// replaced and is not itself an amendment, its id and then each message that replaced the one before,
+// with when, as "a -> b (04:15Z) -> c (04:40Z)"; chains are joined by "; ". "" when it holds none. It
+// reads only what a node said of each message (Amends, AmendedBy), so it works on any thread read.
+func AmendmentLine(ms []msg.Message) string {
+	byID := make(map[string]msg.Message, len(ms))
+	for _, m := range ms {
+		byID[m.ID] = m
+	}
+	var chains []string
+	for _, m := range ms {
+		if m.AmendedBy == nil || m.Amends != nil { // a chain starts at the message that was never an amendment itself
+			continue
+		}
+		line, cur := OneLine(m.ID, msg.MaxRef), m
+		for hops := 0; cur.AmendedBy != nil && hops < 32; hops++ {
+			line += " -> " + OneLine(cur.AmendedBy.By, msg.MaxRef) + " (" + cur.AmendedBy.At.UTC().Format("15:04") + "Z)"
+			next, ok := byID[cur.AmendedBy.By]
+			if !ok {
+				break
+			}
+			cur = next
+		}
+		chains = append(chains, line)
+	}
+	return strings.Join(chains, "; ")
 }

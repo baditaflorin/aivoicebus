@@ -39,6 +39,7 @@ func init() {
 		"inbox":   inbox,
 		"ack":     ack,
 		"retract": retractCmd,
+		"amend":   amendCmd,
 		"thread":  thread,
 		"who":     who,
 		"whoami":  whoami,

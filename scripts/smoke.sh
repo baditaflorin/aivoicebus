@@ -219,3 +219,21 @@ step send --to air/codex "can you look at the build?"
 as air/codex
 step hook --tool claude
 step thread "$BID"
+echo "# amend: a correction replaces the original; a session that had not read it gets only the new text, one that had gets it marked as replacing what it read"
+as imac/claude.m1
+out=$("$BIN" send --to air/amend --queue --prio urgent "deploy to prod at noon" 2>&1); echo "\$ aivoicebus send --to air/amend --queue --prio urgent deploy to prod at noon"; echo "$out" | norm
+AMID=$(echo "$out" | awk '$1=="sent"{print $2}')
+as air/amend.r1
+step inbox --ack
+as imac/claude.m1
+step amend --dry-run "$AMID" "deploy to prod at 13:00, not noon"
+step amend "$AMID" "deploy to prod at 13:00, not noon"
+step amend "$AMID" "deploy to prod at 14:00 (the latest correction replaces the correction)"
+as air/amend.r1
+step inbox --ack
+as air/amend.r2
+step hook --tool codex
+as imac/claude.m1
+step thread "$AMID"
+as air/amend.r1
+step amend "$AMID" "I did not send this"

@@ -29,7 +29,7 @@ func reasonOf(code int, header, text string) string {
 			return msg.RefusedDenied
 		case has("read-only"), has("may not read this"):
 			return msg.RefusedReadOnly
-		case has("can retract it"):
+		case has("can retract it"), has("can amend it"):
 			return msg.RefusedNotSender
 		}
 	case http.StatusConflict:
@@ -145,6 +145,9 @@ func (e *StatusError) explain(reason string) (string, bool) {
 	case msg.RefusedUnknown:
 		return "the nodes do not hold that message: it may still be on its way, or the id is wrong. Try again in a minute, or find the id with `aivoicebus inbox --all`", true
 	case msg.RefusedNotSender:
+		if strings.Contains(said, "can amend it") {
+			return "refused: " + said + ". Ask its sender to amend it", true
+		}
 		return "refused: " + said + ". Ask its sender to retract it", true
 	case msg.RefusedReservedID:
 		return "that message id belongs to a retraction notice, so nothing was sent. Send it again without an id (`aivoicebus send` picks one)", true

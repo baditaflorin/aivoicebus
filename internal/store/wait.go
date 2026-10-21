@@ -70,6 +70,9 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 		if t.Re != id || t.ID == id {
 			continue
 		}
+		if _, replaces := s.validAmendLocked(t); replaces { // the sender's own correction is no answer, and its writer no reader
+			continue
+		}
 		r.Replies++
 		// Answering a message means it got through, even when the reader never acknowledged it
 		// (`reply --re` without --ack): count the first answer as that session's read.
