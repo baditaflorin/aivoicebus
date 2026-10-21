@@ -17,9 +17,9 @@ stop_node() {
 }
 
 start_node() {
-  local NODE="" ADDR="" PEERS="" RELEASE_ARGS="" OBSERVER_ARGS="" BOOTSTRAP_ARGS="" AIVOICEBUS_REQUIRE_SIGNED="" k v line
+  local NODE="" ADDR="" PEERS="" RELEASE_ARGS="" OBSERVER_ARGS="" BOOTSTRAP_ARGS="" AIVOICEBUS_REQUIRE_SIGNED="" AIVOICEBUS_LEAVING="" k v line
   while IFS='=' read -r k v; do
-    case "$k" in NODE) NODE=$v ;; ADDR) ADDR=$v ;; PEERS) PEERS=$v ;; RELEASE_ARGS) RELEASE_ARGS=$v ;; OBSERVER_ARGS) OBSERVER_ARGS=$v ;; BOOTSTRAP_ARGS) BOOTSTRAP_ARGS=$v ;; AIVOICEBUS_REQUIRE_SIGNED) AIVOICEBUS_REQUIRE_SIGNED=$v ;; esac
+    case "$k" in NODE) NODE=$v ;; ADDR) ADDR=$v ;; PEERS) PEERS=$v ;; RELEASE_ARGS) RELEASE_ARGS=$v ;; OBSERVER_ARGS) OBSERVER_ARGS=$v ;; BOOTSTRAP_ARGS) BOOTSTRAP_ARGS=$v ;; AIVOICEBUS_REQUIRE_SIGNED) AIVOICEBUS_REQUIRE_SIGNED=$v ;; AIVOICEBUS_LEAVING) AIVOICEBUS_LEAVING=$v ;; esac
   done <"$root/etc/aivoicebus/node.env"
   echo 0 >"$root/run/nrestarts"
   # The command line comes from the unit the install script put on the node, not from a copy in
@@ -29,7 +29,7 @@ start_node() {
   [ -n "$line" ] || { echo "lab systemctl: the unit has no ExecStart" >&2; exit 1; }
   line=$(printf '%s' "$line" | LAB_ROOT="$root" "$LAB/bin/rewrite")
   line=${line//%d/$root/etc/aivoicebus}
-  export NODE ADDR PEERS RELEASE_ARGS OBSERVER_ARGS BOOTSTRAP_ARGS AIVOICEBUS_REQUIRE_SIGNED # systemd exports every EnvironmentFile line
+  export NODE ADDR PEERS RELEASE_ARGS OBSERVER_ARGS BOOTSTRAP_ARGS AIVOICEBUS_REQUIRE_SIGNED AIVOICEBUS_LEAVING # systemd exports every EnvironmentFile line
   local argv
   eval "argv=( $line )" # the same word splitting systemd does: ${VAR} whole, $VAR split
   setsid "$LAB/bin/lab-supervise" "$root" "${argv[@]}" >/dev/null 2>&1 </dev/null &

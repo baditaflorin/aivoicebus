@@ -33,6 +33,7 @@ type Options struct {
 	BootstrapMaxAge time.Duration
 	ReleaseDir      string    // serve this release directory at /v1/release/ (optional)
 	RequireSigned   bool      // refuse messages without a valid signature
+	Leaving         bool      // refuse client writes: the node is leaving the mesh (WithLeaving)
 	Out             io.Writer // progress lines; nil discards them
 }
 
@@ -88,11 +89,14 @@ func Run(o Options) error {
 	}
 	go ReplicateShares(context.Background(), sh, peers, tok, o.SyncEvery, shBoard, out)
 	fmt.Fprintf(out, "node %s listening on %s, %d peer(s)\n", o.Node, o.Addr, len(peers))
+	if o.Leaving {
+		fmt.Fprintln(out, "leaving the mesh: client writes are refused (clients write to another node); reads and the peers' feeds go on")
+	}
 	if o.BootstrapFile != "" && len(o.BootstrapKey) < 24 {
 		return errors.New("--bootstrap-key must be at least 24 chars: run it again with a longer one (`openssl rand -hex 24` makes one)")
 	}
 	h := WithBootstrap(NewHandler(st, "", WithTokenSet(tokens), WithObserverToken(observer), WithReleaseDir(o.ReleaseDir),
-		WithNode(o.Node), WithRequireSigned(o.RequireSigned), WithPeerBoard(board), WithReady(Ready(st, board, len(peers))),
+		WithNode(o.Node), WithRequireSigned(o.RequireSigned), WithLeaving(o.Leaving), WithPeerBoard(board), WithReady(Ready(st, board, len(peers))),
 		WithShares(sh, shareReady(sh, shBoard, len(peers)))), o.BootstrapKey, o.BootstrapFile, o.BootstrapMaxAge)
 	srv := defaultLimits().server(o.Addr, h)
 	// A stop (systemd sends SIGTERM) writes the roster to disk first, so a restart

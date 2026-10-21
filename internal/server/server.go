@@ -38,6 +38,18 @@ type handlerConfig struct {
 	ready         func() bool
 	shares        *sharestore.Store
 	sharesReady   func() bool
+	// leaving refuses every client write (serve --leaving), so a node about to be taken out of the
+	// mesh holds nothing its peers have not pulled; reads and the feeds to its peers go on.
+	leaving bool
+}
+
+// refuseLeaving answers a client write itself, and says so, when this node is leaving the mesh:
+// the client then writes to another node (it fails over on a 503).
+func (c *handlerConfig) refuseLeaving(w http.ResponseWriter) bool {
+	if c.leaving {
+		refuse(w, msg.RefusedLeaving, "this node is leaving the mesh and takes no writes: use another node", http.StatusServiceUnavailable)
+	}
+	return c.leaving
 }
 
 // WithReleaseDir makes the node serve the release in dir (a manifest, its
@@ -79,6 +91,10 @@ func WithVersion(v string) Option { return func(c *handlerConfig) { c.version = 
 // otherwise number its records from 1 again and its peers, which still hold the old
 // ones, would ignore every new record for good.
 func WithReady(ready func() bool) Option { return func(c *handlerConfig) { c.ready = ready } }
+
+// WithLeaving makes the node refuse client writes (messages, acks, retractions, files, shared
+// spaces, decisions) with a 503 while it keeps serving reads and its peers' feeds.
+func WithLeaving(on bool) Option { return func(c *handlerConfig) { c.leaving = on } }
 
 // WithPeerBoard makes the node report how replication from its peers is going.
 func WithPeerBoard(b *PeerBoard) Option { return func(c *handlerConfig) { c.board = b } }
@@ -161,7 +177,20 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			features = slices.DeleteFunc(features, func(f string) bool { return f == msg.FeatureShare })
 		}
 		return msg.Health{Node: cfg.node, Version: cfg.version, Now: time.Now().UTC(), Log: s.VV(),
-			Messages: st.Messages, Acks: st.Acks, Sessions: st.Sessions, Quarantined: st.Quarantined, Retracted: st.Retracted, Features: features, Peers: cfg.board.Snapshot()}
+			Messages: st.Messages, Acks: st.Acks, Sessions: st.Sessions, Quarantined: st.Quarantined, Retracted: st.Retracted, Features: features, Peers: cfg.board.Snapshot(),
+			Leaving: cfg.leaving}
+	}
+	// writable answers a client write itself when this node takes none: it is leaving the mesh, or
+	// still recovering from its peers.
+	writable := func(w http.ResponseWriter) bool {
+		if cfg.refuseLeaving(w) {
+			return false
+		}
+		if cfg.ready != nil && !cfg.ready() {
+			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
+			return false
+		}
+		return true
 	}
 	// retract is what /v1/retract and a /v1/ack of a retraction id both run, so the two cannot
 	// differ in who may do it, in what is refused, or in what counts against the allowance. It
@@ -202,7 +231,12 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		return msg.RetractResult{}, false
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-	mux.HandleFunc("/v1/decide", decideHandler(s)) // no token: a one-time code from a phone button (decide.go)
+	decide := decideHandler(s)
+	mux.HandleFunc("/v1/decide", func(w http.ResponseWriter, r *http.Request) { // no token: a one-time code from a phone button (decide.go)
+		if !cfg.refuseLeaving(w) {
+			decide(w, r)
+		}
+	})
 	mux.HandleFunc("/v1/health", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) { js(w, health()) }))
 	mux.HandleFunc("/metrics", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -218,8 +252,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	// Who sent messages without a valid signature lately (unsigned.go): ready for --require-signed?
 	mux.HandleFunc("/v1/unsigned", readonly(unsignedHandler(s, cfg.node, cfg.requireSigned, time.Now)))
 	mux.HandleFunc("/v1/send", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
-		if cfg.ready != nil && !cfg.ready() {
-			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
+		if !writable(w) {
 			return
 		}
 		var m msg.Message
@@ -367,8 +400,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		js(w, inbox)
 	}))
 	mux.HandleFunc("/v1/ack", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
-		if cfg.ready != nil && !cfg.ready() {
-			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
+		if !writable(w) {
 			return
 		}
 		var a msg.AckRequest
@@ -420,8 +452,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		js(w, map[string]bool{"ok": true})
 	}))
 	mux.HandleFunc("/v1/retract", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
-		if cfg.ready != nil && !cfg.ready() {
-			refuse(w, msg.RefusedRecovering, "this node is recovering from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
+		if !writable(w) {
 			return
 		}
 		var req msg.RetractRequest
@@ -488,7 +519,13 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		js(w, out)
 	}))
 	// Files: the agent tokens only (never the observer), the upload with its own larger cap.
-	fileRoutes(mux, newFileBox(), func(h principalHandler) http.HandlerFunc { return guardCap(false, true, MaxFileEnvelope, h) }, wrap)
+	fileRoutes(mux, newFileBox(), func(h principalHandler) http.HandlerFunc {
+		return guardCap(false, true, MaxFileEnvelope, func(w http.ResponseWriter, r *http.Request, who Principal) {
+			if !cfg.refuseLeaving(w) { // a file is held by the node it was put on: a leaving one would take it away
+				h(w, r, who)
+			}
+		})
+	}, wrap)
 	if cfg.shares != nil {
 		shareRoutes(mux, &cfg, func(h principalHandler) http.HandlerFunc { return guardCap(false, true, maxShareChunkBody, h) }, wrap,
 			func(h principalHandler) http.HandlerFunc { return guard(false, false, h) })

@@ -1640,6 +1640,10 @@ no election, and losing nodes only delays delivery.
 - `/v1/health` and `/metrics` say how replication is going; `aivoicebus mesh` reads them all.
   Operating it (rollout, adding a node, token rotation, backup): [operations.md](operations.md).
   How big it can get: [capacity.md](capacity.md).
+- `serve --leaving` (or `AIVOICEBUS_LEAVING=1`) is for a node about to be taken out of the mesh. It
+  refuses every client write with a 503 (reason `leaving`), so clients write to another node, and
+  it keeps serving reads and its peers' feeds. `/v1/health` says `"leaving": true`, and `aivoicebus
+  mesh` names it; see [A node leaving the mesh](operations.md#a-node-leaving-the-mesh).
 - `/v1/health` also lists the `features` a node has (`retract`, `quarantine`, ...; absent on a node that advertises none,
   where a client falls back to probing). `aivoicebus mesh` and `doctor` show them.
 - `/v1/unsigned?days=N` (1 to 30, default 7; feature `unsigned-report`) counts, per sender, the

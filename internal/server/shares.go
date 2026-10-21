@@ -76,7 +76,10 @@ func shareRoutes(mux *http.ServeMux, cfg *handlerConfig, upload, agent, feedOnly
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(v)
 	}
-	ready := func(w http.ResponseWriter) bool {
+	ready := func(w http.ResponseWriter) bool { // before a write
+		if cfg.refuseLeaving(w) { // a version and its chunks go to one node, not a quorum
+			return false
+		}
 		if cfg.sharesReady != nil && !cfg.sharesReady() {
 			refuse(w, msg.RefusedRecovering, "this node is recovering its shared spaces from its peers: try again in a minute, or use another node", http.StatusServiceUnavailable)
 			return false

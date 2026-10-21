@@ -29,6 +29,7 @@ const (
 	RefusedTooLarge     = "too_large"       // a file larger than a node takes (413)
 	RefusedGone         = "gone"            // a file that expired or was already read (404)
 	RefusedRecovering   = "recovering"      // the node is catching up with its peers (503)
+	RefusedLeaving      = "leaving"         // the node is leaving the mesh and takes no writes (503)
 	RefusedShareFull    = "share_full"      // a shared space, or the node, holds as much as it may (507)
 	RefusedConflict     = "conflict"        // a write names a version that is no longer the latest (409)
 	RefusedShareMissing = "share_missing"   // a version names chunks the node does not hold (400)
