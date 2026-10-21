@@ -21,11 +21,16 @@ import (
 //
 //	nodes.json   the list
 //	nodes.sig    base64 ed25519 signature over "aivoicebus/nodes\n" + nodes.json's bytes
+//
+// The list can also retire nodes: a machine still configured for a retired node stops trying it
+// (see config.Resolve), so taking a node out of the mesh needs no edit on each machine. A client
+// older than the field ignores it, so the schema stays 1.
 const (
 	NodesName     = "nodes.json"
 	NodesSigName  = "nodes.sig"
 	NodesSchema   = 1
 	MaxNodes      = 32
+	MaxRetired    = 64
 	MaxNodesBytes = 64 << 10
 	nodesDomain   = "aivoicebus/nodes\n" // a release signature is never valid as a node-list signature, or the reverse
 )
@@ -34,6 +39,13 @@ const (
 type NodeEntry struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+}
+
+// RetiredEntry is a node taken out of the mesh.
+type RetiredEntry struct {
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Since string `json:"since,omitempty"` // RFC 3339: when it was taken out
 }
 
 // Nodes is the signed list of mesh nodes.
@@ -46,6 +58,8 @@ type Nodes struct {
 	// machine that has none saved, or serving the same list for ever: this bounds both.
 	ValidUntil string      `json:"valid_until,omitempty"`
 	Nodes      []NodeEntry `json:"nodes"`
+	// Retired are nodes taken out of the mesh: never one of Nodes.
+	Retired []RetiredEntry `json:"retired,omitempty"`
 }
 
 // DefaultNodesValidity is how long a freshly signed node list is valid.
@@ -106,8 +120,8 @@ func ParseNodes(b []byte) (*Nodes, error) {
 	}
 	seen := map[string]bool{}
 	for _, e := range n.Nodes {
-		if e.Name == "" || len(e.Name) > 64 || strings.ContainsAny(e.Name, " \t\n/") {
-			return nil, fmt.Errorf("node name %q is not valid", e.Name)
+		if err := validNodeName(e.Name); err != nil {
+			return nil, err
 		}
 		if err := ValidNodeURL(e.URL); err != nil {
 			return nil, fmt.Errorf("node %s: url %q: %v", e.Name, e.URL, err)
@@ -117,7 +131,34 @@ func ParseNodes(b []byte) (*Nodes, error) {
 		}
 		seen[e.URL] = true
 	}
+	if len(n.Retired) > MaxRetired {
+		return nil, fmt.Errorf("node list may retire at most %d nodes", MaxRetired)
+	}
+	for _, e := range n.Retired {
+		if err := validNodeName(e.Name); err != nil {
+			return nil, err
+		}
+		if err := ValidNodeURL(e.URL); err != nil {
+			return nil, fmt.Errorf("retired node %s: url %q: %v", e.Name, e.URL, err)
+		}
+		if e.Since != "" {
+			if _, err := time.Parse(time.RFC3339, e.Since); err != nil {
+				return nil, fmt.Errorf("retired node %s: since %q is not an RFC 3339 time", e.Name, e.Since)
+			}
+		}
+		if seen[e.URL] { // a node both in the mesh and out of it, or retired twice
+			return nil, fmt.Errorf("node url %s appears twice", e.URL)
+		}
+		seen[e.URL] = true
+	}
 	return &n, nil
+}
+
+func validNodeName(name string) error {
+	if name == "" || len(name) > 64 || strings.ContainsAny(name, " \t\n/") {
+		return fmt.Errorf("node name %q is not valid", name)
+	}
+	return nil
 }
 
 // URLs lists the node addresses in order.
@@ -162,8 +203,10 @@ type PackNodesOptions struct {
 	Dir    string
 	Serial int64 // 0 means the current time in seconds, which always increases
 	Nodes  []NodeEntry
-	Key    ed25519.PrivateKey
-	Now    time.Time
+	// Retired are nodes taken out of the mesh, which machines still configured for them stop trying.
+	Retired []RetiredEntry
+	Key     ed25519.PrivateKey
+	Now     time.Time
 	// ValidFor is how long the list is trusted: 0 means DefaultNodesValidity, negative means no expiry.
 	ValidFor time.Duration
 }
@@ -179,7 +222,7 @@ func PackNodes(o PackNodesOptions) (*Nodes, error) {
 	if o.Serial == 0 {
 		o.Serial = o.Now.Unix()
 	}
-	n := &Nodes{Schema: NodesSchema, Serial: o.Serial, Date: o.Now.UTC().Format(time.RFC3339), Nodes: o.Nodes}
+	n := &Nodes{Schema: NodesSchema, Serial: o.Serial, Date: o.Now.UTC().Format(time.RFC3339), Nodes: o.Nodes, Retired: o.Retired}
 	switch {
 	case o.ValidFor == 0:
 		n.ValidUntil = o.Now.Add(DefaultNodesValidity).UTC().Format(time.RFC3339)

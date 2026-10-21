@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/view"
@@ -37,8 +38,9 @@ type meshThresholds struct {
 
 // meshView is the whole report, for --json.
 type meshView struct {
-	Nodes    []nodeReport `json:"nodes"`
-	Problems []string     `json:"problems"`
+	Nodes    []nodeReport  `json:"nodes"`
+	Retired  []retiredView `json:"retired"` // configured nodes the signed node list retired: not checked unless used
+	Problems []string      `json:"problems"`
 }
 
 // fetchMesh asks every node about itself at once.
@@ -161,6 +163,7 @@ func meshCmd(args []string, s Streams) error {
 	if *signed {
 		return signedCheck(c, *days, *timeout, *asJSON, s)
 	}
+	ns := config.Resolve()
 	reports := fetchMesh(c.URLs, c.Token, *timeout)
 	problems := assess(reports, meshThresholds{MaxSkew: *maxSkew, MaxLag: *maxLag, MaxGap: *maxGap, MaxRecords: *maxRecords})
 	if note := nodeListNote(c, time.Now()); note != "" {
@@ -169,7 +172,7 @@ func meshCmd(args []string, s Streams) error {
 	if *asJSON {
 		enc := json.NewEncoder(s.Out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(meshView{Nodes: reports, Problems: append([]string{}, problems...)})
+		_ = enc.Encode(meshView{Nodes: reports, Retired: retiredViews(ns), Problems: append([]string{}, problems...)})
 	} else {
 		tw := tabwriter.NewWriter(s.Out, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "NODE\tRELEASE\tCLOCK\tRECORDS\tMESSAGES\tPEERS\tFEATURES\tURL")
@@ -191,6 +194,16 @@ func meshCmd(args []string, s Streams) error {
 			fmt.Fprintf(tw, "%s\t%s\t%+.1fs\t%d\t%d\t%d/%d up\t%s\t%s\n", r.Name, v, float64(r.SkewMs)/1000, r.Records, r.Health.Messages, ok, len(r.Health.Peers), featureList(r.Health), r.URL)
 		}
 		tw.Flush()
+		if len(ns.Retired) > 0 {
+			fmt.Fprintln(s.Out)
+		}
+		for _, r := range ns.Retired {
+			if ns.Kept {
+				fmt.Fprintf(s.Out, "%s is %s, but still used here: AIVOICEBUS_URL names no node of the list (aivoicebus join --url URL)\n", r.URL, retiredText(r.URL, ns))
+			} else {
+				fmt.Fprintf(s.Out, "not checked: %s is configured here, but %s\n", r.URL, retiredText(r.URL, ns))
+			}
+		}
 		if len(problems) == 0 {
 			fmt.Fprintf(s.Out, "\nmesh healthy: %d node(s) answer, same release, clocks and logs agree\n", len(reports))
 		} else {

@@ -56,18 +56,34 @@ func LoadEnvFile() {
 	}
 }
 
-// URLs lists the nodes to try, in order. AIVOICEBUS_URL is comma-separated and
-// always comes first. If this machine has learned the mesh's node list (see
-// Discovered) and AIVOICEBUS_URL names at least one of those nodes, the other
-// known nodes follow it, so a node added later reaches machines that were set up
-// before it existed. A client pointed at some other mesh (a dev node, a test)
-// shares no node with the list and never gets it appended.
-func URLs() []string {
-	var out []string
+// URLs lists the nodes to try, in order: Resolve's URLs.
+func URLs() []string { return Resolve().URLs }
+
+// NodeSet is the nodes this machine uses, and the configured ones the signed node list retired.
+type NodeSet struct {
+	URLs []string
+	// Retired are nodes AIVOICEBUS_URL names that the signed node list took out of the mesh.
+	// They are not in URLs, unless Kept.
+	Retired []RetiredNode
+	// Kept is set when AIVOICEBUS_URL names retired nodes but no node of the list: the list does
+	// not apply to this machine, so they are still tried.
+	Kept bool
+}
+
+// Resolve works out the nodes to try, in order. AIVOICEBUS_URL is comma-separated and always
+// comes first. If this machine has learned the mesh's node list (see Discovered) and
+// AIVOICEBUS_URL names at least one of its nodes, the list applies: the other nodes it knows
+// follow, so a node added later reaches machines set up before it existed, and a configured
+// node it retires is dropped, so a machine stops trying a node taken out of the mesh without
+// anyone editing its configuration. A client pointed at some other mesh (a dev node, a test)
+// shares no node with the list and is left alone. A list never takes away every node a machine
+// has: it applies only through a configured node it keeps.
+func Resolve() NodeSet {
+	var configured []string
 	seen := map[string]bool{}
 	for _, u := range strings.Split(os.Getenv("AIVOICEBUS_URL"), ",") {
 		if u = strings.TrimRight(strings.TrimSpace(u), "/"); u != "" && !seen[u] {
-			out = append(out, u)
+			configured = append(configured, u)
 			seen[u] = true
 		}
 	}
@@ -75,19 +91,36 @@ func URLs() []string {
 	if d.Expired(time.Now()) {
 		d = Discovered{}
 	}
+	retired := map[string]RetiredNode{}
+	for _, r := range d.Retired {
+		retired[r.URL] = r
+	}
 	shared := false
 	for _, u := range d.Nodes {
-		shared = shared || seen[u]
+		if _, out := retired[u]; seen[u] && !out {
+			shared = true
+		}
 	}
+	var ns NodeSet
+	for _, u := range configured {
+		r, out := retired[u]
+		if out {
+			ns.Retired = append(ns.Retired, r)
+		}
+		if !out || !shared {
+			ns.URLs = append(ns.URLs, u)
+		}
+	}
+	ns.Kept = len(ns.Retired) > 0 && !shared
 	if shared {
 		for _, u := range d.Nodes {
-			if !seen[u] {
-				out = append(out, u)
+			if _, out := retired[u]; !seen[u] && !out {
+				ns.URLs = append(ns.URLs, u)
 				seen[u] = true
 			}
 		}
 	}
-	return out
+	return ns
 }
 
 // Discovered is the mesh's node list as this machine last learned it from a
@@ -100,6 +133,15 @@ type Discovered struct {
 	// ValidUntil is the signed list's own expiry (zero: none). Past it the learned nodes are
 	// not used, so a list nobody renewed cannot keep steering the token to stale addresses.
 	ValidUntil time.Time `json:"valid_until,omitempty"`
+	// Retired are nodes the list took out of the mesh (see Resolve).
+	Retired []RetiredNode `json:"retired,omitempty"`
+}
+
+// RetiredNode is a node the signed node list took out of the mesh.
+type RetiredNode struct {
+	Name  string    `json:"name"`
+	URL   string    `json:"url"`
+	Since time.Time `json:"since,omitzero"` // when it was taken out (zero: the list does not say)
 }
 
 // Expired reports whether the saved list is past the validity its signer gave it.

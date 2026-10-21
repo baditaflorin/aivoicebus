@@ -360,3 +360,48 @@ func TestAClientDeadlineBoundsARequestThatTheTimeoutWouldAllow(t *testing.T) {
 		t.Errorf("the deadline did not cut the request: %s", d)
 	}
 }
+
+func TestAConfiguredNodeTheListRetiresStopsBeingTried(t *testing.T) {
+	m := newTestMesh(t, 3)
+	keys := []ed25519.PublicKey{m.pub}
+	t.Setenv("AIVOICEBUS_URL", m.urls[0]+","+m.urls[2]) // a machine set up when node 2 was in the mesh
+	if _, err := release.PackNodes(release.PackNodesOptions{Dir: m.dir, Serial: 12, Key: m.priv,
+		Nodes:   []release.NodeEntry{{Name: "n0", URL: m.urls[0]}, {Name: "n1", URL: m.urls[1]}},
+		Retired: []release.RetiredEntry{{Name: "n2", URL: m.urls[2], Since: "2026-10-21T21:36:32Z"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Refresh(m.client(m.urls[0]), keys, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	ns := config.Resolve()
+	if !slices.Equal(ns.URLs, []string{m.urls[0], m.urls[1]}) || len(ns.Retired) != 1 || ns.Retired[0].Name != "n2" || ns.Kept ||
+		!ns.Retired[0].Since.Equal(time.Date(2026, 10, 21, 21, 36, 32, 0, time.UTC)) {
+		t.Fatalf("node 2 is dropped, node 1 learned: %+v", ns)
+	}
+
+	// A binary older than retired nodes rewrites the saved list without them; the next look at the
+	// same list puts them back.
+	d := config.LoadDiscovered()
+	d.Retired = nil
+	if err := config.SaveDiscovered(d); err != nil {
+		t.Fatal(err)
+	}
+	if got := config.URLs(); len(got) != 3 {
+		t.Fatalf("without the retired nodes the configured one is tried again: %v", got)
+	}
+	if res, err := Refresh(m.client(m.urls[0]), keys, time.Now()); err != nil || res.Changed {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if got := config.URLs(); !slices.Equal(got, []string{m.urls[0], m.urls[1]}) {
+		t.Errorf("the same list again: %v", got)
+	}
+
+	// a later list that has node 2 back in the mesh: it is used again
+	m.publish(13, 0, 1, 2)
+	if _, err := Refresh(m.client(m.urls[0]), keys, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if ns := config.Resolve(); !slices.Equal(ns.URLs, []string{m.urls[0], m.urls[2], m.urls[1]}) || len(ns.Retired) != 0 {
+		t.Errorf("%+v", ns)
+	}
+}

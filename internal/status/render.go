@@ -52,6 +52,9 @@ func problems(r *Report) []Problem {
 		if n.Up > 0 && time.Duration(abs(n.LocalMs))*time.Millisecond > maxSkew {
 			add("nodes", "this machine's clock is "+seconds(abs(n.LocalMs))+" off the nodes'", clockFix())
 		}
+		if n.RetiredKept {
+			add("nodes", "this machine still uses "+strings.Join(n.Retired, ", ")+", which the signed node list retired: AIVOICEBUS_URL names no node of the mesh", "aivoicebus join --url URL")
+		}
 	}
 	if in := r.Inbox; in != nil && in.Unread > 0 {
 		add("inbox", unreadText(in), "aivoicebus inbox")
@@ -207,6 +210,9 @@ func line(r Report, section string) string {
 		s := fmt.Sprintf("%d of %d up", n.Up, n.Configured)
 		if n.Up > 0 {
 			s += fmt.Sprintf("; peers %d/%d ok; clocks within %s, this machine %s off", n.PeersOK, n.Peers, seconds(n.SpreadMs), seconds(abs(n.LocalMs)))
+		}
+		if len(n.Retired) > 0 && !n.RetiredKept {
+			s += "; not asked, retired by the signed node list: " + strings.Join(n.Retired, ", ")
 		}
 		return s
 	case "inbox":

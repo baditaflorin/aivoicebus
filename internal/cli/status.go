@@ -97,6 +97,8 @@ func homeStatus(budget time.Duration) status.Report {
 	}
 	if c, err := sessionClient(); err == nil {
 		o.Client = c
+		ns := config.Resolve()
+		o.Retired, o.RetiredKept = ns.Retired, ns.Kept
 	}
 	return status.Gather(o)
 }
