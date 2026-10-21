@@ -125,11 +125,14 @@ type Store struct {
 
 	// The test lane (see msg/testlane.go). tests lists the log records that hold a test message
 	// that is not purged yet, in arrival order. nTest counts the test messages held, nTestAck the
-	// receipts (id, by) for them: Stats leaves both out.
-	tests     []testRef
-	nTest     int
-	nTestAck  int
-	lastSweep time.Time // when expired test messages were last looked for
+	// receipts (id, by) for them: Stats leaves both out. purgedRefs are records the purge replaced
+	// by their stub in memory whose lines in log.jsonl still hold the body.
+	tests       []testRef
+	purgedRefs  map[testRef]bool
+	nTest       int
+	nTestAck    int
+	lastSweep   time.Time // when expired test messages were last looked for
+	lastRewrite time.Time // when log.jsonl was last rewritten for the purge
 }
 
 // testRef is the place of a record in the log: where the purge finds a test message to replace.
@@ -308,7 +311,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
-		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}}
+		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, purgedRefs: map[testRef]bool{}}
 	for _, o := range opts {
 		o(s)
 	}

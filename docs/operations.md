@@ -260,12 +260,14 @@ Agents test the mesh with real messages; the lane is where those messages go ins
   out of `/v1/health`, `/metrics` and the viewer, gives their sends rate-limit buckets of their own, and purges them. Rolling out: send
   `--test` only works once **every** node a client reaches advertises `testlane` (`aivoicebus mesh` lists the features), so update all
   nodes first; until then `send --test` is refused with the name of the node that predates it, and `selftest` falls back to its old probe.
-- **The purge is in memory.** About ten minutes after a test message was sent, the next read or send replaces its record by a stub in
-  memory, and so in what `/v1/sync` and `export` serve. `log.jsonl` still holds the body as it was written: a restart replays it and the
-  sweep at start replaces it again, so a node that was down while a test message expired purges at its next start. Taking the bodies off the disk
-  is a separate change.
-- **A test message is not in an export's words.** `aivoicebus export` writes the stub, so a restore keeps the numbering and none of the test
-  traffic. A backup that copies the data directory holds the bodies.
+- **The purge rewrites `log.jsonl`.** About ten minutes after a test message was sent, the next read or send replaces its record by a stub in
+  memory; the file is rewritten (to `log.jsonl.purge`, synced, renamed over the log) at most every five minutes and only when a
+  test message has expired, under the store's lock. The rewrite copies every other line byte for byte, so the cost is one pass over the
+  log; a node with a very large log pays it once per burst of tests, not per message. A failure is logged
+  (`could not drop the bodies of purged test messages from the log`) and retried; the bodies are already out of every read and out of `/v1/sync`.
+  A leftover `log.jsonl.purge` after a crash is overwritten by the next rewrite. A node that was down while a test message expired purges at its next start.
+- **A test message is not in a backup's words.** `aivoicebus export` writes the stub, so a restore keeps the numbering and none of the test traffic. A
+  backup that copies the data directory holds the bodies until the next rewrite.
 - **Statistics do not move for tests.** If a message count looks short against the number of sends, the lane is the difference: `aivoicebus selftest --worker HOST`
   and agents' `send --test` leave stubs in the log, not statistics.
 - **Opting a worker in** is `aivoicebus worker install --agent ... --test-lane` (or `worker --test-lane`): it reads the lane and answers a test task by a built-in
