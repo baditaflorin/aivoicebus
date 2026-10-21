@@ -12,6 +12,10 @@ import (
 
 const approvalTag = "[approver-sig v1 "
 
+// approvalSigOpen starts a signature line of any version: what a reply is judged by, so a newer
+// version is still refused where it cannot hold.
+const approvalSigOpen = "[approver-sig "
+
 // ApprovalStatement is what an approver key signs.
 func ApprovalStatement(request, word, worker string) []byte {
 	return []byte("aivoicebus-approval v1\n" + request + "\n" + word + "\n" + worker)

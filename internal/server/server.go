@@ -279,6 +279,22 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			refuse(w, msg.RefusedSecret, secrets.Refusal(f), http.StatusUnprocessableEntity)
 			return
 		}
+		// A reply in an approval thread is stored only when it can be the person's signed decision,
+		// and an approver signature or a pipe link's key is kept out of every other message (approval.go).
+		decision := false
+		if req, ok := approvalRequestOf(s, m.Re); ok {
+			if why := msg.DecisionProblem(req, m.Body); why != "" {
+				cfg.metrics.approvals.Add(1)
+				refuse(w, msg.RefusedApproval, msg.ApprovalRefusal(req.ID, why), http.StatusForbidden)
+				return
+			}
+			decision = msg.DecisionShaped(m.Body)
+		}
+		if f, found := secrets.Authority(m.Body, decision); found {
+			cfg.metrics.secrets.Add(1)
+			refuse(w, msg.RefusedSecret, secrets.Refusal(f), http.StatusUnprocessableEntity)
+			return
+		}
 		out, err := s.Send(m)
 		var limited *store.RateLimitError
 		switch {

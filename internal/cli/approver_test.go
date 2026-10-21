@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"strings"
 	"testing"
 
@@ -48,5 +50,50 @@ func TestApproveNeedsThePassphraseAndSignsTheDecision(t *testing.T) {
 	answers = []string{"correct horse battery"}
 	if code, _, _ := run(t, "", "approve", plain.ID); code != exitUsage {
 		t.Error("approve signed something that is not an approval request")
+	}
+}
+
+// A request that names the approver key (every request from this release on) is checked the same
+// way by the sender and the node: the person's `approve`, signed with that key, goes through; against
+// a request that names another key, the same signature is refused instead of sent.
+func TestApproveAgainstARequestThatNamesTheKey(t *testing.T) {
+	mesh(t)
+	t.Setenv("AIVOICEBUS_ME", boss)
+	answers := []string{"correct horse battery", "correct horse battery"}
+	old := readPassphrase
+	t.Cleanup(func() { readPassphrase = old })
+	readPassphrase = func(string) (string, error) { a := answers[0]; answers = answers[1:]; return a, nil }
+	if code, _, e := run(t, "", "approver", "init"); code != 0 {
+		t.Fatalf("init: %d %s", code, e)
+	}
+	pub, _ := config.ApproverPublic()
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	c, _ := client.FromEnv()
+	req := func(key ed25519.PublicKey) msg.Message {
+		m, err := c.Send(msg.Message{ID: msg.NewID(), From: "lap/codex.worker", To: msg.HumanOf(boss), Prio: msg.PrioUrgent,
+			Body: "[approval needed] the worker on lap would run this task:\nwrite the file\n" + msg.ApproverKeyLine(key)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	good, bad := req(pub), req(other)
+	answers = []string{"correct horse battery"}
+	if code, _, e := run(t, "", "approve", good.ID); code != 0 {
+		t.Fatalf("approve a request that names this key: %d %s", code, e)
+	}
+	ms, err := c.Thread(good.ID)
+	if err != nil || len(ms) < 2 {
+		t.Fatalf("the thread of the approved request: %d messages, %v", len(ms), err)
+	}
+	if last := ms[len(ms)-1]; last.From != boss || !strings.HasPrefix(last.Body, "approve\n[approver-sig v1 ") {
+		t.Errorf("the decision was not stored: %+v", last)
+	}
+	answers = []string{"correct horse battery"}
+	if code, _, e := run(t, "", "approve", bad.ID); code == 0 || !strings.Contains(e, "does not verify") {
+		t.Errorf("approve against a request that names another key: %d %s", code, e)
+	}
+	if ms, err := c.Thread(bad.ID); err != nil || len(ms) != 1 {
+		t.Errorf("a decision the key cannot have made was stored, or the thread could not be read: %d messages, %v", len(ms), err)
 	}
 }

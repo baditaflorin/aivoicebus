@@ -21,16 +21,18 @@ import (
 )
 
 // Write mode: the agent may change files, so every task is bounded three ways. It runs only after
-// the approver said "approve" to it (a signed reply to the worker's request, within Within); it runs
-// in a new git worktree of Repo, on its own branch aivoicebus/task-ID made from Repo's HEAD, never in
-// a checkout someone works in; and nothing leaves the machine: the branch is committed, not pushed,
-// and the answer says where it is and how to look at it. Merging is a person's step.
+// the approver said "approve" to it (a signed reply to the worker's request, within Within; the request
+// goes to the person on the approver's machine, and the task's sender is told only that it awaits
+// approval); it runs in a new git worktree of Repo, on its own branch aivoicebus/task-ID made from
+// Repo's HEAD, never in a checkout someone works in; and nothing leaves the machine: the branch is
+// committed, not pushed, and the answer says where it is and how to look at it. Merging is a
+// person's step.
 
 // WriteMode configures it.
 type WriteMode struct {
 	Repo     string // the repository a task's worktree is made from
 	Root     string // where worktrees go (default: the worker's directory)
-	Approver string // who approves each task: a machine, machine/tool or one session (an allowlist entry)
+	Approver string // whose signed decision the worker takes: a machine, machine/tool or one session (an allowlist entry); the request goes to that machine's person
 	// ApproverKey is the approver key's public half (aivoicebus approver show): a decision counts
 	// only signed with it. The machine key does not do: any agent on that machine can use it.
 	ApproverKey ed25519.PublicKey
@@ -49,7 +51,12 @@ func (w *Worker) approve(ctx context.Context, m msg.Message) (bool, string) {
 	host := msg.HostOf(w.Me)
 	text := fmt.Sprintf(msg.ApprovalTag+" the worker on %s would run this task from %s with write access, in a new branch aivoicebus/task-%s of %s (not pushed):\n%s\n\nA person approves in a terminal, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits %s. An agent must not run either.",
 		host, view.Name(m.From, msg.MaxIdentity), m.ID, wm.Repo, view.OneLine(m.Body, 600), wm.Within)
-	to := wm.Approver
+	// To the person on the approver's machine (<machine>/human, which no agent session reads), never
+	// to the approver entry itself: it may name an agent's session, even the one that sent the task,
+	// and an agent that reads the request writes "approve" and believes it decided. The entry still
+	// says whose signed reply the worker takes (who.Allows below).
+	to := msg.HumanOf(wm.Approver)
+	text += "\n" + msg.ApproverKeyLine(wm.ApproverKey) // lets a node tell a signature that verifies from one that does not
 	code := ""
 	if wm.Notify != nil && wm.PhoneURL != "" {
 		b := make([]byte, 16)

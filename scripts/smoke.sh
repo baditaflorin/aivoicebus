@@ -237,3 +237,27 @@ as imac/claude.m1
 step thread "$AMID"
 as air/amend.r1
 step amend "$AMID" "I did not send this"
+echo "# an approval is the person's signed decision: an agent's bare approve is refused and the person is pointed at their terminal; a pipe link's key and an approver signature stay out of a message"
+as smoke-w/worker
+echo "\$ aivoicebus send --to smoke-p/human '[approval needed] the worker on smoke-w would run this task: ...'"
+out=$("$BIN" send --to smoke-p/human --queue --prio urgent "[approval needed] the worker on smoke-w would run this task from smoke-a/claude.a1 with write access:
+write the notes file
+
+A person approves in a terminal, with the approver passphrase: aivoicebus approve <this id>"); echo "$out" | norm
+AID=$(echo "$out" | awk '$1=="sent"{print $2}')
+as smoke-a/claude.a1
+step reply --re "$AID" approve
+step reply --re "$AID" "Approved, go ahead"
+step reply --re "$AID" "which repository is this?"
+as smoke-p/shell
+step answer
+step approve "$AID"
+as smoke-a/claude.a1
+KEY=$(printf 'a%.0s' $(seq 1 64))
+SIG="[approver-sig v1 $(printf 'B%.0s' $(seq 1 40))]"
+echo "\$ aivoicebus send --to smoke-b/worker 'LINK (5 minutes): https://pipe.example.test/#smokeid1~<64 hex characters>'"
+set +e; out=$("$BIN" send --to smoke-b/worker "LINK (5 minutes): https://pipe.example.test/#smokeid1~$KEY" 2>&1 </dev/null); rc=$?; set -e
+echo "$out" | norm; echo "[exit $rc]"
+echo "\$ aivoicebus send --to smoke-b/worker 'done, signed: [approver-sig v1 <base64>]'"
+set +e; out=$("$BIN" send --to smoke-b/worker "done, signed: $SIG" 2>&1 </dev/null); rc=$?; set -e
+echo "$out" | norm; echo "[exit $rc]"

@@ -165,6 +165,12 @@ func answerCmd(args []string, s Streams) error {
 				fmt.Fprintf(s.Out, "%s  %s is stuck: %s\n", m.ID, view.Name(m.From, msg.MaxIdentity), view.OneLine(strings.TrimPrefix(m.Body, msg.StuckPrefix), 300))
 				continue
 			}
+			if msg.IsApprovalRequest(m.Body) { // a worker's or a token install's request: decided with the approver key, not answered here
+				n++
+				fmt.Fprintf(s.Out, "%s  approval needed, from %s: %s\n    decide: aivoicebus approve %s  (or: aivoicebus deny %s)\n", m.ID, view.Name(m.From, msg.MaxIdentity),
+					view.OneLine(strings.TrimSpace(strings.TrimPrefix(m.Body, msg.ApprovalTag)), 300), m.ID, m.ID)
+				continue
+			}
 			if strings.HasPrefix(m.Body, msg.AskPrefix) {
 				n++
 				q := strings.SplitN(strings.TrimPrefix(m.Body, msg.AskPrefix), "\n", 2)[0]
@@ -176,9 +182,9 @@ func answerCmd(args []string, s Streams) error {
 			}
 		}
 		if n == 0 {
-			fmt.Fprintln(s.Out, "no open questions, and no agent says it is stuck")
+			fmt.Fprintln(s.Out, "no open questions or approvals, and no agent says it is stuck")
 		} else {
-			fmt.Fprintln(s.Out, "answer one: aivoicebus answer ID")
+			fmt.Fprintln(s.Out, "answer one: aivoicebus answer ID   (an approval: aivoicebus approve ID)")
 		}
 		return nil
 	}
@@ -196,6 +202,11 @@ func answerCmd(args []string, s Streams) error {
 		}
 	}
 	if q.ID == "" {
+		for _, m := range ms {
+			if m.ID == args[0] && msg.IsApprovalRequest(m.Body) {
+				return outbox.Usagef("%s is an approval request, which the approver key decides, not a typed answer: aivoicebus approve %s  (or: aivoicebus deny %s)", args[0], args[0], args[0])
+			}
+		}
 		return outbox.Usagef("%s is not a question to a person, nor an agent saying it is stuck", args[0])
 	}
 	fmt.Fprintln(s.Err, view.UntrustedBanner)

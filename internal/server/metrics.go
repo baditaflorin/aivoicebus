@@ -22,6 +22,7 @@ import (
 type metrics struct {
 	unauthorized atomic.Int64
 	secrets      atomic.Int64
+	approvals    atomic.Int64
 	unsigned     atomic.Int64 // sends refused by --require-signed
 	mu           sync.Mutex
 	requests     map[string]*atomic.Int64
@@ -131,6 +132,9 @@ func (m *metrics) write(w io.Writer, h msg.Health, st store.Stats) {
 	p("# HELP aivoicebus_secrets_refused_total Sends refused because the text looked like a credential.")
 	p("# TYPE aivoicebus_secrets_refused_total counter")
 	p("aivoicebus_secrets_refused_total %d", m.secrets.Load())
+	p("# HELP aivoicebus_approvals_refused_total Replies to an approval request refused because they cannot be the person's signed decision.")
+	p("# TYPE aivoicebus_approvals_refused_total counter")
+	p("aivoicebus_approvals_refused_total %d", m.approvals.Load())
 	p("# HELP aivoicebus_peer_up Whether the last pull from a peer succeeded.")
 	p("# TYPE aivoicebus_peer_up gauge")
 	p("# HELP aivoicebus_peer_lag_records Records a peer held that this node lacked at the last look.")

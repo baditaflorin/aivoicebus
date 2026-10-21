@@ -26,6 +26,7 @@ var oldRefusals = []struct {
 	{403, "a machine token (laptop-b/...) may not read this; use the shared or observer token", msg.RefusedReadOnly, "shared token"},
 	{403, "refused: this node takes only signed messages (serve --require-signed), and this one is unsigned", msg.RefusedUnsigned, "aivoicebus update"},
 	{403, "only a session on laptop-b, the machine that sent this message, can retract it", msg.RefusedNotSender, "Ask its sender"},
+	{403, "refused: this reply says \"approve\" without an approver signature. Only the person's signed decision answers an approval request", msg.RefusedApproval, "aivoicebus approve"},
 	// seen live on 2026-10-18 from a 0.10 node, raw
 	{409, "the conversation reached its turn limit or deadline", msg.RefusedTurns, "aivoicebus reply --end --re"},
 	{409, "the conversation reached its turn limit or deadline: its deadline passed at 2026-10-18T10:00:00Z: close it with `reply --end`", msg.RefusedDeadline, "aivoicebus send"},
@@ -59,7 +60,7 @@ func TestRefusalsSayWhatToDo(t *testing.T) {
 		}
 	}
 	// a reason named by a newer node wins over the text, and every reason says what to do
-	for _, reason := range []string{msg.RefusedToken, msg.RefusedDenied, msg.RefusedReadOnly, msg.RefusedUnsigned, msg.RefusedSecret,
+	for _, reason := range []string{msg.RefusedToken, msg.RefusedDenied, msg.RefusedReadOnly, msg.RefusedUnsigned, msg.RefusedSecret, msg.RefusedApproval,
 		msg.RefusedTurns, msg.RefusedDeadline, msg.RefusedBudget, msg.RefusedLoop, msg.RefusedRateSender, msg.RefusedRateMachine, msg.RefusedRatePair,
 		msg.RefusedRateRetract, msg.RefusedUnknown, msg.RefusedNotSender, msg.RefusedReservedID, msg.RefusedNotice,
 		msg.RefusedBadRequest, msg.RefusedTooLarge, msg.RefusedGone, msg.RefusedRecovering, msg.RefusedShareFull, msg.RefusedConflict,

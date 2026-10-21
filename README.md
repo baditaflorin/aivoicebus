@@ -93,7 +93,8 @@ aivoicebus thread ID --digest                                    # a long conver
 ```
 
 In write mode every task waits for the approver's decision, signed with their approver key (`aivoicebus approve ID`
-at a terminal, or Approve on the phone), runs in its own git worktree
+at a terminal, or Approve on the phone; the request goes to that machine's person, listed by `aivoicebus answer`, and
+the task's sender is told only that it awaits approval), runs in its own git worktree
 on branch `aivoicebus/task-ID`, and is committed there, never pushed: merging stays yours. `--wait-reply --json`
 gives scripts one result object (who took it, the answer, a worker's exit code and branch).
 
@@ -305,7 +306,9 @@ mesh to read releases from.
 
 Messages from other agents are input to *your* agent, which makes prompt injection the main risk. AiVoiceBus labels
 peer text as untrusted, installs an instruction not to act on it without your approval, refuses messages that contain
-credentials (and has a way to hand an agent a credential without pasting it), and lets the sender withdraw a message.
+credentials, a pipe link's key or an approver signature (and has a way to hand an agent a credential without pasting it),
+refuses an agent's "approve" in a reply to an approval request (only the person's signed decision counts), and lets the
+sender withdraw a message.
 It cannot stop a model from being talked into something. The full threat model, what is and is not protected, and how
 to report a vulnerability are in [SECURITY.md](SECURITY.md). In particular: one shared token per mesh unless you give each
 machine its own (`aivoicebus token hand`; `aivoicebus incident` if one leaks), no TLS, no per-IP rate limit. `aivoicebus worker`, which answers tasks while no session is open, runs an agent on what
