@@ -126,6 +126,9 @@ func (s *Store) noticeLocked(me, mid string, now time.Time) (msg.Message, bool) 
 		return msg.Message{}, false
 	}
 	m := s.msgs[i]
+	if m.IsTest() { // a test message is cancelled, never announced: the lane reaches no hook, and nothing here may
+		return msg.Message{}, false
+	}
 	r, retracted := s.retractionLocked(mid, m.From)
 	c := s.retr[mid]
 	if !retracted || m.From == me || s.forged[mid] || !s.acks[mid][me] || now.Sub(c.due) >= msg.RetractNoticeWindow {

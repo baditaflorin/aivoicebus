@@ -146,6 +146,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 		end = fs.Bool("end", false, "this reply closes the conversation: the other side's wait stops, and nobody needs to answer it")
 	}
 	trustRole := fs.Bool("trust-role", false, "use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'")
+	test := fs.Bool("test", false, "send in the test lane: it reaches only sessions that opted in (AIVOICEBUS_TEST=1), is never put into a hook's context or a replay, is left out of stats, view and export, lives at most 10 minutes and is purged; a reply to a test message is one already. Read the answers with inbox --test")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -208,7 +209,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 			return outbox.Usagef("--wait-state does not combine with --file or --tail: send it, then aivoicebus state ID --wait-state %s", ws.state)
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole, Authored: authored}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole, Authored: authored, Test: *test}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)
@@ -225,9 +226,14 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
 		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
-		Authored: authored}, s.Err)
+		Authored: authored, Test: *test}, s.Err)
 	if err != nil {
 		return err
+	}
+	if plan.Msg.IsTest() && (*waitReply > 0 || ws.state != "") && !*dry { // the answer is a test message too: only a session that opted in can read it
+		if err := laneFor(c); err != nil {
+			return err
+		}
 	}
 	if *private {
 		if to := plan.Msg.To; to == "all" || strings.HasPrefix(to, "@") || strings.HasPrefix(to, "*/") {
@@ -565,6 +571,7 @@ func inbox(args []string, s Streams) error {
 	ack := fs.Bool("ack", false, "mark shown messages as read")
 	watch := fs.Duration("watch", 0, "poll interval (e.g. 20s); 0 = once")
 	asJSON := fs.Bool("json", false, "print the messages as a JSON array (with --watch: one compact array per poll that has any)")
+	test := fs.Bool("test", false, "also read the test lane (needs AIVOICEBUS_TEST=1): the test messages sent to this session, which no other read shows")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -573,6 +580,11 @@ func inbox(args []string, s Streams) error {
 		return err
 	}
 	c.Labels = identity.Labels("")
+	if *test {
+		if err := laneFor(c); err != nil {
+			return err
+		}
+	}
 	for {
 		me := identity.Me()
 		ms, err := c.Inbox(me, *all)
@@ -641,6 +653,7 @@ func thread(args []string, s Streams) error {
 	digest := fs.Bool("digest", false, "the thread in a few lines: who took part, the task's state, each side's last word, open or ended")
 	stale := fs.Bool("close-stale", false, "end a conversation nobody has written in for --stale-after, with a summary (only its sender or the user; never done on its own)")
 	staleAfter := fs.Duration("stale-after", 30*time.Minute, "with --close-stale: how long without a message makes a conversation stale")
+	test := fs.Bool("test", false, "read the test lane too (needs AIVOICEBUS_TEST=1): a thread of test messages is shown by no other read")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -663,6 +676,12 @@ func thread(args []string, s Streams) error {
 	c, err := client.FromEnv()
 	if err != nil {
 		return err
+	}
+	if *test {
+		c.Labels = identity.Labels("")
+		if err := laneFor(c); err != nil {
+			return err
+		}
 	}
 	ids := outbox.NewIDResolver(c, identity.Me())
 	ids.Say = s.Err

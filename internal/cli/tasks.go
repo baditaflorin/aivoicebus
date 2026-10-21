@@ -459,6 +459,7 @@ func waitCmd(args []string, s Streams) error {
 	every := fs.Duration("every", 3*time.Second, "how often the nodes are asked")
 	noAck := fs.Bool("no-ack", false, "leave what arrives unread (by default it is marked read once shown)")
 	only := fs.String("only", tasks.OnlyAll, "what ends the wait: all (any message), tasks, or replies (a message that answers another). A task meant for the person is never one: the wait says once that it waits for them")
+	test := fs.Bool("test", false, "also wait for test messages (needs AIVOICEBUS_TEST=1)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -471,6 +472,11 @@ func waitCmd(args []string, s Streams) error {
 	c, err := sessionClient()
 	if err != nil {
 		return err
+	}
+	if *test {
+		if err := laneFor(c); err != nil {
+			return err
+		}
 	}
 	me := identity.Me()
 	var tell []msg.Message

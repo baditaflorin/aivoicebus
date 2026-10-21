@@ -875,5 +875,48 @@
   "class": "receipt",
   "why": "with by aivoicebus/quarantine it is a placeholder for a record that failed the replication check: ignore it"
  }
- ]
+ ],
+ "testlane": {
+  "doc": [
+   "The test lane (docs/reference.md): what a consumer of the feed leaves out of counts and views. A message is a test when its id is a test id AND it lives at most 10 minutes.",
+   "A test id is ten lowercase hex digits: '7e57', five more, and a check digit that is the sum of the first nine digits (as hex values) mod 16, written as one hex digit.",
+   "A message that carries 'ttl' (seconds, before a node stamps it) is a test when 1 <= ttl <= 600; one with 'at' and 'exp' (stamped) when exp - at <= 10 minutes and at is set.",
+   "A lease, a message for the person on a machine (to host/human; a body that starts with [approval needed], [token hand v1], [ask-human] or [for the person] sent to a machine, tool or selector rather than to one session) and a decision signed by the approver key are never tests, whatever their id.",
+   "An ack is about a test when its id is a test id, or retract:<test id> or retract-leak:<test id>. After the message expires a node serves its record as a stub: the same record with an empty body, no key, box or sig, and no from_title or from_model: it stays a test, and a consumer must not stop following an origin for it."
+  ],
+  "ids": [
+   {"id": "7e57000001", "test": true},
+   {"id": "7e57123450", "test": true},
+   {"id": "7e57abcded", "test": true},
+   {"id": "7e579a8b7e", "test": true},
+   {"id": "7e57000000", "test": false, "why": "the check digit is wrong"},
+   {"id": "7e57ABCDED", "test": false, "why": "uppercase: ids are lowercase"},
+   {"id": "7e5700000", "test": false, "why": "nine digits"},
+   {"id": "7e570000010", "test": false, "why": "eleven digits"},
+   {"id": "0e57000001", "test": false, "why": "another prefix"},
+   {"id": "0123456789", "test": false, "why": "an ordinary id"}
+  ],
+  "messages": [
+   {"name": "client side, ttl 600", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/d", "thread": "7e57123450", "body": "x", "ttl": 600}, "test": true},
+   {"name": "client side, ttl 601", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/d", "thread": "7e57123450", "body": "x", "ttl": 601}, "test": false},
+   {"name": "client side, no ttl", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/d", "thread": "7e57123450", "body": "x"}, "test": false},
+   {"name": "stamped, 10 minutes", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/d", "thread": "7e57123450", "body": "x", "at": "2026-10-21T12:00:00Z", "exp": "2026-10-21T12:10:00Z"}, "test": true},
+   {"name": "stamped, 10 minutes and a second", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/d", "thread": "7e57123450", "body": "x", "at": "2026-10-21T12:00:00Z", "exp": "2026-10-21T12:10:01Z"}, "test": false},
+   {"name": "stamped, the default life of a bulletin", "msg": {"id": "7e57123450", "from": "a/b", "to": "all", "thread": "7e57123450", "body": "x", "at": "2026-10-21T12:00:00Z", "exp": "2026-10-22T12:00:00Z"}, "test": false},
+   {"name": "an ordinary id with a short ttl", "msg": {"id": "0123456789", "from": "a/b", "to": "c/d", "thread": "0123456789", "body": "x", "ttl": 300}, "test": false},
+   {"name": "a lease", "msg": {"id": "7e57123450", "from": "a/b", "to": "a/b", "thread": "7e57123450", "body": "lease k", "kind": "lease", "ttl": 300}, "test": false},
+   {"name": "to the person on a machine", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/human", "thread": "7e57123450", "body": "x", "ttl": 300}, "test": false},
+   {"name": "an approval request to a machine", "msg": {"id": "7e57123450", "from": "a/b", "to": "c", "thread": "7e57123450", "body": "[approval needed] a task wants write access", "ttl": 300}, "test": false},
+   {"name": "a task", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/worker", "thread": "7e57123450", "body": "[aivoicebus selftest] calc 17*23", "kind": "task", "ttl": 300}, "test": true},
+   {"name": "a stub", "msg": {"id": "7e57123450", "from": "a/b", "to": "c/worker", "thread": "7e57123450", "body": "", "kind": "task", "at": "2026-10-21T12:00:00Z", "exp": "2026-10-21T12:05:00Z"}, "test": true}
+  ],
+  "acks": [
+   {"id": "7e57123450", "test": true},
+   {"id": "retract:7e57123450", "test": true},
+   {"id": "retract-leak:7e57123450", "test": true},
+   {"id": "retract:7e57123451", "test": false, "why": "the check digit is wrong"},
+   {"id": "0123456789", "test": false},
+   {"id": "quarantined", "test": false}
+  ]
+ }
 }

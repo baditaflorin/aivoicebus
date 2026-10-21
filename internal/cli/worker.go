@@ -77,6 +77,7 @@ func workerCmd(args []string, s Streams) error {
 	sandbox := fs.Bool("sandbox", true, "run each command without access to this user's secrets (~/.ssh, cloud and git credentials, keychains, browser profiles, the aivoicebus token and keys): sandbox-exec on macOS, bubblewrap on Linux; --sandbox=false runs it as it is")
 	budget := fs.Int("budget", 0, "tokens (in and out, as the agents report them) the runs may use in any 24 hours; over it the worker takes no task and alerts (0: no budget)")
 	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m, or was taken and then silent for 10m")
+	testLane := fs.Bool("test-lane", false, "opt in to the test lane (what AIVOICEBUS_TEST=1 does): the worker also reads test messages, and answers a test task by a built-in step (calc, echo, sleep, status, write) instead of running its command, so nothing is run and no tokens are spent; `aivoicebus selftest --worker HOST` checks it from another machine")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -131,12 +132,18 @@ func workerCmd(args []string, s Streams) error {
 		os.Setenv("AIVOICEBUS_AGENT", name)
 		os.Unsetenv("AIVOICEBUS_AGENT_SRC")
 	}
+	if *testLane {
+		os.Setenv("AIVOICEBUS_TEST", "1")
+	}
 	c, err := client.FromEnv()
 	if err != nil {
 		return err
 	}
 	c.Title = "aivoicebus worker"
 	c.Labels = identity.Labels("") // tasks routed by selector (@tool=codex...) reach it too
+	if c.Lane = identity.TestOptIn(); c.Lane {
+		fmt.Fprintln(s.Err, "[aivoicebus] test lane on: test messages reach this worker, and a test task is answered by a built-in step, never by its command.")
+	}
 	w := &worker.Worker{Format: format,
 		C: c, Me: identity.Me(), Allow: allow, Argv: argv, Env: env,
 		Limits: worker.Limits{Timeout: *timeout, MaxOutput: *maxOut},

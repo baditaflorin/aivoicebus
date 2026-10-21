@@ -67,6 +67,9 @@ type Request struct {
 	// the urgent fan-out guard, which is about choosing to interrupt that many sessions, is not asked
 	// again. The long-body guard is.
 	Amending bool
+	// Test sends the message in the test lane (msg/testlane.go): it reaches only sessions that opted in,
+	// lives at most msg.TestLife and is purged. A reply to a test message is one without asking.
+	Test bool
 }
 
 // Plan is a checked message and what is known about it before it goes out.
@@ -122,6 +125,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	var approval msg.Message // the approval request this is a reply in, when it is one
 	inApproval := false
+	test := r.Test || msg.IsTestID(r.Re) // a reply to a test message stays in the lane
 	if r.Re != "" {
 		var orig msg.Message
 		var found bool
@@ -207,6 +211,16 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,
 		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns, Deadline: int64(r.Deadline / time.Second), BudgetChars: r.BudgetChars}
+	if test {
+		switch why := msg.TestRefusal(m); {
+		case why == "":
+			m.ID = msg.NewTestID()
+		case r.Test:
+			return p, fmt.Errorf("refused: %s: try again without --test", why)
+		default: // only a reply to a test message: one that cannot be a test (an approval request) goes out as it is
+			test = false
+		}
+	}
 	if d, err := strconv.Atoi(os.Getenv("AIVOICEBUS_TASK_DEPTH")); err == nil && d > 0 {
 		// Sent from a run a worker started for a task: what this sends is one task deeper.
 		m.Depth = min(d, msg.MaxDepthField)
@@ -256,6 +270,24 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 		m.TTL = int64(d / time.Second)
 	}
+	if test {
+		if m.TTL > int64(msg.TestLife/time.Second) {
+			return p, Usagef("--ttl: a test message lives at most %s (it is purged after that): run it again with a shorter --ttl, or without --test", SpanShort(msg.TestLife))
+		}
+		if m.TTL == 0 {
+			m.TTL = int64(msg.TestLife / time.Second)
+		}
+		if !m.IsTest() { // cannot happen once the checks above passed; a message that is not a test must never go out as one
+			return p, errors.New("refused: this message could not be made a test message: try again without --test")
+		}
+		old, err := c.TestLane()
+		switch {
+		case err != nil:
+			return p, fmt.Errorf("refused: could not ask the nodes whether they have the test lane: %v", err)
+		case old != "":
+			return p, fmt.Errorf("refused: %s predates the test lane, so it would show a test message to everyone it is addressed to and never purge it: ask the user to update the nodes first (`aivoicebus nodes` lists them)", old)
+		}
+	}
 	if err := m.ValidateOptions(); err != nil {
 		switch {
 		case strings.HasPrefix(err.Error(), "priority"):
@@ -265,7 +297,7 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 		return p, err
 	}
-	if r.Authored && !r.File && !r.Attach {
+	if r.Authored && !r.File && !r.Attach && !test {
 		l := LintPriority(body, r.Prio, m.Kind)
 		if l.Lower {
 			m.Prio, p.Lowered = msg.PrioFYI, true
@@ -315,8 +347,8 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 	}
 
-	roster, rosterErr := c.RosterAll() // a decision, not a display: probes are counted
-	if now := time.Now(); r.Authored && rosterErr == nil {
+	roster, rosterErr := c.RosterAll()                              // a decision, not a display: probes are counted
+	if now := time.Now(); r.Authored && !test && rosterErr == nil { // a test message has its own, stricter check below
 		if st, stale := StaleTarget(roster, to, me, now, LiveWithin); stale {
 			switch {
 			case !named: // the answer goes where its asker is, whatever happened since: say so and send it
@@ -326,8 +358,20 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			}
 		}
 	}
+	if test { // only a session that declared the opt-in, and is around for the ten minutes the message lives, can be reached
+		now := time.Now()
+		roster = slices.DeleteFunc(slices.Clone(roster), func(e msg.RosterEntry) bool {
+			return !msg.OptedIn(e.Labels) || (!e.Listening && now.Sub(e.Seen) > LiveWithin)
+		})
+	}
 	names, known := reachAmong(roster, rosterErr, to, me)
 	n := len(names)
+	// A reply goes to whoever wrote the test message, opted in or not: it is in the lane because of what it answers,
+	// and its reader reads the thread through the lane. Only a message the sender chose to send as a test needs a
+	// recipient that opted in, since nobody else would ever see it.
+	if test && r.Test && known && n == 0 {
+		return p, fmt.Errorf("refused: no session addressed by %s has opted in to the test lane and been seen in the last %s, and a test message lives only %s: a session opts in with AIVOICEBUS_TEST=1 (a worker with `worker --test-lane`); `aivoicebus who %s` shows who is there", to, SpanShort(LiveWithin), SpanShort(msg.TestLife), to)
+	}
 	if w := ListenerWarning(roster, to, me, time.Now()); w != "" {
 		fmt.Fprintln(warn, w)
 	}
@@ -359,6 +403,9 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		p.Readers = n
 	}
 	p.Context = contextChars(m)
+	if test {
+		p.Notes = append(p.Notes, "test message: reaches opted-in sessions only, is never put into a hook's context, and is purged about "+SpanShort(msg.TestLife)+" after it was sent")
+	}
 	if !r.Force {
 		// A task interrupts the sessions it reaches only until one of them takes it, so a task to a
 		// machine with many sessions is not refused; a task to everyone still is.
@@ -370,11 +417,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 	}
 
+	window := ReachWindowText
+	if test {
+		window = SpanShort(LiveWithin) // the sessions counted above are the opted-in ones seen this recently
+	}
 	switch {
 	case known && n > 0:
-		p.Notes = append(p.Notes, fmt.Sprintf("reaches %d session(s) seen in the last %s", n, ReachWindowText))
+		p.Notes = append(p.Notes, fmt.Sprintf("reaches %d session(s) seen in the last %s", n, window))
 	case known:
-		p.Notes = append(p.Notes, "no matching session seen in the last "+ReachWindowText+"; it waits for one to start")
+		p.Notes = append(p.Notes, "no matching session seen in the last "+window+"; it waits for one to start")
 	}
 	if m.TTL == 0 && msg.IsBulletin(to) {
 		p.Expiry = msg.DefaultLife(m.Priority())
@@ -606,6 +657,9 @@ func (p Plan) CapLines() []string {
 // once: one that holds it is enough. A node that cannot be reached is skipped, and the error of
 // the ordinary read is what is returned when none could answer.
 func lookup(c *client.Client, id string) (msg.Message, bool, error) {
+	if msg.IsTestID(id) { // a test message is in a thread read only when the read asks for the lane
+		c = c.WithLane()
+	}
 	find := func(ms []msg.Message) (msg.Message, bool) {
 		for _, m := range ms {
 			if m.ID == id {
@@ -701,6 +755,18 @@ func nodeTooOldFor(c *client.Client, since string) string {
 		return old[0]
 	}
 	return ""
+}
+
+// SpanShort is SpanText without the zero parts of a duration: 30m, 10m, 1h.
+func SpanShort(d time.Duration) string {
+	s := SpanText(d)
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s") // 10m0s is 10m, 1h0m0s is 1h0m ...
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m") // ... is 1h
+	}
+	return s
 }
 
 // SpanText writes a duration the way --ttl reads it: whole days as 3d.

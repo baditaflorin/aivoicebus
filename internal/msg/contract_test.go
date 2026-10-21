@@ -68,6 +68,25 @@ type feedVectors struct {
 		Leak   bool   `json:"leak"`
 		Why    string `json:"why"`
 	} `json:"acks"`
+	// TestLane is what a consumer leaves out of counts and views (the test lane, msg/testlane.go).
+	TestLane struct {
+		Doc []string `json:"doc"`
+		IDs []struct {
+			ID   string `json:"id"`
+			Test bool   `json:"test"`
+			Why  string `json:"why"`
+		} `json:"ids"`
+		Messages []struct {
+			Name string  `json:"name"`
+			Msg  Message `json:"msg"`
+			Test bool    `json:"test"`
+		} `json:"messages"`
+		Acks []struct {
+			ID   string `json:"id"`
+			Test bool   `json:"test"`
+			Why  string `json:"why"`
+		} `json:"acks"`
+	} `json:"testlane"`
 }
 
 func readFeedVectors(t *testing.T) feedVectors {
@@ -207,6 +226,34 @@ func TestTheFeedVectorsVocabularyAndAckClasses(t *testing.T) {
 		}
 		if class != c.Class || mid != c.Target || leak != c.Leak {
 			t.Errorf("ack %q: class %q target %q leak %v; vector says %q %q %v", c.ID, class, mid, leak, c.Class, c.Target, c.Leak)
+		}
+	}
+}
+
+func TestTheFeedVectorsTestLane(t *testing.T) {
+	l := readFeedVectors(t).TestLane
+	if len(l.Doc) == 0 || len(l.IDs) < 8 || len(l.Messages) < 10 || len(l.Acks) < 5 {
+		t.Fatalf("the test lane vectors are thin: %d doc lines, %d ids, %d messages, %d acks", len(l.Doc), len(l.IDs), len(l.Messages), len(l.Acks))
+	}
+	for _, c := range l.IDs {
+		if got := IsTestID(c.ID); got != c.Test {
+			t.Errorf("IsTestID(%q) = %v, want %v %s", c.ID, got, c.Test, c.Why)
+		}
+	}
+	for _, c := range l.Messages {
+		if got := c.Msg.IsTest(); got != c.Test {
+			t.Errorf("%s: IsTest() = %v, want %v", c.Name, got, c.Test)
+		}
+		if c.Test && c.Msg.Body == "" && !TestPurged(c.Msg) {
+			t.Errorf("%s: an empty test message is a stub", c.Name)
+		}
+		if err := (Record{Origin: "n", Seq: 1, Msg: &c.Msg}).ValidateReplicated(); err != nil {
+			t.Errorf("%s: a record in the vectors must be valid: %v", c.Name, err)
+		}
+	}
+	for _, c := range l.Acks {
+		if got := IsTestAck(Ack{ID: c.ID, By: "a/b"}); got != c.Test {
+			t.Errorf("IsTestAck(%q) = %v, want %v %s", c.ID, got, c.Test, c.Why)
 		}
 	}
 }

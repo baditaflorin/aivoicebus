@@ -393,12 +393,19 @@ const (
 	FeatureBudget  = "budget"
 )
 
-// NewID returns a random 10-hex-char message id.
+// NewID returns a random 10-hex-char message id, never one with the shape of a test id (see NewTestID).
 func NewID() string {
 	b := make([]byte, 5)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	for {
+		randRead(b)
+		if id := hex.EncodeToString(b); !IsTestID(id) {
+			return id
+		}
+	}
 }
+
+// randRead fills b with random bytes; a variable so a test can make NewID meet a test-shaped id.
+var randRead = func(b []byte) { _, _ = rand.Read(b) }
 
 // ValidID reports whether id looks like one produced by NewID.
 func ValidID(id string) bool {

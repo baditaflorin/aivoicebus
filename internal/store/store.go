@@ -51,6 +51,8 @@ type Store struct {
 	// nothing however many claims a peer has sent.
 	nRetracted int // messages with an authorised claim
 	nInert     int // claims by an identity not on the sender's machine, one per (message, identity)
+	// ... of which these are on test messages (the test lane), which Stats leaves out
+	nTestRetracted, nTestInert int
 
 	// Retraction notices (see msg/retract.go): due lists, per reader, the retracted messages held
 	// that it had read, kept as acks and retractions arrive in whatever order, so an inbox read looks
@@ -120,6 +122,20 @@ type Store struct {
 	// reply to it. Whether a claim takes effect is decided when mail is read, like a retraction.
 	amendClaims map[string][]amendClaim
 	amendsOf    map[string][]string
+
+	// The test lane (see msg/testlane.go). tests lists the log records that hold a test message
+	// that is not purged yet, in arrival order. nTest counts the test messages held, nTestAck the
+	// receipts (id, by) for them: Stats leaves both out.
+	tests     []testRef
+	nTest     int
+	nTestAck  int
+	lastSweep time.Time // when expired test messages were last looked for
+}
+
+// testRef is the place of a record in the log: where the purge finds a test message to replace.
+type testRef struct {
+	origin string
+	seq    uint64
 }
 
 // retractionRec is what one identity's retraction claims on one message, merged over every record
@@ -316,6 +332,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	}
 	s.loadPresence()
 	s.loadLimits()
+	s.sweepLocked(s.now().UTC()) // test messages that expired while the node was down lose their bodies now
 	return s, err
 }
 
@@ -488,7 +505,11 @@ func (s *Store) applyLocked(r msg.Record) bool {
 	s.changed = make(chan struct{})
 	if r.Msg != nil {
 		s.addMsgLocked(*r.Msg)
-		s.arrivals = append(s.arrivals, s.now()) // for Stats.LastHour, trimmed there
+		if r.Msg.IsTest() {
+			s.tests = append(s.tests, testRef{r.Origin, r.Seq}) // not counted as an arrival: Stats leaves the lane out
+		} else {
+			s.arrivals = append(s.arrivals, s.now()) // for Stats.LastHour, trimmed there
+		}
 	}
 	if r.Ack != nil {
 		if mid, leak, ok := msg.RetractedID(r.Ack.ID); ok {
@@ -564,6 +585,9 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	i := len(s.msgs)
 	s.msgs = append(s.msgs, m)
 	s.idx[m.ID] = i
+	if m.IsTest() {
+		s.nTest++
+	}
 	s.threads[m.Thread] = append(s.threads[m.Thread], i)
 	s.byTo[m.To] = append(s.byTo[m.To], i)
 	if m.Kind == msg.KindLease {
@@ -673,7 +697,7 @@ func (s *Store) addRetractionLocked(mid, by string, at time.Time, leak bool, key
 		switch {
 		case !c.has:
 			c.has = true
-			s.nRetracted++
+			s.countRetractedLocked(mid, 1)
 			s.noteReadersLocked(mid, c)
 		case !c.due.Equal(wasDue) || c.eff.leak != was.leak:
 			// the readers' lists are ordered by these, and a notice not owed for an fyi is owed for a leak
@@ -682,7 +706,7 @@ func (s *Store) addRetractionLocked(mid, by string, at time.Time, leak bool, key
 		}
 	} else if !known {
 		c.inert++
-		s.nInert++
+		s.countInertLocked(mid, 1)
 	}
 }
 
@@ -756,9 +780,9 @@ func (s *Store) saveArrived() {
 func (s *Store) settleLocked(mid string, c *claims, from string) {
 	if c.valid {
 		if c.has {
-			s.nRetracted--
+			s.countRetractedLocked(mid, -1)
 		}
-		s.nInert -= c.inert
+		s.countInertLocked(mid, -c.inert)
 	}
 	c.eff, c.has, c.inert, c.due = retraction{}, false, 0, time.Time{}
 	for by, r := range c.by {
@@ -774,10 +798,27 @@ func (s *Store) settleLocked(mid string, c *claims, from string) {
 	}
 	c.from, c.valid = from, true
 	if c.has {
-		s.nRetracted++
+		s.countRetractedLocked(mid, 1)
 		s.noteReadersLocked(mid, c)
 	}
-	s.nInert += c.inert
+	s.countInertLocked(mid, c.inert)
+}
+
+// countRetractedLocked and countInertLocked move the totals Stats reports. A test message's
+// retraction is real (a cancelled test task stops its run) but is left out of the statistics,
+// so it is counted apart.
+func (s *Store) countRetractedLocked(mid string, d int) {
+	s.nRetracted += d
+	if msg.IsTestID(mid) {
+		s.nTestRetracted += d
+	}
+}
+
+func (s *Store) countInertLocked(mid string, d int) {
+	s.nInert += d
+	if msg.IsTestID(mid) {
+		s.nTestInert += d
+	}
 }
 
 // retractionLocked is the effective retraction of the message with this id and sender, if any: the
@@ -926,6 +967,9 @@ func (s *Store) addAck(a msg.Ack) {
 	first := !s.acks[a.ID][a.By]
 	if first {
 		s.nAck++
+		if msg.IsTestID(a.ID) {
+			s.nTestAck++
+		}
 	}
 	s.acks[a.ID][a.By] = true
 	if s.ackAt[a.ID] == nil {
@@ -977,6 +1021,8 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 		return msg.Message{}, ErrReplyToNotice
 	}
 	now := s.now().UTC()
+	s.sweepLocked(now)
+	lane := m.IsTest() // a test message (a test id and at most ten minutes to live): counted apart, see allowSendLocked
 	// The same words sent again with another priority, kind or lifetime are not the same message:
 	// an fyi repeated as urgent, or a note repeated as the answer to a question, must be stored.
 	key := sha256.Sum256([]byte(m.From + "\x00" + m.To + "\x00" + m.Re + "\x00" + m.Prio + "\x00" + m.Kind + "\x00" + strconv.FormatInt(m.TTL, 10) + "\x00" + m.Body))
@@ -1000,14 +1046,16 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	if m.Thread != m.ID {
 		sim, twice = s.echoLocked(m, now)
 	}
-	if err := s.allowSendLocked(m.From, m.To, m.Re, pairKind(m), sim, now); err != nil {
-		s.limited++
-		reason := "rate_sender"
-		var rl *RateLimitError
-		if errors.As(err, &rl) && rl.Scope != "" {
-			reason = "rate_" + rl.Scope
+	if err := s.allowSendLocked(m.From, m.To, m.Re, pairKind(m), sim, now, lane); err != nil {
+		if !lane { // what a brake test is refused for is not a statistic
+			s.limited++
+			reason := "rate_sender"
+			var rl *RateLimitError
+			if errors.As(err, &rl) && rl.Scope != "" {
+				reason = "rate_" + rl.Scope
+			}
+			s.refusedBy[reason]++
 		}
-		s.refusedBy[reason]++
 		return msg.Message{}, err
 	}
 	m.At = now
@@ -1018,16 +1066,18 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	if m.Thread != m.ID {
 		m.MaxTurns, m.Deadline, m.BudgetChars = 0, 0, 0 // only the message that starts a thread sets its limits
 		if err := s.turnsLeftLocked(m, sim, twice); err != nil {
-			s.limited++
-			switch e := err.Error(); {
-			case strings.Contains(e, "deadline passed"):
-				s.refusedBy["deadline"]++
-			case strings.Contains(e, "looks like a loop"):
-				s.refusedBy["loop"]++
-			case strings.Contains(e, "character budget"):
-				s.refusedBy["budget"]++
-			default:
-				s.refusedBy["turns"]++
+			if !lane {
+				s.limited++
+				switch e := err.Error(); {
+				case strings.Contains(e, "deadline passed"):
+					s.refusedBy["deadline"]++
+				case strings.Contains(e, "looks like a loop"):
+					s.refusedBy["loop"]++
+				case strings.Contains(e, "character budget"):
+					s.refusedBy["budget"]++
+				default:
+					s.refusedBy["turns"]++
+				}
 			}
 			return msg.Message{}, err
 		}
@@ -1067,14 +1117,19 @@ const kindState = "\x00state"
 // when it says something new. Nothing is counted unless all three allow it. An [end] always passes
 // the pair brake: ending is what stops a loop; a state message (kindState, see pairKind) passes it
 // and is not counted toward it.
-func (s *Store) allowSendLocked(from, to, re, kind string, sim float64, now time.Time) error {
+func (s *Store) allowSendLocked(from, to, re, kind string, sim float64, now time.Time, lane bool) error {
 	host := msg.HostOf(from)
+	sender, suffix := from, ""
+	if lane { // test traffic has buckets of its own: a brake test must neither use up the real session's allowance nor trip the pair brake between two real sessions
+		suffix = laneBucket
+		sender, host = from+suffix, host+suffix
+	}
 	pair := ""
 	back := ""
 	if re != "" && kind != kindState && msg.ValidIdentity(to) && strings.Contains(to, ".") && !strings.HasPrefix(to, "@") { // a reply to one session
-		pair, back = from+"\x00"+to, to+"\x00"+from // counted per direction: a loop needs both sides
+		pair, back = from+"\x00"+to+suffix, to+"\x00"+from+suffix // counted per direction: a loop needs both sides
 	}
-	if wait, ok := under(s.sends, from, s.sendLimit, sendWindow, now); !ok {
+	if wait, ok := under(s.sends, sender, s.sendLimit, sendWindow, now); !ok {
 		return &RateLimitError{Limit: s.sendLimit, RetryAfter: wait}
 	}
 	if wait, ok := under(s.hostSends, host, s.machineLimit, sendWindow, now); !ok {
@@ -1092,7 +1147,7 @@ func (s *Store) allowSendLocked(from, to, re, kind string, sim float64, now time
 		}
 		note(s.pairSends, pair, pairWindow, now)
 	}
-	note(s.sends, from, sendWindow, now)
+	note(s.sends, sender, sendWindow, now)
 	note(s.hostSends, host, sendWindow, now)
 	s.limitsDirty = true
 	s.flushLimitsLocked(false)
@@ -1126,7 +1181,11 @@ func (s *Store) notePairLocked(m msg.Message) {
 		m.At.Before(now.Add(-pairWindow)) || m.At.After(now.Add(maxClockAhead)) {
 		return
 	}
-	note(s.pairSends, m.From+"\x00"+m.To, pairWindow, m.At)
+	key := m.From + "\x00" + m.To
+	if m.IsTest() {
+		key += laneBucket
+	}
+	note(s.pairSends, key, pairWindow, m.At)
 	s.limitsDirty = true
 }
 
@@ -1359,6 +1418,7 @@ func (s *Store) retract(id, by string, leak, dry bool) (msg.RetractResult, error
 	if !msg.ValidRetractID(id) || !msg.ValidIdentity(by) || by == QuarantineBy {
 		return msg.RetractResult{}, ErrBadRetract
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, ok := s.byIDLocked(id)
@@ -1425,14 +1485,22 @@ func (s *Store) Inbox(me string, all bool) []msg.Message { return s.InboxFor(me,
 // ("@repo=x") reach it when its labels satisfy them. The declared labels are
 // remembered for the roster, replacing whatever it declared before.
 func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
+	return s.InboxLane(me, all, labels, false)
+}
+
+// InboxLane is InboxFor for a read that may ask for the test lane: a test message is in it only
+// when lane is set AND the labels the reader declares opt it in (msg.OptedIn). Nothing else, the
+// session-start hook and a plain inbox included, ever gets one.
+func (s *Store) InboxLane(me string, all bool, labels msg.Labels, lane bool) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
+	s.sweepLocked(now)
 	s.seen[me] = seenInfo{at: now, labels: labels, labelsAt: now, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil} // a read that declares no title keeps the last one
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
-	out := s.inboxLocked(me, all, labels, now)
+	out := s.inboxLocked(me, all, labels, lane, now)
 	if !all { // first: a reader that lists only the first few must not miss them
 		out = append(s.noticesLocked(me, now), out...)
 	}
@@ -1445,15 +1513,18 @@ func (s *Store) InboxFor(me string, all bool, labels msg.Labels) []msg.Message {
 func (s *Store) Peek(me string) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inboxLocked(me, false, nil, s.now().UTC())
+	return s.inboxLocked(me, false, nil, false, s.now().UTC())
 }
 
 // inboxLocked is what reaches me: unread unless all, never what I sent.
-func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, now time.Time) []msg.Message {
+func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane bool, now time.Time) []msg.Message {
 	var out []msg.Message
 	for _, i := range s.candidatesLocked(me, labels) {
 		m := s.msgs[i]
 		if m.From == me || !msg.MatchesLabeled(m.To, me, labels) { // the index is a superset filter; the rule is the authority
+			continue
+		}
+		if s.hiddenTestLocked(m, lane, labels) {
 			continue
 		}
 		if len(s.forged) > 0 && s.forged[m.ID] { // never delivered; --all lists it without its words
@@ -1543,15 +1614,23 @@ func (s *Store) pruneSeenLocked(now time.Time) {
 }
 
 // Thread returns every message in the thread that message id belongs to.
-func (s *Store) Thread(id string) []msg.Message {
+func (s *Store) Thread(id string) []msg.Message { return s.ThreadLane(id, false) }
+
+// ThreadLane is Thread for a read that may ask for the test lane: test messages are in it only
+// when lane is set, and a purged one never.
+func (s *Store) ThreadLane(id string, lane bool) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.sweepLocked(s.now().UTC())
 	t := id
 	if m, ok := s.byIDLocked(id); ok {
 		t = m.Thread
 	}
 	var out []msg.Message
 	for _, i := range s.threads[t] {
+		if m := s.msgs[i]; m.IsTest() && (!lane || msg.TestPurged(m)) {
+			continue
+		}
 		out = append(out, s.viewLocked(i)) // a retracted message stays in place, as a tombstone, so replies still make sense
 	}
 	return out
@@ -1562,9 +1641,12 @@ func (s *Store) Thread(id string) []msg.Message {
 func (s *Store) Messages() []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]msg.Message, len(s.msgs))
+	s.sweepLocked(s.now().UTC())
+	out := make([]msg.Message, 0, len(s.msgs)-s.nTest)
 	for i := range s.msgs {
-		out[i] = s.viewLocked(i)
+		if !s.msgs[i].IsTest() { // the test lane is not part of the board
+			out = append(out, s.viewLocked(i))
+		}
 	}
 	return out
 }
@@ -1577,7 +1659,7 @@ func (s *Store) ArrivedSince(t time.Time) []msg.Message {
 	defer s.mu.Unlock()
 	var out []msg.Message
 	for _, m := range s.msgs {
-		if !m.At.Before(t) {
+		if !m.At.Before(t) && !m.IsTest() {
 			out = append(out, m)
 		}
 	}
@@ -1707,9 +1789,10 @@ type Stats struct {
 func (s *Store) Stats() Stats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := Stats{Messages: len(s.msgs), Acks: s.nAck, Sessions: len(s.seen), Duplicates: s.dups, RateLimited: s.limited,
+	s.sweepLocked(s.now().UTC())
+	st := Stats{Messages: len(s.msgs) - s.nTest, Acks: s.nAck - s.nTestAck, Sessions: len(s.seen), Duplicates: s.dups, RateLimited: s.limited,
 		Quarantined: s.quarantined, Refused: s.refused}
-	st.Retracted, st.RetractionsIneffective = s.nRetracted, s.nInert // a claim on a message not held yet is neither: it is decided when the message arrives
+	st.Retracted, st.RetractionsIneffective = s.nRetracted-s.nTestRetracted, s.nInert-s.nTestInert // a claim on a message not held yet is neither: it is decided when the message arrives
 	st.RefusedBy = maps.Clone(s.refusedBy)
 	hour := s.now().Add(-time.Hour)
 	k := 0

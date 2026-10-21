@@ -116,6 +116,15 @@ type Client struct {
 	// Title is the session's title to declare, when the caller knows it (the session-start hook);
 	// empty means: whatever config.Title finds for the identity.
 	Title string
+	// Lane asks the nodes for the test lane on every inbox and thread read (msg.ParamLane), and keeps
+	// the test messages that come back. Only commands that mean to read tests set it (inbox --test,
+	// the worker of a session that opted in, selftest); every other read leaves test messages out even
+	// when a node that predates the lane serves them (see keepLane).
+	Lane bool
+	// Raw keeps every message a node serves, test messages included, whatever Lane says: for checking
+	// what a node does (selftest asks whether it hides the lane from a read that did not ask for it),
+	// never for showing anything to anyone.
+	Raw bool
 
 	// Latest is the newest release number a node announced on any response so
 	// far ("" if none did). It is a hint: verify the signed manifest before acting.
@@ -163,6 +172,21 @@ func FromEnv() (*Client, error) {
 		c.HedgeDelay = time.Duration(n) * time.Millisecond
 	}
 	return c, nil
+}
+
+// WithLane is a client like c that reads the test lane (see Lane): its own settings and nothing it
+// learned from the nodes, so c itself keeps reading without it.
+func (c *Client) WithLane() *Client {
+	return &Client{URLs: c.URLs, Token: c.Token, Timeout: c.Timeout, Deadline: c.Deadline, Warn: c.Warn, NoSign: c.NoSign, Labels: c.Labels,
+		Title: c.Title, HedgeDelay: c.HedgeDelay, WriteQuorum: c.WriteQuorum, Lane: true}
+}
+
+// WithRaw is a client like c that keeps what the nodes serve as it is (see Raw) and asks for the test
+// lane only if lane says so.
+func (c *Client) WithRaw(lane bool) *Client {
+	r := c.WithLane()
+	r.Lane, r.Raw = lane, true
+	return r
 }
 
 func (c *Client) hedgeDelay() time.Duration {
@@ -605,10 +629,32 @@ func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	if t := c.titleFor(me); t != "" {
 		q += "&" + msg.ParamTitle + "=" + url.QueryEscape(t)
 	}
+	if c.Lane {
+		q += "&" + msg.ParamLane + "=" + msg.LaneTest
+	}
 	var ms []msg.Message
 	err := c.do(c.URLs, "GET", q, nil, &ms)
 	Check(ms)
-	return ms, err
+	return c.keepLane(ms), err
+}
+
+// keepLane drops the test messages from a read that did not ask for the lane. A node that has the
+// lane never serves one then; one that predates it does not know them and serves them to everyone
+// addressed, and this is what keeps them out of a hook's context and out of every display.
+func (c *Client) keepLane(ms []msg.Message) []msg.Message {
+	if c.Lane || c.Raw {
+		return ms
+	}
+	out := ms[:0:0]
+	for _, m := range ms {
+		if !m.IsTest() {
+			out = append(out, m)
+		}
+	}
+	if len(out) == len(ms) {
+		return ms
+	}
+	return out
 }
 
 // Peek is what waits unread for me, read on someone else's behalf: the node does not make me a
@@ -617,7 +663,7 @@ func (c *Client) Peek(me string) ([]msg.Message, error) {
 	var ms []msg.Message
 	err := c.do(c.URLs, "GET", "/v1/inbox?me="+url.QueryEscape(me)+"&peek=1", nil, &ms)
 	Check(ms)
-	return ms, err
+	return c.keepLane(ms), err
 }
 
 // Check sets, on messages just read, what this machine finds of each signature (Verified, against
@@ -676,6 +722,9 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 	if t := c.titleFor(me); t != "" {
 		q += "&" + msg.ParamTitle + "=" + url.QueryEscape(t)
 	}
+	if c.Lane {
+		q += "&" + msg.ParamLane + "=" + msg.LaneTest
+	}
 	if hasGen && wait >= time.Second {
 		q += fmt.Sprintf("&wait=%d&gen=%d", int(wait/time.Second), gen)
 	}
@@ -712,7 +761,7 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 			return nil, 0, fmt.Errorf("%s does not hold reads open (no %s)", base, msg.HeaderGen) // nextstep: callers fall back to polling
 		}
 		Check(ms)
-		return ms, g, nil
+		return c.keepLane(ms), g, nil
 	}
 	return nil, 0, last
 }
@@ -752,9 +801,13 @@ func (c *Client) AckVia(id, by, via string, chars int) error {
 // Thread returns every message in the thread message id belongs to.
 func (c *Client) Thread(id string) ([]msg.Message, error) {
 	var ms []msg.Message
-	err := c.do(c.URLs, "GET", "/v1/thread?id="+id, nil, &ms)
+	q := "/v1/thread?id=" + id
+	if c.Lane {
+		q += "&" + msg.ParamLane + "=" + msg.LaneTest
+	}
+	err := c.do(c.URLs, "GET", q, nil, &ms)
 	Check(ms)
-	return ms, err
+	return c.keepLane(ms), err
 }
 
 // gather asks every node for path at once and returns the answers of those that
@@ -919,6 +972,32 @@ func (c *Client) Health() (msg.Health, error) {
 	err := c.do(c.URLs, "GET", "/v1/health", nil, &h)
 	cleanHealth(&h)
 	return h, err
+}
+
+// Healths is what every node that answers says about itself (Health asks one). Nodes that do not
+// answer are not listed: nothing can be said of them.
+func (c *Client) Healths() ([]msg.Health, error) {
+	hs, err := gather[msg.Health](c, "/v1/health")
+	for i := range hs {
+		cleanHealth(&hs[i])
+	}
+	return hs, err
+}
+
+// TestLane says whether a test message may be sent: every node that answers advertises
+// msg.FeatureTestLane. A node that does not is named in old; one that predates the lane would show
+// the message to everyone addressed and never purge it.
+func (c *Client) TestLane() (old string, err error) {
+	hs, err := c.Healths()
+	if err != nil {
+		return "", err
+	}
+	for _, h := range hs {
+		if !h.Has(msg.FeatureTestLane) {
+			return "node " + view.OneLine(h.Node, 40) + " (" + view.OneLine(h.Version, 20) + ")", nil
+		}
+	}
+	return "", nil
 }
 
 // cleanHealth makes every string a node chose one safe, capped line: a node is a peer, and what it
