@@ -293,21 +293,6 @@ the other nodes and your clients reach the new node, the
 dashboard's `AIVOICEBUS_URL`, and a re-signed node list so machines learn the node by themselves
 (`aivoicebus release nodes --dir dist/nodes`, `deploy/publish-nodes.sh dist/nodes --apply`).
 
-## A node leaving the mesh
-
-A shared file goes to one node, not a quorum, so one written to a node in its last minutes, after
-its peers stopped pulling from it, would go with it. Before a node is taken out, switch it to
-leaving:
-
-    AIVOICEBUS_NODE_LEAVING=1 deploy/install.sh --apply --peers-only node-d
-
-It puts `AIVOICEBUS_LEAVING=1` in that node's `node.env` (`serve --leaving`) and restarts it. The
-node then refuses every client write (messages, acks, retractions, files, shared spaces, decisions)
-with a 503 that says "use another node", and clients write to their next node. It still serves reads,
-and its peers keep pulling everything it holds. `aivoicebus mesh` names it, and its `/v1/health`
-says `"leaving": true`. Later installs keep the switch until `AIVOICEBUS_NODE_LEAVING=0` takes it
-out. It needs one node named: a mesh whose nodes all refuse writes takes none.
-
 ## Tokens
 
 Three kinds, all in each node's token file (`/etc/aivoicebus/token`, one per line). Every
@@ -373,6 +358,21 @@ files to the owner of the data directory (the service runs as a dynamic user tha
 able to read them). Start the restored node with a peer reachable: a node whose log is older
 than what its peers hold must hear from one before it takes writes. A node that loses its disk recovers by itself
 from its peers (it takes no writes until one has answered). The dashboard keeps a second copy.
+
+## A node leaving the mesh
+
+A shared file goes to one node, not a quorum, so one written to a node in its last minutes, after
+its peers stopped pulling from it, would go with it. Before a node is taken out, switch it to
+leaving:
+
+    AIVOICEBUS_NODE_LEAVING=1 deploy/install.sh --apply --peers-only node-d
+
+It puts `AIVOICEBUS_LEAVING=1` in that node's `node.env` (`serve --leaving`) and restarts it. The
+node then refuses every client write (messages, acks, retractions, files, shared spaces, decisions)
+with a 503 that says "use another node", and clients write to their next node. It still serves reads,
+and its peers keep pulling everything it holds. `aivoicebus mesh` names it, and its `/v1/health`
+says `"leaving": true`. Later installs keep the switch until `AIVOICEBUS_NODE_LEAVING=0` takes it
+out. It needs one node named: a mesh whose nodes all refuse writes takes none.
 
 ## The signed node list
 
