@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
@@ -92,7 +93,8 @@ func Refresh(c *client.Client, keys []ed25519.PublicKey, now time.Time) (Result,
 	case n.Serial < saved.Serial:
 		return Result{}, errors.New("the node list is older than the one already saved; refusing a replay")
 	case n.Serial == saved.Serial:
-		saved.FetchedAt, saved.ValidUntil = now, n.Until()
+		// The retired nodes too: a binary older than them rewrites the file without them.
+		saved.FetchedAt, saved.ValidUntil, saved.Retired = now, n.Until(), retiredOf(n)
 		_ = config.SaveDiscovered(saved) // saved carries the attempt time marked above
 		return Result{Serial: n.Serial, Nodes: saved.Nodes}, nil
 	}
@@ -107,8 +109,18 @@ func Refresh(c *client.Client, keys []ed25519.PublicKey, now time.Time) (Result,
 			res.Removed = append(res.Removed, u)
 		}
 	}
-	if err := config.SaveDiscovered(config.Discovered{Serial: n.Serial, Nodes: res.Nodes, FetchedAt: now, TriedAt: now, ValidUntil: n.Until()}); err != nil {
+	if err := config.SaveDiscovered(config.Discovered{Serial: n.Serial, Nodes: res.Nodes, FetchedAt: now, TriedAt: now, ValidUntil: n.Until(), Retired: retiredOf(n)}); err != nil {
 		return res, fmt.Errorf("learned the node list but could not save it: %v", err)
 	}
 	return res, nil
+}
+
+// retiredOf is the list's retired nodes as the machine keeps them.
+func retiredOf(n *release.Nodes) []config.RetiredNode {
+	var out []config.RetiredNode
+	for _, r := range n.Retired {
+		since, _ := time.Parse(time.RFC3339, r.Since) // ParseNodes checked it; "" is the zero time
+		out = append(out, config.RetiredNode{Name: r.Name, URL: strings.TrimRight(r.URL, "/"), Since: since})
+	}
+	return out
 }

@@ -2,10 +2,12 @@ package release
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -355,4 +357,67 @@ func manyNodes(n int) []NodeEntry {
 		out = append(out, NodeEntry{Name: fmt.Sprintf("n%d", i), URL: fmt.Sprintf("http://100.1.1.%d:7777", i)})
 	}
 	return out
+}
+
+func TestANodeListRetiresNodesAndAnOlderClientIgnoresThem(t *testing.T) {
+	priv, pub := newKey(t)
+	dir := t.TempDir()
+	nodes := []NodeEntry{{Name: "a", URL: "http://100.64.0.1:7777"}}
+	retired := []RetiredEntry{{Name: "old", URL: "http://100.64.0.9:7777", Since: "2026-10-21T21:36:32Z"}, {Name: "older", URL: "http://100.64.0.8:7777"}}
+	if _, err := PackNodes(PackNodesOptions{Dir: dir, Serial: 3, Nodes: nodes, Retired: retired, Key: priv}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, NodesName))
+	sig, _ := os.ReadFile(filepath.Join(dir, NodesSigName))
+	n, err := VerifyNodes(body, sig, []ed25519.PublicKey{pub})
+	if err != nil || !reflect.DeepEqual(n.Retired, retired) || !reflect.DeepEqual(n.URLs(), []string{"http://100.64.0.1:7777"}) {
+		t.Fatalf("%v %+v", err, n)
+	}
+	if n.Schema != 1 {
+		t.Error("the schema stays 1: a client that predates retired nodes must still take the list")
+	}
+	// What a client older than the field reads: the same nodes, and no error.
+	var old struct {
+		Schema int         `json:"schema"`
+		Serial int64       `json:"serial"`
+		Nodes  []NodeEntry `json:"nodes"`
+	}
+	if err := json.Unmarshal(body, &old); err != nil || old.Schema != 1 || old.Serial != 3 || len(old.Nodes) != 1 {
+		t.Errorf("%v %+v", err, old)
+	}
+	if !strings.Contains(string(body), `"retired"`) {
+		t.Error("the retired nodes are signed with the list")
+	}
+	tampered := []byte(strings.Replace(string(body), "100.64.0.9", "100.64.0.1", 1))
+	if _, err := VerifyNodes(tampered, sig, []ed25519.PublicKey{pub}); !errors.Is(err, ErrBadSignature) {
+		t.Errorf("a changed retired address must fail the signature: %v", err)
+	}
+}
+
+func TestANodeListRefusesRetiredNodesItCouldNotMean(t *testing.T) {
+	priv, _ := newKey(t)
+	nodes := []NodeEntry{{Name: "a", URL: "http://100.1.1.1:7777"}}
+	var many []RetiredEntry
+	for i := 0; i <= MaxRetired; i++ {
+		many = append(many, RetiredEntry{Name: fmt.Sprintf("r%d", i), URL: fmt.Sprintf("http://100.2.%d.%d:7777", i/250, i%250)})
+	}
+	for name, retired := range map[string][]RetiredEntry{
+		"one of its own nodes": {{Name: "a", URL: "http://100.1.1.1:7777"}},
+		"twice":                {{Name: "b", URL: "http://100.1.1.2:7777"}, {Name: "c", URL: "http://100.1.1.2:7777"}},
+		"a path":               {{Name: "b", URL: "http://100.1.1.2:7777/x"}},
+		"credentials":          {{Name: "b", URL: "http://u:p@100.1.1.2:7777"}},
+		"no name":              {{URL: "http://100.1.1.2:7777"}},
+		"a bad time":           {{Name: "b", URL: "http://100.1.1.2:7777", Since: "yesterday"}},
+		"too many":             many,
+	} {
+		if _, err := PackNodes(PackNodesOptions{Dir: t.TempDir(), Serial: 1, Nodes: nodes, Retired: retired, Key: priv}); err == nil {
+			t.Errorf("%s: PackNodes must refuse to sign it", name)
+		}
+	}
+	if _, err := PackNodes(PackNodesOptions{Dir: t.TempDir(), Serial: 1, Nodes: nodes, Retired: many[:MaxRetired], Key: priv}); err != nil {
+		t.Errorf("MaxRetired is allowed: %v", err)
+	}
+	if _, err := PackNodes(PackNodesOptions{Dir: t.TempDir(), Serial: 1, Retired: []RetiredEntry{{Name: "b", URL: "http://100.1.1.2:7777"}}, Key: priv}); err == nil {
+		t.Error("a list of only retired nodes has no node to use")
+	}
 }

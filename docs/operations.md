@@ -371,6 +371,18 @@ the token to a decommissioned address. `aivoicebus mesh` warns 14 days before th
 runs out. Renew it any time: `aivoicebus release nodes --dir dist/nodes`, then
 `deploy/publish-nodes.sh dist/nodes --apply`.
 
+The list also retires nodes. `aivoicebus release nodes` reads the `# removed TIME name:alias:ip`
+lines that `deploy/remove-node.sh` leaves in `deploy/nodes.conf` (the newest 64; a node listed
+again is not retired) and signs them in as `retired`. A machine that learns the list stops using a
+node it retires, even one its `AIVOICEBUS_URL` names, so taking a node out of the mesh needs no
+edit on each machine: `status` no longer counts it, and `mesh` and `aivoicebus nodes` say it is
+retired. The list applies only to a machine whose `AIVOICEBUS_URL` names one of the list's nodes,
+so it never takes away every node a machine has: a machine configured for retired nodes alone
+keeps using them, and `status` says to point it at a node of the mesh (`aivoicebus join --url`).
+Releases before the field ignore it and keep trying the node. A machine learns a new list at a
+session start within a day (within 6 hours when it has none), or at once with
+`aivoicebus nodes --refresh`.
+
 ## A machine that has gone deaf
 
 The hooks are silent by design, so a machine whose token was retired (or whose nodes are all

@@ -50,6 +50,11 @@ type Options struct {
 	// Deploy counts the machine tokens kept here: the machine you deploy from, which keeps the
 	// shared token (machine tokens cannot replicate or deploy). nil or 0: not the deploy machine.
 	Deploy func() int
+
+	// Retired are configured nodes the signed node list retired (config.Resolve). They are not
+	// among the Client's nodes, unless RetiredKept: AIVOICEBUS_URL names no node of the list.
+	Retired     []config.RetiredNode
+	RetiredKept bool
 }
 
 // Report is the whole screen. A part that did not answer within the budget is nil, and named in Unknown.
@@ -105,6 +110,10 @@ type Nodes struct {
 	SpreadMs   int64    `json:"spread_ms"` // the furthest a node's clock is from the middle of the nodes' clocks
 	LocalMs    int64    `json:"local_ms"`  // the middle of the nodes' clocks minus this machine's
 	List       []Node   `json:"list"`
+	// Retired is host:port of each configured node the signed node list retired: not asked, and
+	// not counted, unless RetiredKept (AIVOICEBUS_URL names no node of the list, so it is still used).
+	Retired     []string `json:"retired,omitempty"`
+	RetiredKept bool     `json:"retired_kept,omitempty"`
 }
 
 // Node is one configured node.
@@ -290,6 +299,10 @@ func Gather(o Options) Report {
 		})
 		launch("nodes", func() func(*Report) {
 			n := nodes(urls, o.Client.Token, netDeadline, budget, noteLatest)
+			for _, rn := range o.Retired {
+				n.Retired = append(n.Retired, hostOf(rn.URL))
+			}
+			n.RetiredKept = len(n.Retired) > 0 && o.RetiredKept
 			return func(r *Report) { r.Nodes = n }
 		})
 		launch("inbox", func() func(*Report) {

@@ -798,6 +798,31 @@ out=$(deploy/rollout.sh "$REL10" --unsigned --apply --soak 3 2>&1); rc=$?
 [ $rc = 0 ] && pass "a rollout after the quarantine succeeds: only an increase stops one" || { fail "rollout exit $rc"; echo "$out" | tail -12; }
 for i in 1 2 3 4 5; do [ "$(version_of $i)" = 6.1.0 ] && pass "node $i runs 6.1.0" || fail "node $i runs $(version_of $i)"; done
 
+section "a node taken out of the mesh: the signed node list retires it, and machines stop asking it"
+# A copy of nodes.conf as deploy/remove-node.sh --apply leaves it: n4's line becomes a "# removed" line.
+grep -qx "n4:lab_n4:127.0.0.14" "$LAB/nodes.conf" && pass "n4 is in nodes.conf" || fail "n4 is not in nodes.conf as the lab wrote it"
+sed 's/^n4:lab_n4:127.0.0.14$/# removed 2026-10-21T21:36:32Z n4:lab_n4:127.0.0.14/' "$LAB/nodes.conf" >"$LAB/retire.conf"
+RPUB=$("$NEW" release keygen --out "$LAB/retire.key" 2>&1 | sed -n 's/^public key .*: //p')
+out=$("$NEW" release nodes --conf "$LAB/retire.conf" --dir "$LAB/retire-list" --key "$LAB/retire.key" 2>&1); has "release nodes retires the removed node" "it retires 1 node(s) .*: n4;" "$out"
+out=$(AIVOICEBUS_NODES_CONF="$LAB/retire.conf" deploy/publish-nodes.sh "$LAB/retire-list" --apply 2>&1); has "publish-nodes.sh puts the list on the nodes left" "^done" "$out"
+# a machine set up while n4 was in the mesh: AIVOICEBUS_URL names all four, and it trusts the key that signed the list
+rmach() { HOME="$LAB/retire-home" AIVOICEBUS_ME=labr/agent AIVOICEBUS_URL="$1" AIVOICEBUS_TOKEN="$(tok)" "$NEW" "${@:2}"; }
+mkdir -p "$LAB/retire-home"
+RFP=$(rmach "$ALLURLS" trust-key add "$RPUB" </dev/null 2>/dev/null | sed -n 's/^fingerprint: //p') # it shows the fingerprint, then wants it typed
+rmach "$ALLURLS" trust-key add "$RPUB" --fingerprint "$RFP" >/dev/null 2>&1 && pass "the machine trusts the lab's signing key" || fail "trust-key add"
+out=$(rmach "$ALLURLS" nodes --refresh 2>&1); has "it learns the list" "node list updated" "$out"
+has "and no longer uses n4" "127.0.0.14:$PORT .*configured, retired from the mesh (n4, .*: not used" "$out"
+out=$(rmach "$ALLURLS" mesh 2>&1); has "mesh says why it does not check n4" "not checked: http://127.0.0.14:$PORT is configured here, but retired" "$out"
+lacks "and has no row for it" "^n4 " "$out"
+nodectl 4 stop
+out=$(rmach "$ALLURLS" status --json 2>&1 | tr -d ' \n')
+has "with n4 stopped, status counts no node down" '"down":\[\]' "$out"
+has "and names it as retired" '"retired":\["127.0.0.14:'"$PORT"'"\]' "$out"
+out=$(rmach "$(url 4)" status 2>&1); has "a machine that names only n4 still uses it, and status says what to do" "still uses 127.0.0.14:$PORT, which the signed node list retired: .*join --url" "$out"
+nodectl 4 start
+eventually "n4 is back" 15 curl -fsS "http://127.0.0.14:$PORT/healthz"
+rm -f "$LAB"/nodes/lab_n*/srv/aivoicebus-release/nodes.json "$LAB"/nodes/lab_n*/srv/aivoicebus-release/nodes.sig
+
 section "a thread's shared space: sealed, versioned, replicated, kept across a restart and a lost disk"
 # Late in the lab: its machines send with the shared token, which the token checks above would
 # (rightly) count as machines a rotation cuts off.

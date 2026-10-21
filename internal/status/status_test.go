@@ -496,3 +496,40 @@ func TestTheDeployMachinesSharedTokenIsNoProblem(t *testing.T) {
 		t.Errorf("screen:\n%s", out)
 	}
 }
+
+// A configured node the signed node list retired is not asked and not counted, and the screen says so.
+func TestARetiredNodeIsNotAskedAndSaidSo(t *testing.T) {
+	a, _ := node(t, "na", "0.10.4", "")
+	o := opts(a.URL) // the client's nodes, as config.Resolve gave them: without the retired one
+	o.Retired = []config.RetiredNode{{Name: "database", URL: "http://100.64.0.9:7777"}}
+	r := Gather(o)
+	n := r.Nodes
+	if n == nil || n.Configured != 1 || n.Up != 1 || len(n.Down) != 0 || !slices.Equal(n.Retired, []string{"100.64.0.9:7777"}) || n.RetiredKept {
+		t.Fatalf("nodes = %+v", n)
+	}
+	if fix := fixFor(r, "nodes"); len(fix) != 0 {
+		t.Errorf("a dropped node is no problem: %v", r.Problems)
+	}
+	screen := render(r)
+	if !strings.Contains(screen, "1 of 1 up") || !strings.Contains(screen, "not asked, retired by the signed node list: 100.64.0.9:7777") {
+		t.Errorf("%s", screen)
+	}
+	checkScreen(t, screen)
+
+	// AIVOICEBUS_URL names only the retired node, so it is still used: a problem, with its command
+	gone := "http://127.0.0.1:1"
+	o = opts(gone)
+	o.Retired, o.RetiredKept = []config.RetiredNode{{Name: "database", URL: gone}}, true
+	r = Gather(o)
+	if n := r.Nodes; n == nil || !n.RetiredKept || len(n.Down) != 1 {
+		t.Fatalf("nodes = %+v", n)
+	}
+	if fix := fixFor(r, "nodes"); !slices.Contains(fix, "aivoicebus join --url URL") {
+		t.Errorf("%v", r.Problems)
+	}
+	screen = render(r)
+	if !strings.Contains(screen, "still uses 127.0.0.1:1, which the signed node list retired") || strings.Contains(screen, "not asked") {
+		t.Errorf("%s", screen)
+	}
+	checkScreen(t, screen)
+}
