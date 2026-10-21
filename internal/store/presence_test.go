@@ -11,12 +11,11 @@ import (
 
 func presenceStore(t *testing.T, dir string) (*Store, *time.Time) {
 	t.Helper()
-	s, err := Open(dir, "n1")
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	s, err := Open(dir, "n1", WithClock(func() time.Time { return now })) // the clock from the start: Open judges the saved roster by it
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	s.SetClock(func() time.Time { return now })
 	return s, &now
 }
 
@@ -108,11 +107,10 @@ func TestPresenceSurvivesARestartAndAFlushIsThrottled(t *testing.T) {
 	}
 
 	// a new process on the same disk knows who was around and what they worked on
-	re, err := Open(dir, "n1")
+	re, err := Open(dir, "n1", WithClock(func() time.Time { return *now }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	re.SetClock(func() time.Time { return *now })
 	r := rosterOf(re)
 	if e := r["mac/claude.a"]; e.Labels["repo"] != "alpha" || e.Labels["branch"] != "main" || e.Seen.IsZero() {
 		t.Errorf("after a restart: %+v", e)
@@ -122,10 +120,8 @@ func TestPresenceSurvivesARestartAndAFlushIsThrottled(t *testing.T) {
 	}
 
 	// a week later they are gone
-	later, _ := Open(dir, "n1")
-	later.SetClock(func() time.Time { return now.Add(8 * 24 * time.Hour) })
-	later.loadPresence()
-	if len(later.Roster()) > 2 { // loadPresence ran at Open with the real clock; reload with the late one
+	later, _ := Open(dir, "n1", WithClock(func() time.Time { return now.Add(8 * 24 * time.Hour) }))
+	if len(later.Roster()) > 2 {
 		t.Errorf("sessions older than the retention window are dropped on load: %v", later.Roster())
 	}
 }
