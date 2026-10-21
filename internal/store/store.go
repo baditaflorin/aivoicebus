@@ -279,6 +279,10 @@ type Option func(*Store)
 // the origin and number and why, never the content.
 func WithLog(w io.Writer) Option { return func(s *Store) { s.logw = w } }
 
+// WithClock makes the store read its clock from now from the start, so what Open loads that depends on the
+// time (the roster's seven days, the rate-limit windows) is judged by it. SetClock changes it afterwards.
+func WithClock(now func() time.Time) Option { return func(s *Store) { s.now = now } }
+
 // Open loads (or creates) the store in dir for the given node id.
 func Open(dir, node string, opts ...Option) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
