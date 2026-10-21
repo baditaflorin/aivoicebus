@@ -214,5 +214,11 @@ func Strong(body string) (Finding, bool) {
 
 // Refusal is the sentence a refused send is told.
 func Refusal(f Finding) string {
+	switch f.Kind {
+	case KindPipeLink:
+		return "this message looks like it contains a " + f.Kind + ". Messages are kept in clear text on every node and shown in the dashboard, so anyone who reads the board can open the link while it lives: send the file with `aivoicebus send --file FILE` (its key is sealed for the recipient's machine and stays out of the text), or a machine token with `aivoicebus token hand HOST`, and send it again"
+	case KindApproverSignature:
+		return "this message looks like it contains an " + f.Kind + ". A signature is a person's decision, and only `aivoicebus approve ID` (or `aivoicebus deny ID`), typed by the person at a terminal, makes one: leave it out, and send it again"
+	}
 	return "this message looks like it contains a " + f.Kind + ". Messages are kept in clear text on every node and shown in the dashboard: say where the secret lives instead, and send it again"
 }

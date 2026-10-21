@@ -10,6 +10,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/store"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/worker"
 )
@@ -20,14 +21,21 @@ const wk = "lap/worker"
 // It returns a marker file that the test's command creates when it runs.
 func workerSetup(t *testing.T, allow ...string) (mark string) {
 	t.Helper()
-	mesh(t)
+	mark, _ = workerSetupStore(t, allow...)
+	return mark
+}
+
+// workerSetupStore is workerSetup, and returns the node's store too (see meshStore).
+func workerSetupStore(t *testing.T, allow ...string) (mark string, s *store.Store) {
+	t.Helper()
+	s = meshStore(t)
 	present(t, sa) // a session on lap, so a task to lap reaches someone
 	for _, a := range allow {
 		if err := worker.AddAllow(a); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return filepath.Join(t.TempDir(), "ran")
+	return filepath.Join(t.TempDir(), "ran"), s
 }
 
 // runWorker runs `worker --once` as the worker on lap.

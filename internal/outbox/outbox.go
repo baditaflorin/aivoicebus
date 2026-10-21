@@ -120,12 +120,17 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			return p, fmt.Errorf("--re: %w", err)
 		}
 	}
+	var approval msg.Message // the approval request this is a reply in, when it is one
+	inApproval := false
 	if r.Re != "" {
 		var orig msg.Message
 		var found bool
 		var err error
 		if msg.ValidID(r.Re) {
 			orig, found, err = lookup(c, r.Re)
+		}
+		if found && msg.DecisionShaped(body) {
+			approval, inApproval = approvalRequestOf(c, orig)
 		}
 		switch {
 		case to == "" && !found: // a reply goes back to whoever wrote the message
@@ -154,7 +159,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if why := msg.TargetProblem(to); why != "" {
 		return p, fmt.Errorf("refused: the target %s: name it with plain letters (`aivoicebus who` lists the sessions)", why)
 	}
+	if inApproval { // the word alone never decides: only the person's signed decision is stored (msg.DecisionProblem)
+		if why := msg.DecisionProblem(approval, body); why != "" {
+			return p, errors.New(msg.ApprovalRefusal(approval.ID, why)) // nextstep: msg.ApprovalRefusal says it
+		}
+	}
 	if f, found := credentialIn(body); found {
+		return p, errors.New("refused: " + secrets.Refusal(f) + " (nothing was sent)") // nextstep: secrets.Refusal says it
+	}
+	if f, found := secrets.Authority(body, inApproval); found { // an approver signature, a pipe link's key: not in a message's text
 		return p, errors.New("refused: " + secrets.Refusal(f) + " (nothing was sent)") // nextstep: secrets.Refusal says it
 	}
 	for _, f := range secrets.Find(body) {
@@ -407,9 +420,13 @@ func LineFilter() func(line string) (string, bool) {
 }
 
 // Credential reports the kind of credential body holds, exactly as a send would refuse it: this
-// machine's own secrets matched exactly, else anything shaped like a credential.
+// machine's own secrets matched exactly, else anything shaped like a credential, an approver
+// signature or a pipe link with its key.
 func Credential(body string) (kind string, found bool) {
 	f, found := credentialIn(body)
+	if !found {
+		f, found = secrets.Authority(body, false)
+	}
 	return f.Kind, found
 }
 

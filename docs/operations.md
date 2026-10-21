@@ -217,7 +217,10 @@ tombstone says it may have held a credential, and the CLI prints how many other 
 still shows the text is on a release that predates retraction (`aivoicebus mesh`). (4) Remember the text is
 still in the logs, exports and the dashboard's archive: that is why step 1 is the real fix, and why the
 node refuses to store a message that looks like a credential in the first place
-(`aivoicebus_secrets_refused_total`).
+(`aivoicebus_secrets_refused_total`, which also counts a pipe link with its key and an approver signature
+pasted into a message). `aivoicebus_approvals_refused_total` counts replies to an approval request that
+could not be the person's signed decision (an agent writing "approve"): a rising number means an agent
+believes it can approve; the request is in the person's queue (`aivoicebus answer`), not the agent's.
 
 **A session that is gone.** Retraction goes by machine, so a session that died (or a new one with
 another suffix) is not a problem: from a shell on the sender's machine, `aivoicebus retract <id>`

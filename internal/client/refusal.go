@@ -31,6 +31,8 @@ func reasonOf(code int, header, text string) string {
 			return msg.RefusedReadOnly
 		case has("can retract it"), has("can amend it"):
 			return msg.RefusedNotSender
+		case has("answers an approval request"):
+			return msg.RefusedApproval
 		}
 	case http.StatusConflict:
 		switch {
@@ -119,6 +121,8 @@ func (e *StatusError) explain(reason string) (string, bool) {
 		return "the node takes only signed messages, and this one was unsigned or did not verify, so it was not sent. Run `aivoicebus update`, then send it again", true
 	case msg.RefusedSecret:
 		return "the node refused the message: " + said + ". Nothing was sent: send it again without the secret", true
+	case msg.RefusedApproval:
+		return "the node refused the reply: " + said + ". An approval is the person's signed decision (`aivoicebus approve ID` in their terminal), never a message", true
 	case msg.RefusedTurns:
 		return "this conversation reached its turn limit (--max-turns), so the message was not sent. Close it with `aivoicebus reply --end --re ID`, or start a new one with `aivoicebus send`", true
 	case msg.RefusedDeadline:

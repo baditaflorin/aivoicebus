@@ -608,6 +608,9 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 		return "", errNobodyToApprove
 	}
 	text := msg.ApprovalTag + " " + what + "\n\nA person approves in a terminal on this machine, with the approver passphrase: aivoicebus approve <this id>  (or: aivoicebus deny <this id>). It waits " + within.String() + ". An agent must not run either."
+	if kerr == nil {
+		text += "\n" + msg.ApproverKeyLine(key) // lets a node tell a signature that verifies from one that does not
+	}
 	code := ""
 	if nu != "" && len(c.URLs) > 0 {
 		b := make([]byte, 16)

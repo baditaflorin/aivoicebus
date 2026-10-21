@@ -316,7 +316,19 @@ DigitalOcean, SendGrid or Tailscale credential; a JWT; a connection string with 
 password, where `postgres://user:password@localhost/db` and `http://localhost:3000?a=b@c` are
 only talk about one) and warn about weaker ones, such as a long random-looking word. Prose that
 merely starts like a token (`glpat-rotation-runbook-for-all-teams`) is left alone: a real token is
-mixed case. A node also refuses, by exact match, any token it accepts, and `send`
+mixed case. Two shapes that are not secrets to read but a way to act are refused as well, wherever a
+person or an agent might paste them: a **pipe link with its key** (`https://HOST/#ID~64 hex characters`,
+whose key lets anyone who reads the board open the file while it lives) and an **approver signature**
+(`[approver-sig v1 ...]`, the line that makes an approval). The refusal says what to do instead:
+`aivoicebus send --file FILE` (its key is sealed for the recipient's machine and stays out of the
+text) or `aivoicebus token hand HOST` for a link; `aivoicebus approve ID`, typed by the person at a
+terminal, for a signature. The `[attach]` line that `send --file`, `token hand` and the log links
+write is the carrier a link belongs in and is not refused, and an approver signature in a reply to an
+approval request is judged as described under "Write mode" below, not refused as text.
+They are detected by `secrets.Authority`, next to the credential rules but apart from them: a file's
+content and a log line are still judged by the credential rules alone. Like the credential check
+this stops the accident (a link pasted from another tool, an agent copying a decision it saw), not a
+sender who writes an `[attach]` line by hand. A node also refuses, by exact match, any token it accepts, and `send`
 (the CLI and the MCP tool alike) refuses the token in use and anything in the secret files under
 `~/.config/aivoicebus` (`token`, `token.next`, `token.nodes`, `observer-token`, `machine-tokens/`,
 `bootstrap-key`, `release-signing.key`): a generated token has no shape to recognise, but its
@@ -374,7 +386,9 @@ before doing it.
 **Tasks meant for the person.** Some tasks are for the person on a machine, never for an agent
 there: a `[token hand]` (it replaces the machine's credential), and any task sent with `aivoicebus
 task laptop-b --person "..."` (for an incident step, say). Both go to `laptop-b/human`, which no
-agent session reads as; `[approval needed]` requests and `ask-human` questions go there too. A task
+agent session reads as; `[approval needed]` requests (a write-mode worker's goes to the person on the
+approver's machine, not to the `--approver` entry, which may name an agent's session) and `ask-human`
+questions go there too; `aivoicebus answer` lists both. A task
 whose first line starts `[token hand v1]`, `[approval needed]`, `[ask-human]` or `[for the person]`
 counts as the person's wherever it was sent, unless it was sent to one session by name (the sender
 chose who takes it). `claim` and `token install` refuse such a task in an agent's session, and the
@@ -933,14 +947,28 @@ three ways:
     aivoicebus approver show                         # its public half
     aivoicebus worker install --agent codex --write --repo ~/src/api --approver laptop-a/claude --approver-key KEY
 
-- **Approved first.** For every task the worker sends the approver an urgent `[approval needed]`
-  message (what the task says, who sent it, the branch it would use) and, when a notify URL is set,
-  a notification. It runs the task only after the approver's decision signed with the **approver
-  key**: `aivoicebus approve ID` (ID being that message's) shows the request and asks for the
+- **Approved first.** For every task the worker sends an urgent `[approval needed]` message (what
+  the task says, who sent it, the branch it would use, and the approver key's public half on an
+  `approver-key:` line) to the person on the approver's machine (`<machine>/human`, which no agent
+  session reads; `aivoicebus answer` there lists it, and the approver entry can name an agent's
+  session without that agent being shown the request) and, when a notify URL is set, a
+  notification. The task's sender is told only that it waits: the worker's claim says
+  `awaiting-approval: ...`, and a progress message says when the person approved. It runs the
+  task only after the approver's decision signed with the **approver key**: `aivoicebus approve ID` (ID being that message's) shows the request and asks for the
   approver passphrase on the terminal, then signs "approve" for that request and that worker. Any
   agent on a machine can sign with the machine key, so a reply that is only machine-signed (an
   agent told to "run aivoicebus reply --re ID approve") does not count, nor does one signed by
   another key, for another request or another worker, or sent by anyone but `--approver`.
+  Nothing about that rests on the node: it is the worker's own check. On top of it the sender
+  and every node refuse, before storing, a reply in an approval thread that cannot be a decision: the
+  word `approve` or `deny` (or `approved`, `denied`) without a signature line, a signature line
+  that is not an approve or deny, and, when the request names the approver key, one that does not
+  verify for that request, word and worker. The refusal (HTTP 403, reason `approval`,
+  `aivoicebus_approvals_refused_total`) says the word never counts and names `aivoicebus approve ID`
+  for the person's terminal. A signature that does verify is stored, so a real decision, or a copy of
+  one, still goes through; a request from a worker older than this release names no key, and its
+  replies are judged on their shape alone. The phone's decision is recorded by the node itself and is
+  not a reply that anyone sends.
   `aivoicebus deny ID`, or no decision within `--approve-within` (30m), runs nothing and tells the
   sender so. The approver key lives in `~/.config/aivoicebus/approver.key`, sealed with the
   passphrase (PBKDF2-SHA256, 600000 rounds, AES-256-GCM); `approve` and `approver init` read it only

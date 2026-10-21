@@ -252,7 +252,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 // the command ran.
 func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base Entry) bool {
 	who := view.Name(m.From, msg.MaxIdentity)
-	c, err := tasks.Claim(w.C, w.Me, tasks.Agent, m.ID, "the worker on "+msg.HostOf(w.Me)+" is running it now", w.Settle, io.Discard)
+	c, err := tasks.Claim(w.C, w.Me, tasks.Agent, m.ID, w.claimNote(), w.Settle, io.Discard)
 	switch {
 	case err != nil:
 		w.say("task %s from %s: claim failed: %v", m.ID, who, err)
@@ -291,6 +291,7 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 			w.log(base)
 			return false
 		}
+		w.progress(m, fmt.Sprintf("[worker on %s] approved by the person: running it now.", msg.HostOf(w.Me)))
 		var err error
 		if wt, err = newWorktree(ctx, w.Write.Repo, w.Write.Root, m.ID); err != nil {
 			w.say("task %s: no worktree: %v", m.ID, err)
@@ -359,6 +360,24 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	return true
 }
 
+// claimNote is what the task's sender is told when the worker takes it. In write mode the task runs
+// only after the person approved it, and the sender is told just that (the request itself goes to
+// the person's queue, never to the sender).
+func (w *Worker) claimNote() string {
+	host := msg.HostOf(w.Me)
+	if w.Write == nil {
+		return "the worker on " + host + " is running it now"
+	}
+	return fmt.Sprintf("awaiting-approval: the worker on %s took it, and runs it only after the person there approves it (up to %s); it answers here either way", host, w.Write.Within)
+}
+
+// progress tells the task's sender how it goes, in a progress message in the task's thread.
+func (w *Worker) progress(m msg.Message, body string) {
+	if plan, err := outbox.Prepare(w.C, outbox.Request{To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindProgress, Body: body, TargetSaid: true}, io.Discard); err == nil {
+		_, _ = plan.Send(w.C)
+	}
+}
+
 // HeartbeatEvery is how often a running task says it is still running.
 var HeartbeatEvery = 2 * time.Minute
 
@@ -373,10 +392,7 @@ func (w *Worker) heartbeat(ctx context.Context, m msg.Message) {
 			return
 		case <-t.C:
 		}
-		body := fmt.Sprintf("[worker on %s] still running, %s in", msg.HostOf(w.Me), w.now().Sub(start).Round(time.Second))
-		if plan, err := outbox.Prepare(w.C, outbox.Request{To: m.From, Re: m.ID, Thread: m.Thread, Kind: msg.KindProgress, Body: body, TargetSaid: true}, io.Discard); err == nil {
-			_, _ = plan.Send(w.C)
-		}
+		w.progress(m, fmt.Sprintf("[worker on %s] still running, %s in", msg.HostOf(w.Me), w.now().Sub(start).Round(time.Second)))
 	}
 }
 
