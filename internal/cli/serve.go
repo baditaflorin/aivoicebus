@@ -27,6 +27,7 @@ func serve(args []string, s Streams) error {
 	every := fs.Duration("sync-every", 3*time.Second, "peer pull interval")
 	rdir := fs.String("release-dir", "", "serve this release directory (manifest, signature, binaries) at /v1/release/")
 	requireSigned := fs.Bool("require-signed", os.Getenv("AIVOICEBUS_REQUIRE_SIGNED") == "1", "refuse messages that carry no valid signature (every client of 0.7.0 or later signs); also AIVOICEBUS_REQUIRE_SIGNED=1")
+	leaving := fs.Bool("leaving", os.Getenv("AIVOICEBUS_LEAVING") == "1", "this node is leaving the mesh: refuse client writes (clients write to another node) while serving reads and the peers' feeds; also AIVOICEBUS_LEAVING=1")
 	allowPublic := fs.Bool("allow-public", false, "listen on all interfaces, a public address or a host name (plain HTTP: put it behind TLS you control)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -51,6 +52,7 @@ func serve(args []string, s Streams) error {
 		BootstrapMaxAge: *bmax,
 		ReleaseDir:      *rdir,
 		RequireSigned:   *requireSigned,
+		Leaving:         *leaving,
 		Out:             s.Out,
 	})
 }

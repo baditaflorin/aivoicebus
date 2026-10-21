@@ -849,6 +849,23 @@ eventually "node 2 is back with an empty disk" 15 curl -fsS "http://127.0.0.12:$
 sb2_reads() { SBN=2 sb share get "$ST" share.big --version 1 --out "$LAB/share.n2" --force && cmp -s "$LAB/share.big" "$LAB/share.n2"; }
 eventually "node 2 takes the space back from its peers" 40 sb2_reads
 
+section "a node leaving the mesh takes no client writes, and its peers still pull from it"
+out=$(AIVOICEBUS_NODE_LEAVING=1 deploy/install.sh --apply --peers-only 2>&1); rc=$?
+[ $rc = 2 ] && has "install.sh puts one named node into leaving, never them all" "needs the one node that is leaving named" "$out" || fail "AIVOICEBUS_NODE_LEAVING=1 without a node: exit $rc: $out"
+out=$(AIVOICEBUS_NODE_LEAVING=1 deploy/install.sh --apply --peers-only n3 2>&1); rc=$?
+[ $rc = 0 ] && grep -qx 'AIVOICEBUS_LEAVING=1' "$LAB/nodes/lab_n3/etc/aivoicebus/node.env" && pass "AIVOICEBUS_NODE_LEAVING=1 install.sh --peers-only n3 writes it to node.env" || fail "leaving switch exit $rc: $out"
+has "n3 says it is leaving" '"leaving":true' "$(http "$TOKEN_FILE" "$(url 3)/v1/health")"
+[ "$(code "$TOKEN_FILE" "$(url 3)/v1/send" -X POST -d '{"from":"lab/sender","to":"lab/reader","body":"to a leaving node"}')" = 503 ] && pass "n3 refuses a client write" || fail "n3 took a write while leaving"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 3),$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "written past a leaving node" 2>&1); has "a client whose first node is leaving writes to the next" "^sent " "$M"
+n3_holds() { http "$TOKEN_FILE" "$(url 3)/v1/sync" | grep -q 'written past a leaving node'; }
+eventually "n3 still pulls from its peers, and its own feed to them still answers" 20 n3_holds
+has "mesh names it" "n3 is leaving the mesh" "$(AIVOICEBUS_URL="$ALLURLS" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh 2>&1)"
+deploy/install.sh --apply --peers-only n3 >/dev/null 2>&1
+grep -qx 'AIVOICEBUS_LEAVING=1' "$LAB/nodes/lab_n3/etc/aivoicebus/node.env" && pass "a later install without the variable keeps it" || fail "a re-install dropped the leaving switch"
+AIVOICEBUS_NODE_LEAVING=0 deploy/install.sh --apply --peers-only n3 >/dev/null 2>&1
+grep -q 'AIVOICEBUS_LEAVING' "$LAB/nodes/lab_n3/etc/aivoicebus/node.env" && fail "AIVOICEBUS_NODE_LEAVING=0 left it in node.env" || pass "AIVOICEBUS_NODE_LEAVING=0 takes it out"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_URL="$(url 3)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader --queue "n3 takes writes again" 2>&1); has "and n3 takes writes again" "^sent " "$M"
+
 section "signed messages only: is the mesh ready, and the switch"
 unsigned() { code "$TOKEN_FILE" "$(url "$1")/v1/send" -X POST -d "{\"from\":\"labold/agent\",\"to\":\"lab/reader\",\"body\":\"unsigned, like a client older than 0.7.0 ($2)\"}"; }
 [ "$(unsigned 2 one)" = 200 ] && pass "a node takes an unsigned message by default" || fail "unsigned send refused"

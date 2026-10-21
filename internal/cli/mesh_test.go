@@ -171,3 +171,15 @@ func TestMeshWarnsBeforeANodeOutgrowsItsMemory(t *testing.T) {
 		t.Errorf("0 turns the alarm off: %v", got)
 	}
 }
+
+func TestMeshNamesANodeThatIsLeaving(t *testing.T) {
+	a := meshNode(t, "node-a", "0.6.0", 0, server.NewPeerBoard(nil))
+	s, _ := store.Open(t.TempDir(), "build")
+	srv := httptest.NewServer(server.NewHandler(s, "tok", server.WithNode("build"), server.WithVersion("0.6.0"), server.WithLeaving(true)))
+	t.Cleanup(srv.Close)
+	pointAt(t, a, srv.URL)
+	code, out, e := run(t, "", "mesh")
+	if code != 1 || !strings.Contains(out, "build is leaving the mesh: it takes no client writes") {
+		t.Fatalf("%d\n%s%s", code, out, e)
+	}
+}

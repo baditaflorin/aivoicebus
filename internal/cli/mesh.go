@@ -109,6 +109,9 @@ func assess(reports []nodeReport, th meshThresholds) []string {
 			continue
 		}
 		r.SkewMs -= mid
+		if r.Health.Leaving {
+			problems = append(problems, fmt.Sprintf("%s is leaving the mesh: it takes no client writes until it is taken out of nodes.conf, or switched back (AIVOICEBUS_NODE_LEAVING=0 deploy/install.sh --apply --peers-only NODE)", r.Name))
+		}
 		if d := time.Duration(r.SkewMs) * time.Millisecond; d > th.MaxSkew || d < -th.MaxSkew {
 			problems = append(problems, fmt.Sprintf("%s's clock is %s off the others (message expiry uses node clocks)", r.Name, d.Round(100*time.Millisecond)))
 		}

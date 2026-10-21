@@ -164,6 +164,8 @@ func (e *StatusError) explain(reason string) (string, bool) {
 		return "the file is gone: it expired or was already read. Ask its sender to send it again", true
 	case msg.RefusedRecovering:
 		return "the node is catching up with its peers. Try again in a minute", true
+	case msg.RefusedLeaving:
+		return "the node is leaving the mesh and takes no writes, and no other node took it. Check that another node is configured: `aivoicebus nodes`", true
 	case msg.RefusedShareFull:
 		return "the node refused it: " + said + ". Nothing was stored: share it in a new thread, send it once through the pipe (`--via pipe`), or ask the user", true
 	case msg.RefusedConflict:

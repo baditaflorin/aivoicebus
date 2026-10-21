@@ -62,7 +62,7 @@ func TestRefusalsSayWhatToDo(t *testing.T) {
 	for _, reason := range []string{msg.RefusedToken, msg.RefusedDenied, msg.RefusedReadOnly, msg.RefusedUnsigned, msg.RefusedSecret,
 		msg.RefusedTurns, msg.RefusedDeadline, msg.RefusedBudget, msg.RefusedLoop, msg.RefusedRateSender, msg.RefusedRateMachine, msg.RefusedRatePair,
 		msg.RefusedRateRetract, msg.RefusedUnknown, msg.RefusedNotSender, msg.RefusedReservedID, msg.RefusedNotice,
-		msg.RefusedBadRequest, msg.RefusedTooLarge, msg.RefusedGone, msg.RefusedRecovering, msg.RefusedShareFull, msg.RefusedConflict,
+		msg.RefusedBadRequest, msg.RefusedTooLarge, msg.RefusedGone, msg.RefusedRecovering, msg.RefusedLeaving, msg.RefusedShareFull, msg.RefusedConflict,
 		msg.RefusedShareMissing, "from-a-future-release"} {
 		e := &client.StatusError{Code: 400, Status: "400 Bad Request", Text: "words", Reason: reason}
 		if got := e.Error(); !view.HasNextStep(got) || strings.Contains(got, "\n") {

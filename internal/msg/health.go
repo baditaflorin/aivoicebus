@@ -29,6 +29,11 @@ type Health struct {
 	// (see client.Retract). Nodes ignore it from each other; it is not replicated.
 	Features []string `json:"features,omitempty"`
 
+	// Leaving is set on a node that is leaving the mesh (serve --leaving): it takes no client
+	// writes, so nothing lands on it that its peers would stop pulling once it is taken out, and it
+	// still feeds its peers what it holds.
+	Leaving bool `json:"leaving,omitempty"`
+
 	Peers []PeerHealth `json:"peers"`
 }
 
