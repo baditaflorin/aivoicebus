@@ -1602,7 +1602,9 @@ no election, and losing nodes only delays delivery.
 - Peers may list all other nodes (full mesh) so one failure can't partition it.
 - Machines learn the node list themselves: a node list signed with the release key (and with
   its own expiry) is served by the nodes (`aivoicebus nodes`, refreshed once a day at session
-  start), so a node added later reaches machines set up before it existed. Reads are hedged (a second node is asked
+  start), so a node added later reaches machines set up before it existed, and a node the list
+  retires stops being used, even where `AIVOICEBUS_URL` names it (see
+  [The signed node list](operations.md#the-signed-node-list)). Reads are hedged (a second node is asked
   after 250 ms, so a hung node costs a quarter of a second) and writes go to every node in
   parallel, succeeding on the first (`AIVOICEBUS_WRITE_QUORUM`, `AIVOICEBUS_HEDGE_MS`).
 - A node keeps serving whatever reaches it: connections that never finish a request are dropped
