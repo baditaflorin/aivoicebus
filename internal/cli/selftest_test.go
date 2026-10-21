@@ -72,10 +72,12 @@ func hopOf(v selftestJSON, name string) (selftestHop, bool) {
 	return selftestHop{}, false
 }
 
+// The tests that follow check the probe of a mesh that has no test lane yet (its retraction and its tombstone), so they run
+// on a node that does not advertise it; the lane has its own tests in selftest_lane_test.go.
 func TestSelftestRunsTheJoinProbeNotTheSessionAndLeavesOneTombstone(t *testing.T) {
 	var mu sync.Mutex
 	var seen []string // every request line and body the node saw
-	s := selftestNode(t, func(next http.Handler) http.Handler {
+	s := selftestNodeOld(t, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw, _ := io.ReadAll(r.Body)
 			r.Body = io.NopCloser(bytes.NewReader(raw))
@@ -222,7 +224,7 @@ func TestSelftestFailsLoudlyWhenNoNodeAnswersAndWritesNothing(t *testing.T) {
 }
 
 func TestSelftestChecksTheBodyAndStillCleansUp(t *testing.T) {
-	s := selftestNode(t, func(next http.Handler) http.Handler {
+	s := selftestNodeOld(t, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/v1/inbox" {
 				next.ServeHTTP(w, r)
@@ -244,7 +246,7 @@ func TestSelftestChecksTheBodyAndStillCleansUp(t *testing.T) {
 }
 
 func TestSelftestSaysWhenTheProbeNeverShowsUpAndStillCleansUp(t *testing.T) {
-	s := selftestNode(t, func(next http.Handler) http.Handler {
+	s := selftestNodeOld(t, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/v1/inbox" {
 				w.Header().Set("Content-Type", "application/json")
@@ -264,7 +266,7 @@ func TestSelftestSaysWhenTheProbeNeverShowsUpAndStillCleansUp(t *testing.T) {
 }
 
 func TestSelftestFailsIfTheThreadStillShowsTheProbeAfterTheRetraction(t *testing.T) {
-	selftestNode(t, func(next http.Handler) http.Handler {
+	selftestNodeOld(t, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/v1/thread" {
 				next.ServeHTTP(w, r)

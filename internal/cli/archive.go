@@ -15,7 +15,8 @@ import (
 
 // exportCmd writes every record the mesh holds, one JSON object per line, in the
 // order a node would apply them. The file is a complete copy of the board: add-only
-// records are what replication moves, so it restores a node that lost its disk.
+// records are what replication moves, so it restores a node that lost its disk. The test lane
+// (msg/testlane.go) is not part of the board: a test message is written as its stub.
 func exportCmd(args []string, s Streams) error {
 	fs := newFlagSet("export")
 	out := fs.String("out", "", "write to this file (mode 600) instead of standard output")
@@ -57,6 +58,10 @@ func exportCmd(args []string, s Streams) error {
 		for _, r := range recs {
 			if r.Seq != vv[r.Origin]+1 {
 				continue // the feed is contiguous per origin; anything else is not ours to write
+			}
+			if r.Msg != nil && r.Msg.IsTest() { // the test lane is not part of the board: its place in the numbering stays, its words do not
+				stub := msg.TestStub(*r.Msg)
+				r.Msg = &stub
 			}
 			b, _ := json.Marshal(r)
 			bw.Write(append(b, '\n'))

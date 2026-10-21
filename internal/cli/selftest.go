@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/baditaflorin/aivoicebus/internal/attach"
 	"github.com/baditaflorin/aivoicebus/internal/client"
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -36,16 +38,51 @@ type selftestHop struct {
 }
 
 // selftestCmd is `aivoicebus selftest`: the same probe `join` uses (one note between two throwaway
-// identities on this machine, through the real send, inbox, ack and retract path), with each hop
-// timed. It never sends as this session and never writes to anyone else. Its footprint is one
-// message, one ack and the retraction (shown as a tombstone) per run, so it is limited to
-// selftestMaxRuns an hour per machine unless --force.
+// identities on this machine, through the real send, inbox and ack path), with each hop timed. On a
+// mesh whose nodes all have the test lane the probe is a test message (msg/testlane.go): nothing is
+// retracted, the node purges it, and one hop checks that a plain read does not show it. Without the
+// lane, as before, it is retracted and shows as a tombstone. It never sends as this session and never
+// writes to anyone else, so it is limited to selftestMaxRuns an hour per machine unless --force.
+//
+// --worker HOST and --file SIZE run scripted scenarios instead (selftest_scenarios.go), in the test lane.
 func selftestCmd(args []string, s Streams) error {
 	fs := newFlagSet("selftest")
 	asJSON := fs.Bool("json", false, "print the hops as JSON")
 	force := fs.Bool("force", false, "run even if it already ran "+strconv.Itoa(selftestMaxRuns)+" times in the last hour on this machine")
+	workerHost := fs.String("worker", "", "check the worker on HOST (it must run with --test-lane): a calculation through the allowlist, signature and claim, then what the flags below ask for; every message is a test message, nothing is run, no tokens are spent")
+	write := fs.Bool("write", false, "with --worker: ask what write mode would do with a task (it never asks for approval, never makes a worktree)")
+	cancelIt := fs.Bool("cancel", false, "with --worker: send a long sleep, cancel it, and check the worker stops it within seconds")
+	pauseIt := fs.Bool("pause", false, "with --worker: pause that worker only for a minute (pause --only), check a task waits, and that it is taken after (takes about 90 s)")
+	brake := fs.Int("brake", 0, "with --worker: start a conversation limited to N messages (3 to 50), check the nodes refuse message N+1 and let an [end] through")
+	fileSize := fs.String("file", "", "send a file of this size (300k, 1m) from one throwaway identity to another on this machine and check its sha256; needs --via")
+	via := fs.String("via", "", "with --file: pipe (the pipe server, contacts it) or node (this mesh's nodes hold it)")
+	timeout := fs.Duration("timeout", time.Minute, "with --worker or --file: how long each step waits")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
+	}
+	if fs.NArg() != 0 {
+		return outbox.Usagef("usage: selftest [--json] [--force]   |   selftest --worker HOST [--write] [--cancel] [--pause] [--brake N]   |   selftest --file 300k --via pipe|node")
+	}
+	switch {
+	case *workerHost != "" && *fileSize != "":
+		return outbox.Usagef("--worker and --file are two scenarios: run it once for each")
+	case *workerHost == "" && (*write || *cancelIt || *pauseIt || *brake != 0):
+		return outbox.Usagef("--write, --cancel, --pause and --brake go with --worker HOST")
+	case *brake != 0 && (*brake < 3 || *brake > 50):
+		return outbox.Usagef("--brake is 3 to 50 messages: the task and its answer are two of them")
+	case *fileSize != "" && *via != "pipe" && *via != "node":
+		return outbox.Usagef("--file needs --via pipe or --via node: pipe contacts the pipe server (%s), node uses this mesh's nodes", attach.DefaultPipeURL)
+	case *via != "" && *fileSize == "":
+		return outbox.Usagef("--via goes with --file")
+	case *timeout < time.Second:
+		return outbox.Usagef("--timeout is at least 1s")
+	}
+	size := 0
+	if *fileSize != "" {
+		var err error
+		if size, err = parseSize(*fileSize); err != nil {
+			return err
+		}
 	}
 	c, err := client.FromEnv()
 	if err != nil {
@@ -56,7 +93,18 @@ func selftestCmd(args []string, s Streams) error {
 			return err
 		}
 	}
-	hops, err := runSelftest(c)
+	title := "selftest (a probe between two throwaway identities on this machine)"
+	var hops []selftestHop
+	switch {
+	case *workerHost != "":
+		title = "selftest --worker " + view.OneLine(*workerHost, 60) + " (test messages from this machine's probe identity; nothing is run on the worker)"
+		hops, err = runWorkerScenarios(c, *workerHost, workerOpts{write: *write, cancel: *cancelIt, pause: *pauseIt, brake: *brake}, *timeout)
+	case *fileSize != "":
+		title = "selftest --file " + *fileSize + " --via " + *via + " (a file between two throwaway identities on this machine)"
+		hops, err = runFileScenario(c, size, *via, *timeout)
+	default:
+		hops, err = runSelftest(c)
+	}
 	if *asJSON {
 		enc := json.NewEncoder(s.Out)
 		enc.SetIndent("", "  ")
@@ -65,7 +113,7 @@ func selftestCmd(args []string, s Streams) error {
 			Hops []selftestHop `json:"hops"`
 		}{err == nil, hops})
 	} else {
-		fmt.Fprintln(s.Out, "selftest (a probe between two throwaway identities on this machine)")
+		fmt.Fprintln(s.Out, title)
 		var total int64
 		for _, h := range hops {
 			state := "ok  "
@@ -149,7 +197,19 @@ func runSelftest(c *client.Client) ([]selftestHop, error) {
 		return hops, errors.New("no node answered /v1/health: check the network, then run `aivoicebus doctor`")
 	}
 
-	res, err := probeRoundTrip(c)
+	lane := false // every node has the test lane: the probe is a test message, which needs no retraction
+	if herr == nil {
+		if old, lerr := c.TestLane(); lerr == nil && old == "" {
+			lane = true
+		}
+	}
+	var res probeResult
+	var err error
+	if lane {
+		res, err = probeLaneRoundTrip(c)
+	} else {
+		res, err = probeRoundTrip(c)
+	}
 	if res.id != "" {
 		_ = add("send", res.sent, "id "+view.OneLine(res.id, 12), nil)
 		// the time until the reader's inbox showed it: polls, replication lag and the client's
@@ -161,6 +221,9 @@ func runSelftest(c *client.Client) ([]selftestHop, error) {
 		_ = add("visible", res.read, vis, err)
 		if res.warnings == nil || !strings.Contains(strings.Join(res.warnings, " "), "acknowledging") {
 			_ = add("ack", res.acked, "acknowledged as the reader", nil)
+		}
+		if res.lane && err == nil {
+			_ = add("hidden", res.hidden, "a plain read of the reader does not show it (the node hides the test lane); the node purges it in about "+outbox.SpanShort(msg.TestLife), res.hiddenErr)
 		}
 		if res.retractState != "" {
 			_ = add("retract", res.retracted, retractDetail(res.retractState), nil)
@@ -174,10 +237,13 @@ func runSelftest(c *client.Client) ([]selftestHop, error) {
 	if err != nil {
 		return hops, err
 	}
+	if res.hiddenErr != nil {
+		return hops, res.hiddenErr
+	}
 	if len(res.warnings) > 0 {
 		return hops, errors.New(res.warnings[0])
 	}
-	if res.retractState == msg.RetractRetracted || res.retractState == msg.RetractAlready {
+	if !res.lane && (res.retractState == msg.RetractRetracted || res.retractState == msg.RetractAlready) {
 		t := time.Now()
 		ms, terr := c.Thread(res.id)
 		var tomb bool

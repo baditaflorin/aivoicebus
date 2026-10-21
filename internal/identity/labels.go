@@ -30,6 +30,7 @@ import (
 //	origin   its owner/name when the remote has one  example-org/go-url-categorizer-api
 //	branch   its checked-out branch               feature/x
 //	role     the roles it claims (AIVOICEBUS_ROLE) build+review  (a send to @build finds it)
+//	test     on when AIVOICEBUS_TEST=1: opted in to the test lane (read on every call, never pinned)
 //
 // cwd is the directory the session works in ("" means the current one). A
 // AIVOICEBUS_LABELS="key=value,..." in the environment is laid over everything
@@ -103,8 +104,18 @@ func Labels(cwd string) msg.Labels {
 	if m := msg.CleanModel(config.Model(Me())); m != "" {
 		l = l.Overlay(msg.Labels{msg.ModelLabel: m})
 	}
+	// The test lane opt-in, read afresh like the caps: taking the variable away leaves the lane at once.
+	if TestOptIn() {
+		l = l.Overlay(msg.Labels{msg.TestLabel: msg.TestOn})
+	} else {
+		delete(l, msg.TestLabel) // a pinned test=on of an earlier shell is not an opt-in
+	}
 	return l
 }
+
+// TestOptIn reports whether this session opted in to the test lane (AIVOICEBUS_TEST=1): test messages
+// may reach it, and only to a read that asks for them (see msg/testlane.go).
+func TestOptIn() bool { return strings.TrimSpace(os.Getenv("AIVOICEBUS_TEST")) == "1" }
 
 // capsDropWarned makes the warning above appear once per process; warnOut is where it goes.
 var (

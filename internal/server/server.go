@@ -337,6 +337,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			labels["machine"] = hostOf(me)
 		}
 		all := r.URL.Query().Get("all") == "1"
+		lane := r.URL.Query().Get(msg.ParamLane) == msg.LaneTest // msg.FeatureTestLane: test messages are in a read only when it asks, and its reader opted in
 		// A long poll (wait=S&gen=G, see msg.FeatureInboxWait): when nothing has changed on this node
 		// since the reader's last look (gen), hold the read until something does, at most S seconds.
 		// The session counts as listening meanwhile, so `who` and `ping` can say so.
@@ -344,7 +345,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			d := min(time.Duration(wait)*time.Second, msg.MaxInboxWait)
 			g, changed := s.Gen()
 			if seen, err := strconv.ParseUint(r.URL.Query().Get("gen"), 10, 64); err == nil && seen == g {
-				s.InboxFor(me, false, labels) // registers the session before it is marked listening
+				s.InboxLane(me, false, labels, lane) // registers the session before it is marked listening
 				s.NoteWaiting(me, time.Now().Add(d))
 				t := time.NewTimer(d)
 				select {
@@ -357,7 +358,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			}
 		}
 		g, _ := s.Gen() // before the read: something arriving in between is then both in it and newer
-		inbox := s.InboxFor(me, all, labels)
+		inbox := s.InboxLane(me, all, labels, lane)
 		w.Header().Set(msg.HeaderGen, strconv.FormatUint(g, 10))
 		if t := msg.CleanTitle(r.URL.Query().Get(msg.ParamTitle)); t != "" {
 			if _, bad := secrets.Strong(t); !bad {
@@ -434,7 +435,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 	}))
 	mux.HandleFunc("/v1/thread", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
-		js(w, s.Thread(r.URL.Query().Get("id")))
+		js(w, s.ThreadLane(r.URL.Query().Get("id"), r.URL.Query().Get(msg.ParamLane) == msg.LaneTest))
 	}))
 	mux.HandleFunc("/v1/sync", feed(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		vv := map[string]uint64{}

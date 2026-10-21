@@ -154,6 +154,7 @@ func workerInstall(args []string, s Streams) error {
 	budget := fs.Int("budget", 0, "tokens the runs may use in any 24 hours (see `worker --budget`)")
 	sandbox := fs.Bool("sandbox", true, "run each command without access to this user's secrets (see `worker --sandbox`)")
 	watchFor := fs.Duration("watch", 0, "also alert when a task this machine sent waits untaken this long (see `aivoicebus watch`)")
+	testLane := fs.Bool("test-lane", false, "opt the worker in to the test lane (see `worker --test-lane`): `aivoicebus selftest --worker` can then check it from another machine")
 	dry := fs.Bool("dry-run", false, "print the service file and change nothing")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
@@ -208,6 +209,9 @@ func workerInstall(args []string, s Streams) error {
 	}
 	if *allowUnsigned {
 		argv = append(argv, "--allow-unsigned")
+	}
+	if *testLane {
+		argv = append(argv, "--test-lane")
 	}
 	if *watchFor > 0 {
 		argv = append(argv, "--watch", watchFor.String())

@@ -231,6 +231,11 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 			}
 			continue
 		}
+		if w.DryRun && m.IsTest() {
+			ran++
+			w.say("would answer test task %s from %s by a built-in step (allowed by %q): nothing would be run", m.ID, view.Name(m.From, msg.MaxIdentity), entry)
+			continue
+		}
 		if w.DryRun {
 			ran++
 			cmd := QuoteCommand(w.Argv)
@@ -273,6 +278,9 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	cancelled := &atomic.Bool{}
 	stopWhy := &atomic.Value{}
 	go w.watchCancel(taskCtx, m.ID, cancelled, stopWhy, stopTask)
+	if m.IsTest() { // the test lane: the same gates and claim, then a built-in step instead of the command (testlane.go)
+		return w.handleTest(taskCtx, m, base, cancelled, stopWhy)
+	}
 	var wt *worktree
 	if w.Write != nil {
 		ok, why := w.approve(taskCtx, m)

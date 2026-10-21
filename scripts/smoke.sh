@@ -164,7 +164,7 @@ step hook --tool codex
 
 echo "# version and usage"
 step version
-echo "\$ aivoicebus usage | head -4"; "$BIN" usage | head -4
+echo "\$ aivoicebus usage | head -4"; "$BIN" usage >"$T/usage.txt"; head -4 "$T/usage.txt" # not a pipe into head: usage is a few pages and dies of SIGPIPE under pipefail when head leaves first
 
 echo "# setup and doctor, in a scratch HOME"
 step setup --dry-run --url "$AIVOICEBUS_URL"
@@ -261,3 +261,21 @@ echo "$out" | norm; echo "[exit $rc]"
 echo "\$ aivoicebus send --to smoke-b/worker 'done, signed: [approver-sig v1 <base64>]'"
 set +e; out=$("$BIN" send --to smoke-b/worker "done, signed: $SIG" 2>&1 </dev/null); rc=$?; set -e
 echo "$out" | norm; echo "[exit $rc]"
+echo "# the test lane: a test message reaches only a session that opted in and asked for it, never a hook or a plain read; selftest checks the nodes hide it; pause --only stops one session"
+as lap/claude.t1
+step send --test --to lap/claude.t2 "calc 17*23"
+as lap/claude.t2
+step inbox --test
+AIVOICEBUS_TEST=1 "$BIN" inbox >/dev/null 2>&1 # opts in: the session declares test=on with its reads (quietly: the broadcast above waits here too)
+as lap/claude.t1
+out=$("$BIN" send --test --to lap/claude.t2 "calc 17*23" 2>&1); echo "\$ aivoicebus send --test --to lap/claude.t2 \"calc 17*23\""; echo "$out" | norm
+TID=$(echo "$out" | awk '$1=="sent"{print $2}')
+as lap/claude.t2
+step hook --tool claude
+step inbox
+step thread "$TID"
+( export AIVOICEBUS_TEST=1; step inbox --test; step thread --test "$TID" )
+as lap/claude.t1
+step pause --only lap
+step pause --only lap/claude.t2 --test --for 30m "too long for a test"
+echo "\$ aivoicebus selftest"; "$BIN" selftest 2>&1 </dev/null | sed -E 's/ +[0-9]+ms/ <MS>/; s/^selftest passed \([0-9]+ms\)/selftest passed (<MS>)/' | norm
