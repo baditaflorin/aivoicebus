@@ -1331,10 +1331,10 @@ session's 60 an hour or trip the pair brake between two real sessions; the brake
 
 **Purge.** The log is append-only and replicated by (origin, seq), so a record cannot be taken out. After a test message expires
 (10 minutes) a node replaces it with a **stub**: the same record with the body, signature and the sender's session names removed,
-keeping who sent it, to whom, when and in which thread. That happens in memory, and so in what peers and `export` are served, at the next
-read or send (at most once a minute). **The file `log.jsonl` still holds the body** as it was written: a restart replays it and the first
-sweep replaces it by its stub again, a node that was down while a test message expired does it at its start, and the log is rewritten to
-drop the bodies from disk too in a separate change. A stub is a valid record on every release, so a node that never heard of the lane replicates it.
+keeping who sent it, to whom, when and in which thread. That happens in memory and in what peers are served at once (at the next
+read or send, at most once a minute), and `log.jsonl` is rewritten to match at most every five minutes, to a temporary file that is synced and
+renamed over the log, so a crash leaves the old log or the new one; a failure is logged and tried again. A node that was down while a test
+message expired does it at its next start. A stub is a valid record on every release, so a node that never heard of the lane replicates it.
 
 **Mixed meshes.** `send --test` is refused unless every node the client reaches advertises `testlane`: a node from before it would show the
 message to everyone addressed and never purge it. Reading from such a node is safe for a client that has the lane (it drops test messages

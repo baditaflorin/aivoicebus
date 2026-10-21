@@ -1,6 +1,9 @@
 package store
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -239,42 +242,46 @@ func TestAPeerSendsATestRecordAndItIsHiddenAndPurgedHereToo(t *testing.T) {
 	}
 }
 
-func TestThePurgeReplacesABodyByItsStubInMemoryAndOnTheFeed(t *testing.T) {
+// ── the purge ────────────────────────────────────────────────────────────────
+
+func readLog(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "log.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestThePurgeReplacesABodyByItsStubInMemoryOnTheFeedAndOnDisk(t *testing.T) {
 	s, now, dir := laneStore(t)
 	ord, _ := s.Send(msg.Message{From: "mac/claude.a", To: "all", Body: "an ordinary note that stays"})
 	m := sendTest(t, s, "mac/claude.a", "air/codex.b", "secret words of a test", 600)
 	_ = s.Ack(m.ID, "air/codex.b")
-	holds := func(s *Store) bool {
-		for _, r := range s.Since(map[string]uint64{}, 100) {
-			if r.Msg != nil && r.Msg.ID == m.ID && r.Msg.Body != "" {
-				return true
-			}
-		}
-		return false
-	}
-	if !holds(s) {
-		t.Fatal("the feed carries the test message while it lives")
+	if !strings.Contains(readLog(t, dir), "secret words of a test") {
+		t.Fatal("the test message is in the log while it lives")
 	}
 
 	*now = now.Add(9 * time.Minute) // not yet expired
 	s.Stats()
-	if !holds(s) {
+	if !strings.Contains(readLog(t, dir), "secret words of a test") {
 		t.Fatal("purged before it expired")
 	}
 
 	*now = now.Add(2 * time.Minute) // expired (ten minutes and a minute)
 	s.Stats()
-	if holds(s) {
-		t.Fatal("the feed still serves the body after the purge")
+	log := readLog(t, dir)
+	if strings.Contains(log, "secret words of a test") {
+		t.Fatalf("the body is still on disk after the purge:\n%s", log)
+	}
+	if !strings.Contains(log, "an ordinary note that stays") {
+		t.Fatalf("an ordinary record was touched:\n%s", log)
 	}
 	for _, r := range s.Since(map[string]uint64{}, 100) {
 		if r.Msg != nil && r.Msg.ID == m.ID {
-			if !msg.TestPurged(*r.Msg) || r.Msg.From != "mac/claude.a" || r.Msg.To != "air/codex.b" || r.Msg.Thread != m.Thread {
+			if r.Msg.Body != "" || !msg.TestPurged(*r.Msg) || r.Msg.From != "mac/claude.a" || r.Msg.To != "air/codex.b" || r.Msg.Thread != m.Thread {
 				t.Errorf("the feed serves the stub, which keeps who, to whom and when: %+v", r.Msg)
 			}
-		}
-		if r.Msg != nil && r.Msg.ID == ord.ID && r.Msg.Body != "an ordinary note that stays" {
-			t.Errorf("an ordinary record was touched: %+v", r.Msg)
 		}
 	}
 	if got := s.ThreadLane(m.ID, true); len(got) != 0 {
@@ -287,17 +294,13 @@ func TestThePurgeReplacesABodyByItsStubInMemoryAndOnTheFeed(t *testing.T) {
 		t.Errorf("the ordinary message is still there: %v", ord2)
 	}
 
-	// the numbering is intact, and a node that starts from this disk agrees: it replays the record as it was
-	// written and the sweep at Open replaces it by its stub again
+	// the numbering is intact, and a node that starts from this disk agrees
 	if vv := s.VV()["n1"]; vv != 3 {
 		t.Errorf("records: %d, want 3 (ordinary, test, ack)", vv)
 	}
 	re, err := Open(dir, "n1")
 	if err != nil || re.VV()["n1"] != 3 {
-		t.Fatalf("a restart reads the log: %v %v", re.VV(), err)
-	}
-	if holds(re) {
-		t.Error("a restarted node serves the body of a test message that expired")
+		t.Fatalf("a restart reads the rewritten log: %v %v", re.VV(), err)
 	}
 	if st := re.Stats(); st.Messages != 1 || st.Quarantined != 0 {
 		t.Errorf("after a restart: %+v", st)
@@ -307,23 +310,88 @@ func TestThePurgeReplacesABodyByItsStubInMemoryAndOnTheFeed(t *testing.T) {
 	}
 	re2, _ := Open(dir, "n1")
 	if re2.VV()["n1"] != 4 {
-		t.Errorf("a record appended after the purge is kept: %v", re2.VV())
+		t.Errorf("a record appended after the rewrite lands in the new file: %v", re2.VV())
+	}
+}
+
+func TestTheRewriteCopiesEveryOtherLineByteForByte(t *testing.T) {
+	s, now, dir := laneStore(t)
+	for i := 0; i < 5; i++ {
+		s.Send(msg.Message{From: "mac/claude.a", To: "all", Body: strings.Repeat("ordinary ", i+1)})
+	}
+	sendTest(t, s, "mac/claude.a", "air/codex.b", "a test", 60)
+	for i := 0; i < 5; i++ {
+		s.Send(msg.Message{From: "mac/claude.a", To: "all", Body: strings.Repeat("later ", i+1)})
+	}
+	before := strings.Split(strings.TrimSuffix(readLog(t, dir), "\n"), "\n")
+	*now = now.Add(2 * time.Minute)
+	s.Stats()
+	after := strings.Split(strings.TrimSuffix(readLog(t, dir), "\n"), "\n")
+	if len(before) != len(after) {
+		t.Fatalf("a line was added or dropped: %d %d", len(before), len(after))
+	}
+	changed := 0
+	for i := range before {
+		if before[i] != after[i] {
+			changed++
+			if !strings.Contains(before[i], `"a test"`) || strings.Contains(after[i], `"a test"`) {
+				t.Errorf("line %d changed but is not the test record:\n%s\n%s", i, before[i], after[i])
+			}
+		}
+	}
+	if changed != 1 {
+		t.Errorf("%d lines changed, want exactly the one test record", changed)
+	}
+}
+
+func TestAFailedRewriteLeavesTheLogAloneAndIsTriedAgain(t *testing.T) {
+	s, now, dir := laneStore(t)
+	sendTest(t, s, "mac/claude.a", "air/codex.b", "stay until rewritten", 60)
+	before := readLog(t, dir)
+	// the temporary file cannot be made: something that is not a file is in its place
+	if err := os.Mkdir(filepath.Join(dir, "log.jsonl.purge"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var said bytes.Buffer
+	s.logw = &said
+	*now = now.Add(2 * time.Minute)
+	s.Stats()
+	if got := readLog(t, dir); got != before {
+		t.Fatal("a rewrite that failed changed the log")
+	}
+	if !strings.Contains(said.String(), "could not drop the bodies") {
+		t.Errorf("a failed rewrite is said: %q", said.String())
+	}
+	for _, r := range s.Since(map[string]uint64{}, 10) {
+		if r.Msg != nil && r.Msg.Body != "" {
+			t.Errorf("even so, nothing serves the body any more: %+v", r.Msg)
+		}
+	}
+	if err := os.Remove(filepath.Join(dir, "log.jsonl.purge")); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(2 * rewriteEvery) // a later sweep tries again
+	s.Stats()
+	if strings.Contains(readLog(t, dir), "stay until rewritten") {
+		t.Error("the next sweep did not finish the rewrite")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "log.jsonl.purge")); !os.IsNotExist(err) {
+		t.Errorf("the temporary file is left behind: %v", err)
 	}
 }
 
 func TestATestMessageThatExpiredWhileTheNodeWasDownIsPurgedAtStart(t *testing.T) {
-	s, _, dir := laneStore(t)
-	m := sendTest(t, s, "mac/claude.a", "air/codex.b", "was there when the node stopped", 60)
-	// the node starts again later: Open sweeps with the real clock, long after the stamp (the stamp was
-	// made with the test's clock, which is in the past)
+	s, now, dir := laneStore(t)
+	sendTest(t, s, "mac/claude.a", "air/codex.b", "was there when the node stopped", 60)
+	_ = now
+	// the node starts again an hour later: Open sweeps with the real clock, long after the stamp
+	// (the stamp was made with the test's clock, which is in the past)
 	re, err := Open(dir, "n1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range re.Since(map[string]uint64{}, 10) {
-		if r.Msg != nil && (r.Msg.ID != m.ID || r.Msg.Body != "") {
-			t.Errorf("a message that expired while the node was down is served with its body after a start: %+v", r.Msg)
-		}
+	if strings.Contains(readLog(t, dir), "was there when the node stopped") {
+		t.Error("a message that expired while the node was down keeps its body after a start")
 	}
 	if re.VV()["n1"] != 1 || re.Stats().Messages != 0 {
 		t.Errorf("%v %+v", re.VV(), re.Stats())
@@ -351,5 +419,73 @@ func TestTwoRecordsOfOneTestMessageAreBothPurged(t *testing.T) {
 		if r.Msg != nil && r.Msg.Body != "" {
 			t.Errorf("a record of the message kept its body: %+v", r.Msg)
 		}
+	}
+}
+
+func TestTheSweepDoesNothingWithoutTestMessages(t *testing.T) {
+	s, now, dir := laneStore(t)
+	s.Send(msg.Message{From: "mac/claude.a", To: "all", Body: "ordinary"})
+	before := readLog(t, dir)
+	info, _ := os.Stat(filepath.Join(dir, "log.jsonl"))
+	*now = now.Add(48 * time.Hour)
+	s.Stats()
+	s.Messages()
+	after, _ := os.Stat(filepath.Join(dir, "log.jsonl"))
+	if readLog(t, dir) != before || !os.SameFile(info, after) {
+		t.Error("the log was rewritten with no test message in it")
+	}
+}
+
+func TestACrashBetweenTheTemporaryFileAndTheRenameLeavesTheOldLogWhole(t *testing.T) {
+	s, now, dir := laneStore(t)
+	sendTest(t, s, "mac/claude.a", "air/codex.b", "words in a log the crash must not damage", 60)
+	s.Send(msg.Message{From: "mac/claude.a", To: "all", Body: "an ordinary note"})
+	before := readLog(t, dir)
+	old := renameLog
+	t.Cleanup(func() { renameLog = old })
+	powerFails := true
+	renameLog = func(from, to string) error {
+		if powerFails {
+			panic("power lost") // the process is gone: nothing after the rename runs, the temporary file stays
+		}
+		return old(from, to)
+	}
+	*now = now.Add(2 * time.Minute)
+	func() {
+		defer func() { _ = recover() }()
+		s.Stats()
+	}()
+	// the temporary file is complete and holds the stub, and the log is the one that was there
+	tmp, err := os.ReadFile(filepath.Join(dir, "log.jsonl.purge"))
+	if err != nil || strings.Contains(string(tmp), "words in a log") {
+		t.Errorf("the temporary file was written whole, without the body: %v", err)
+	}
+	if got := readLog(t, dir); got != before {
+		t.Fatal("a crash before the rename changed the log")
+	}
+	// the node comes back with the power: it reads the old log, ignores the leftover file, serves the stub (the message
+	// expired), and its first sweep rewrites the log over the leftover
+	powerFails = false
+	re, err := Open(dir, "n1")
+	if err != nil || re.VV()["n1"] != 2 {
+		t.Fatalf("a restart after the crash: %v %v", re.VV(), err)
+	}
+	for _, r := range re.Since(map[string]uint64{}, 10) {
+		if r.Msg != nil && strings.Contains(r.Msg.Body, "words in a log") {
+			t.Errorf("a restarted node serves the body of a test message that expired: %+v", r.Msg)
+		}
+	}
+	if re.Stats().Messages != 1 {
+		t.Errorf("%+v", re.Stats())
+	}
+	after := readLog(t, dir)
+	if strings.Contains(after, "words in a log") || !strings.Contains(after, "an ordinary note") {
+		t.Errorf("the rewrite after the crash:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "log.jsonl.purge")); !os.IsNotExist(err) {
+		t.Errorf("the temporary file is left behind: %v", err)
+	}
+	if again, _ := Open(dir, "n1"); again.VV()["n1"] != 2 {
+		t.Errorf("the rewritten log reads back whole: %v", again.VV())
 	}
 }
