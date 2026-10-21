@@ -15,7 +15,10 @@ func presenceStore(t *testing.T, dir string) (*Store, *time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	// Open judges presence.json by the wall clock (a restarted node drops sessions past seenKeep)
+	// before any test clock is set, so the test clock starts at the wall clock: a fixed date would
+	// make every restart check fail once it is a week old.
+	now := time.Now().UTC().Truncate(time.Second)
 	s.SetClock(func() time.Time { return now })
 	return s, &now
 }
