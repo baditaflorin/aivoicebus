@@ -435,7 +435,9 @@ check "$(py 'import json,sys; print(json.load(open(sys.argv[1]))["ver"]["num"])'
 check "$(post "${PORT[0]}" "/v1/share/upload?thread=$ST" '{"data":"cGxhaW4gdGV4dCBwbGFpbiB0ZXh0IHBsYWluIHRleHQ="}')" 400 "new refuses a plaintext chunk"
 # The CLI: through this tree's node it shares and reads back; through an older node it says the
 # node holds no shared spaces and points at --via pipe, and stores nothing.
-cli 0 "$NEW" h0/compat.sh1 send --to h9/compat.sh9 "share root MARK-SH-root" >"$W/sh.out" 2>/dev/null
+# --queue: since 0.12.1 (#97) a send to an exact session no node has heard of is refused as a likely
+# typo unless it says it is for a session yet to come; these scenarios address made-up sessions.
+cli 0 "$NEW" h0/compat.sh1 send --to h9/compat.sh9 --queue "share root MARK-SH-root" >"$W/sh.out" 2>/dev/null
 SR=$(awk '$1=="sent"{print $2; exit}' "$W/sh.out")
 printf 'shared text MARK-SH-text\n' >"$W/sh.txt"
 # Who is in a thread is read from signed messages: with a node from before signing in the mesh no
@@ -451,6 +453,10 @@ fi
 converge
 for ((i = 1; i < N; i++)); do
   out=$(cli "$i" "$NEW" h0/compat.sh1 share ls "$SR" 2>&1); rc=$?
+  if has "$i" share; then # an older release that has shared spaces (0.12.0 on) must not be called one without
+    check "$(grep -c 'holds no shared spaces' <<<"$out")" 0 "new CLI through ${NAME[$i]} (${VER[$i]}) treats it as a node with shared spaces"
+    continue
+  fi
   check "$rc $(grep -c 'holds no shared spaces' <<<"$out") $(grep -c -- '--via pipe' <<<"$out")" "1 1 1" "new CLI through ${NAME[$i]} (${VER[$i]}) says it holds no shared spaces, and what to do"
 done
 check_converged "message logs stay equal on all $N nodes"
@@ -463,7 +469,7 @@ scenario "a conversation's character budget"
 # reply that would pass one with 409 and takes one that fits and an [end]; an older node ignores
 # the field it does not know, and takes the reply.
 for k in "${!NAME[@]}"; do
-  cli "$k" "$NEW" "bc-${NAME[$k]}/claude.a1" send --to "bc-${NAME[$k]}/codex.b2" --budget-chars 80 "budget by CLI MARK-BC-${NAME[$k]}" >"$W/bg.out" 2>"$W/bg.err"; rc=$?
+  cli "$k" "$NEW" "bc-${NAME[$k]}/claude.a1" send --to "bc-${NAME[$k]}/codex.b2" --queue --budget-chars 80 "budget by CLI MARK-BC-${NAME[$k]}" >"$W/bg.out" 2>"$W/bg.err"; rc=$?
   check "$rc $(grep -c 'does not enforce --budget-chars' "$W/bg.err") $(sent_id "$W/bg.out")" "1 1 " "new CLI refuses --budget-chars through ${NAME[$k]} in a mesh with older nodes, sending nothing"
 done
 for k in "${!NAME[@]}"; do
@@ -497,7 +503,7 @@ words=(amber basalt cinder dahlia egret fennel garnet heron indigo juniper kestr
   acorn bramble clover drizzle)
 for k in "${!NAME[@]}"; do
   n=${NAME[$k]}; a=bk-$n/claude.a1; b=bk-$n/codex.b2
-  cli "$k" "$NEW" "$a" send --to "$b" "burst root MARK-BK-$n" >"$W/bk.out" 2>/dev/null
+  cli "$k" "$NEW" "$a" send --to "$b" --queue "burst root MARK-BK-$n" >"$W/bk.out" 2>/dev/null
   root=$(sent_id "$W/bk.out")
   if [ -z "$root" ]; then check "no root" sent "${NAME[$k]}: the burst starts"; continue; fi
   ok=0
@@ -511,7 +517,7 @@ for k in "${!NAME[@]}"; do
   check "$got" "$want" "${NAME[$k]} (${VER[$k]}): 30 fast replies that each say something new $([ $want = 30 ] && echo all go || echo are stopped by the old pair brake)"
 
   a=ct-$n/claude.a1; b=ct-$n/codex.b2
-  cli "$k" "$NEW" "$a" send --to "$b" "count with me MARK-CT-$n" >"$W/bk.out" 2>/dev/null
+  cli "$k" "$NEW" "$a" send --to "$b" --queue "count with me MARK-CT-$n" >"$W/bk.out" 2>/dev/null
   root=$(sent_id "$W/bk.out"); ok=0
   for i in 1 2 3; do cli "$k" "$NEW" "$b" reply --re "$root" "$i" >/dev/null 2>&1 && ok=$((ok + 1)); done
   want=3; if has "$k" loopkey && ! has "$k" brakes; then want=2; fi
@@ -519,7 +525,7 @@ for k in "${!NAME[@]}"; do
 
   if has "$k" brakes; then
     a=th-$n/claude.a1; b=th-$n/codex.b2
-    cli "$k" "$NEW" "$b" send --to "$a" "the summary MARK-TH-$n" >"$W/bk.out" 2>/dev/null
+    cli "$k" "$NEW" "$b" send --to "$a" --queue "the summary MARK-TH-$n" >"$W/bk.out" 2>/dev/null
     root=$(sent_id "$W/bk.out"); at=0; i=0
     for line in "$a|Thanks! Let me know if you need anything else." "$b|You're welcome! Let me know if there is anything else you need." \
       "$a|Thanks again! Let me know if you need anything else at all." "$b|You're very welcome! Let me know if there is anything else you need." \
