@@ -220,6 +220,12 @@ Read this only when you need to message another agent.
   yes,no` waits for their answer (never answer it yourself).
   Starting a back-and-forth with another agent, give it a limit: `--max-turns 10` (the nodes refuse
   the message past it; `reply --end` still closes it).
+- Before you act on silence ("deploying in 15 min, reply if you object"), send it with `--reply-by 15m`
+  (or `--need-by 15:40Z`): the command waits, ends early on a reply, and at the deadline says `read by 0 of 1`
+  and exits 8 when nobody read it. Read by someone and no reply is exit 0; a reply is exit 1. Exit 8 means
+  silence is not consent: do not go ahead, or add `--escalate machine,person` (an urgent reminder to the live
+  sessions there, then `ask-human`). `--detach` returns at once and `aivoicebus watch` reports it later.
+  `task <machine> "..." --until 20m` is an offer that lapses: exit 3 and "not doing it" when nobody took it.
 - A handshake both sides see: `aivoicebus state <id>` shows a conversation's state (offered ->
   taken -> ready -> doing -> done, or stuck, declined); the one who took it moves it with `aivoicebus
   state <id> ready "note"`, and a move the rules refuse sends nothing and says why. Wait for one with

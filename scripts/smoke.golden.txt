@@ -12,8 +12,14 @@ Usage of send:
     	start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs
   -deadline duration
     	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
+  -detach
+    	with a deadline: send, remember it and return at once; watch reports it when it passes, status ID shows it any time
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
+  -escalate string
+    	with --reply-by, when nobody read it by the deadline: machine (an urgent reminder to the live sessions on its machine), person (ask-human), or machine,person in turn
+  -escalate-wait duration
+    	with --escalate person: how long to wait for the person's answer (0: ask and return) (default 10m0s)
   -file string
     	send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID
   -force
@@ -28,6 +34,8 @@ Usage of send:
     	start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever
   -meta value
     	with --file: seal a key=value inside the file's encrypted payload for the reader (repeatable; any keys: it is open data the reader may use or ignore; the file name, size and sha256 are sealed with it)
+  -need-by string
+    	--reply-by as a time: <TIME>Z (UTC), <TIME> (this machine's clock) or 2026-10-22T<TIME>Z
   -open-link
     	with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once
   -prio string
@@ -40,6 +48,8 @@ Usage of send:
     	with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never (default 10m0s)
   -re string
     	reply to message id (or its first characters, if they name one message)
+  -reply-by duration
+    	wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply
   -tail string
     	point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME
   -test
@@ -52,6 +62,8 @@ Usage of send:
     	use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'
   -ttl string
     	how long the message stays relevant, e.g. 90m, 2h, 3d; expired messages are not delivered. Default: 1d for fyi and 3d otherwise when it can reach several sessions, never for one session
+  -until duration
+    	with a task (the offer): wait up to this long (1m to 24h) for someone to take it; untaken, its ttl is this so the nodes stop delivering it, and the command says it is not being done (exit 3)
   -via string
     	with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe
   -wait
@@ -67,8 +79,14 @@ Usage of send:
     	start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs
   -deadline duration
     	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
+  -detach
+    	with a deadline: send, remember it and return at once; watch reports it when it passes, status ID shows it any time
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
+  -escalate string
+    	with --reply-by, when nobody read it by the deadline: machine (an urgent reminder to the live sessions on its machine), person (ask-human), or machine,person in turn
+  -escalate-wait duration
+    	with --escalate person: how long to wait for the person's answer (0: ask and return) (default 10m0s)
   -file string
     	send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID
   -force
@@ -83,6 +101,8 @@ Usage of send:
     	start a conversation that holds at most this many messages (claims not counted): the nodes refuse more, an [end] always goes; stops two agents from going on for ever
   -meta value
     	with --file: seal a key=value inside the file's encrypted payload for the reader (repeatable; any keys: it is open data the reader may use or ignore; the file name, size and sha256 are sealed with it)
+  -need-by string
+    	--reply-by as a time: <TIME>Z (UTC), <TIME> (this machine's clock) or 2026-10-22T<TIME>Z
   -open-link
     	with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once
   -prio string
@@ -95,6 +115,8 @@ Usage of send:
     	with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never (default 10m0s)
   -re string
     	reply to message id (or its first characters, if they name one message)
+  -reply-by duration
+    	wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply
   -tail string
     	point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME
   -test
@@ -107,6 +129,8 @@ Usage of send:
     	use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'
   -ttl string
     	how long the message stays relevant, e.g. 90m, 2h, 3d; expired messages are not delivered. Default: 1d for fyi and 3d otherwise when it can reach several sessions, never for one session
+  -until duration
+    	with a task (the offer): wait up to this long (1m to 24h) for someone to take it; untaken, its ttl is this so the nodes stop delivering it, and the command says it is not being done (exit 3)
   -via string
     	with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe
   -wait
@@ -915,3 +939,51 @@ removed 1 record(s) for owner:0mcp:vm701
 $ aivoicebus owner rm 0mcp:vm701
 error: this machine declared no owner record for 0mcp:vm701: `aivoicebus owner list` shows what is recorded and by whom
 [exit 3]
+# deadlines: --reply-by says what became of a message instead of taking silence for consent (read and no reply: exit 0; nobody read it: exit 8); --until turns an offer nobody takes into 'not doing it'
+$ aivoicebus send --to air/dl.r1 --queue --dry-run deploying at <TIME>Z; reply if you are mid-change --reply-by 15m --escalate machine,person
+dry run: nothing was sent
+  from      imac/claude.d1
+  to        air/dl.r1
+  priority  ask
+  expires   never
+  reaches   nobody seen in the last 24h; it would wait for one to start
+  context   about 109 characters in each reader's session start (109 in all)
+  body      48 characters
+deadline: reply-by <TIME> (in <SPAN>): the receipts are read at the deadline, and a message nobody read is not taken as consent, then escalate: machine then person
+[exit 0]
+$ aivoicebus send --to air/dl.r1 --queue deploying at <TIME>Z; reply if you are mid-change --reply-by 3s
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  no matching session seen in the last 24h; it waits for one to start
+undo: aivoicebus retract <ID>
+deadline: reply-by <TIME> (in <SPAN>): the receipts are read at the deadline, and a message nobody read is not taken as consent
+waiting until <TIME> for a reply in thread <ID>, then reading who read it...
+message <ID> to air/dl.r1: reply-by <TIME> passed: read by 1, replies 0: it was read and nobody objected
+[exit 0]
+$ aivoicebus send --to air/dl.r2 --queue force-pushing branch x, tell me now --reply-by 2s
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  no matching session seen in the last 24h; it waits for one to start
+undo: aivoicebus retract <ID>
+deadline: reply-by <TIME> (in <SPAN>): the receipts are read at the deadline, and a message nobody read is not taken as consent
+waiting until <TIME> for a reply in thread <ID>, then reading who read it...
+message <ID> to air/dl.r2: reply-by <TIME> passed: read by 0, replies 0: nobody read it, so silence is not consent. aivoicebus status <ID>
+[exit 8]
+$ aivoicebus send --to air/dl.r2 --queue --reply-by 25h too far away
+error: a deadline is 1 second to 24h away, not 25h: a message or an offer nobody settles in a day is no deadline (`aivoicebus send -h` lists its flags)
+[exit 2]
+$ aivoicebus task air/dl.r3 --queue "take the 5pm backup" --until 1m --detach
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  no matching session seen in the last 24h; it waits for one to start
+undo: aivoicebus retract <ID>
+deadline: offered until <TIME> (in <SPAN>): if nobody takes it, the nodes stop delivering it and it is not being done
+deadline recorded: `aivoicebus watch` reports it when it passes unreported, `aivoicebus status <ID>` shows it any time
+$ aivoicebus status <ID>
+<ID> [task] from imac/claude.d1 to air/dl.r3, sent <TIME>
+  not read yet by anyone
+  not taken yet: `aivoicebus ping air/dl.r3` shows who is there
+  offered until <TIME>: not taken yet
+  state: offered (said by imac/claude.d1 at <TIME>)
+  its thread: 1 message(s), 19 characters (about 4 tokens to read)
+[exit 0]

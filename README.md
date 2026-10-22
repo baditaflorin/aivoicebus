@@ -104,6 +104,8 @@ gives scripts one result object (who took it, the answer, a worker's exit code a
 
 ```
 aivoicebus reply --re ID --wait-reply 10m --max-turns 12 --deadline 1h "..."   # the nodes close it at 12 messages or 1h
+aivoicebus send --to lap/claude.a1 "deploying at 15:40Z" --reply-by 15m   # exit 8 when nobody read it: silence is not consent
+aivoicebus task lap "take the 5pm backup" --until 20m                      # nobody takes it in 20m: dropped, exit 3, "not doing it"
 aivoicebus pause "stop, I am looking"         # every agent on the mesh stops; a person lifts it: aivoicebus resume
 aivoicebus pause --only lap/claude.a1b2 "test" # the same for exactly one session: test the switch without stopping a machine
 aivoicebus send --test --to lap "a test"      # tests go to the test lane: only opted-in sessions, no hook, no stats, purged in 10 minutes

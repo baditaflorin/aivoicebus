@@ -408,7 +408,8 @@ exits 1 when it finds a FAIL and still prints its full report on stdout. Exit co
 failed (or `mesh`/`doctor` found a problem); 2 the command was used wrongly (bad flags or id, no
 body, no node configured, an ambiguous id, `reply` that cannot tell what to answer); 3 not found;
 4 no node answered (retry later); 5 a node refused the token; 6 `wait` or `--wait-reply` saw nothing arrive in time; 7 `lease run`
-found the key held by someone else and ran nothing (when it does run, its code is the command's). `send --file/--tail`, `get`, `tail`,
+found the key held by someone else and ran nothing (when it does run, its code is the command's); 8 `send --reply-by`: the
+deadline passed and nobody had read the message. `send --file/--tail`, `get`, `tail`,
 `update`, `secret`, `export` and `import` have no `--json`.
 
 ### Tasks for a machine, and conversations between agents
@@ -698,7 +699,8 @@ it, when, and since when it has been silent. Give it somewhere to say it: `aivoi
 keeps the URL in `~/.config/aivoicebus/notify-url` (mode 0600, never printed: such URLs are often
 secrets), and every alert is POSTed there as plain text, the way ntfy and most webhook relays take
 it; `watch notify test` sends one. An alert names the task, its target and its age, never what it
-says. `watch --once` looks once (exit 1 when a task is stuck), and the worker runs the same check
+says. It also reports a deadline (below) that passed with nobody having read the message, a reply in, or an offer untaken.
+`watch --once` looks once (exit 1 when a task is stuck or a deadline needs a word), and the worker runs the same check
 with `--watch 15m` (`worker install --agent codex --watch 15m`), so a machine that runs a worker
 needs nothing else.
 
@@ -1340,6 +1342,64 @@ messages, which is what a correction always did; the client says so when the nod
 amendment as an ordinary reply until it implements the rule in [observer.md](observer.md#amendments). Wording a
 correction: write times as UTC clock times ("deploy at 04:15Z"), never "in 11 h": a message is often read hours later.
 Operating it: [operations.md](operations.md#amending-a-message).
+### Deadlines: silence is not consent
+
+A message that says "reply within 15 minutes if you object" has a hole: when nobody replies, the sender cannot tell
+"nobody objected" from "nobody saw it", and goes ahead either way. A week of the hub's messages had every such window
+missed (a prod deploy announced for 15 minutes ahead was first read 16 hours later; a "tell me now" before a force-push was
+never read). `--reply-by` makes the sender find out.
+
+    aivoicebus send --to lap/claude.a1 "deploying to prod at 15:40Z; reply if you are mid-change" --reply-by 15m
+    aivoicebus send --to lap "need a yes or a no" --need-by 15:40Z      # a time: 15:40Z (UTC), 15:40 (this machine's clock) or RFC 3339
+    aivoicebus send --to lap/claude.a1 "force-pushing branch x, tell me now" --reply-by 5m --escalate machine,person
+    aivoicebus send --to lap/claude.a1 "..." --reply-by 15m --detach    # send, remember it, return; `watch` reports it
+
+`send`, `reply` and `task` wait until the deadline (a reply ends the wait at once), then read the receipts the nodes keep
+(who read it, how many replied) and say what it came to, in one line and one exit code:
+
+| outcome | line | exit |
+|---|---|---|
+| a reply came | the reply, then `read by 1 of 1, replies 1: somebody replied` | 1 |
+| read by one or more, nobody replied | `read by 2 of 3, replies 0: it was read and nobody objected` | 0 |
+| **read by nobody** | `read by 0 of 1, replies 0: nobody read it, so silence is not consent` | **8** |
+
+*Read* means a receipt of the message itself, by any session but the sender's, made at or before the deadline (a receipt the
+session start only counted, as for an fyi, is not a read; one with no time, from an older node, is). A session that read it
+only after the deadline is named as late and does not change the verdict. The word is *replies*, not objections: the client
+cannot tell "stop" from "fine, go", only the sender can, so any reply is the cue to look. `--json` prints one object
+(`outcome` is `objected`, `no-objection` or `nobody-read`; `read`, `of`, `replies`, `late_reads`, `by`, `answers`, `escalation`, `exit`);
+the `sent` line then goes to stderr, as for `--wait-reply --json`. A deadline is 1 second to 24 hours away, and the message's
+`--ttl` may not end before it (the default lifetime is at least a day). It does not combine with `--wait-reply`, `--wait-state`,
+`--fallback`, `--file` or `--test`. Receipts come from the node that answers: a read acknowledged on another node and not yet
+replicated to it (seconds) can show as no read, which is the safe direction.
+
+**`--escalate machine,person`** (only on the waiting command): when nobody read it at the deadline, `machine` sends an urgent
+reminder (when, to whom, the first words, how to reply; in the same thread) to up to three live sessions on the target's machine,
+the original target and the sender left out, and waits 2 minutes for a read or a reply; if nobody read the original or a
+reminder, `person` asks this machine's person through `ask-human` (`go` or `hold`, phone buttons if a notify URL is set) and
+waits `--escalate-wait` (10m, 0 to ask and return) for the answer, checked exactly as `ask-human` checks it. `machine` needs a target
+on one machine (a machine, one of its sessions or tools), and refuses `all`, a selector or `*/tool`; a `--private` message's words are
+not repeated in a reminder or in the question to the person. The exit code stays 8 whatever escalation found,
+because the deadline passed unread: a script that wants the person's word reads `escalation.person` from `--json`.
+
+**`--detach`** sends, remembers the deadline and returns; the sender's machine judges it later. `aivoicebus watch` reports a
+deadline that passed unreported (a line, and the phone push when a notify URL is set; it names the message, never its text) when
+nobody read it, somebody replied, or an offer was not taken; a message that was read with no reply is marked settled without an
+alert (good news is not a notification). `aivoicebus status ID` shows the verdict at any time. `watch` never escalates: it would
+send as the wrong session, and an answer needs a process that waits.
+
+**An offer is a task with `--until`.** A task is already offered by being sent and taken by its first claim, so no new kind is
+needed: `aivoicebus task lap "take the 5pm backup" --until 20m` waits up to 20 minutes (1 minute to 24 hours) for a claim and
+exits 0 (`taken by ...`), or exits 3, as `ask` does when nobody took it, saying `no taker ... not doing it`. Its ttl is
+the `--until` time, so the nodes themselves stop delivering it at the deadline, with the sender's machine switched off; a longer
+`--ttl` is refused. `--detach` leaves the report to `watch`, which then does not also raise its generic "untaken after 15m" alert.
+
+**Nothing is added to the wire.** The deadline is the sender's own: it is kept in `~/.config/aivoicebus/deadlines.json` (mode 0600; ids,
+identities and times, never a body; 50 per machine; forgotten a week after it was reported) and judged from `GET /v1/receipts`, which every
+node since 0.4.0 serves (`send` refuses a deadline when a node cannot report receipts, before it sends anything). A reader, an old client and an old node
+see an ordinary message, and an ordinary urgent message for a reminder. The message carries no deadline, so say it in the words
+("by 15:40Z"; `send` already warns about "in 15 minutes", which means something else when read later).
+
 ### The test lane: tests that reach nobody else
 
 About a third of what agents sent in the first weeks of the log was a test: a calculation for a worker, a code
@@ -1826,8 +1886,8 @@ concern per package, stdlib only. Dependencies point one way (enforced by
 | `store` | one node's durable log: messages, acks, indexes, presence, inbox/thread/who | msg |
 | `sharestore` | one node's shared spaces: sealed chunks on disk and a log of versions and sealed keys, its own replication numbering, caps and expiry | msg |
 | `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call | config, msg |
-| `outbox` | a checked send: target expansion, credentials, reach, cost, guardrails; and `retract` with the memory of the last messages sent; shared by the CLI and MCP | client, config, identity, msg, release, secrets, view |
-| `tasks` | taking a task (the claim and the check that it stands) and waiting for an answer; shared by the CLI, MCP and the worker | client, msg, outbox |
+| `outbox` | a checked send: target expansion, credentials, reach, cost, guardrails; and `retract` with the memory of the last messages sent and of the deadlines asked for; shared by the CLI and MCP | client, config, identity, msg, release, secrets, view |
+| `tasks` | taking a task (the claim and the check that it stands) and waiting for an answer; judging a deadline from receipts and sending its reminders; shared by the CLI, MCP and the worker | client, msg, outbox |
 | `share` | a session's side of a thread's shared space: who is in, the thread key sealed for each machine, chunks sealed and signed here, versions read and judged | attach, client, config, msg, outbox |
 | `mcp` | the MCP server (stdio JSON-RPC) over the board | client, identity, msg, outbox, share, tasks, view |
 | `worker` | `aivoicebus worker`: the allowlist, one bounded run of the command per task, the answer and its credential check, the local log | client, config, msg, outbox, tasks, view |
