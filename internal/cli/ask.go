@@ -79,6 +79,21 @@ func askCmd(args []string, s Streams) error {
 	if *ttl == "" {
 		*ttl = deadline.String()
 	}
+	ownerOf := "" // the subject, when TARGET is owner:SUBJECT
+	if subject, isOwner := msg.OwnerSubjectOf(machine); isOwner {
+		if *anyOne || *needs != "" || *tool != "" || *fallback != "" || *pick > 0 {
+			return outbox.Usagef("owner:SUBJECT picks its own session (the record's machine and what it needs): leave out --any, --needs, --tool, --fallback and --pick")
+		}
+		oc, err := sessionClient()
+		if err != nil {
+			return err
+		}
+		r, err := tasks.RouteOwner(oc, subject, identity.Me(), tasks.OwnerRouteOpts{Urgent: strings.EqualFold(*prio, msg.PrioUrgent)})
+		if err := reportOwnerRoute(r, err, s); err != nil {
+			return err
+		}
+		ownerOf, machine, *needs = subject, r.Machine, strings.Join(r.Needs, ",")
+	}
 	var ns []string
 	if *needs != "" {
 		if *pick > 0 || *fallback != "" {
@@ -125,6 +140,9 @@ func askCmd(args []string, s Streams) error {
 				_ = writeJSON(s.Out, resultView{To: view.Name(target, msg.MaxIdentity), Answers: []answerView{}, Outcome: "nobody", Why: err.Error(),
 					Note: "nobody was asked: no live session has everything --needs asks for"})
 			}
+			if ownerOf != "" {
+				fmt.Fprintf(s.Err, "the owner record asks for %s: `aivoicebus task owner:%s \"...\"` leaves it for the person on %s\n", view.OneLine(*needs, 80), view.Name(ownerOf, 80), view.OneLine(machine, 40))
+			}
 			return needsRefusal(err, np.Closest)
 		}
 		if err != nil {
@@ -146,7 +164,11 @@ func askCmd(args []string, s Streams) error {
 			p.Why, next = why, next[1:]
 		}
 		if p.To == "" {
-			fmt.Fprintf(s.Err, "nobody took it: nothing was sent. To leave it for the next session there: aivoicebus task %s \"...\"\n", view.Name(target, msg.MaxIdentity))
+			if ownerOf != "" {
+				fmt.Fprintf(s.Err, "nobody took it: nothing was sent. To leave it for the owner: `aivoicebus task owner:%s \"...\"` (it goes to the next session there, or to the person there when nobody is live)\n", view.Name(ownerOf, 80))
+			} else {
+				fmt.Fprintf(s.Err, "nobody took it: nothing was sent. To leave it for the next session there: aivoicebus task %s \"...\"\n", view.Name(target, msg.MaxIdentity))
+			}
 			if *asJSON {
 				_ = writeJSON(s.Out, resultView{To: view.Name(target, msg.MaxIdentity), Answers: []answerView{}, Outcome: "nobody", Why: err.Error(),
 					Note: "nobody was asked: no live session matched"})

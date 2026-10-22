@@ -119,6 +119,22 @@ func taskCmd(args []string, s Streams) error {
 			last = -1 // the one word was the machine: no text
 		}
 	}
+	if subject, isOwner := msg.OwnerSubjectOf(machine); isOwner {
+		if tool != "" || can != "" || model != "" || needs != "" || anyListening || fallback != "" || each != "" {
+			return outbox.Usagef("owner:SUBJECT picks its own session (the record's machine and what it needs): leave out --tool, --can, --model, --needs, --any, --each and --fallback")
+		}
+		if person { // the person on the owner's machine, whoever is live: the machine is all that is wanted of the record
+			c, err := sessionClient()
+			if err != nil {
+				return err
+			}
+			r, err := tasks.RouteOwner(c, subject, identity.Me(), tasks.OwnerRouteOpts{Person: true})
+			if err := reportOwnerRoute(r, err, s); err != nil {
+				return err
+			}
+			machine = r.Machine
+		}
+	}
 	if withThread != "" {
 		if each != "" || person || last < 0 {
 			return outbox.Usagef(`--with-thread attaches a thread's digest to one task: task [MACHINE] "what to do" --with-thread ID`)

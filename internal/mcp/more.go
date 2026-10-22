@@ -53,16 +53,18 @@ var taskTool = tool{
 		"Target a machine (laptop-b), a tool on it (laptop-b/codex) or a selector (@repo=x). Set wait_seconds to wait for the answer in the same call (a claim is reported as progress). " +
 		"Never put secrets in a task.",
 	schema: obj([]string{"body"}, map[string]any{
-		"to":           str("the machine (host), host/tool, or a selector such as @repo=name; with needs, where to look (default: everywhere)"),
+		"to":           str("the machine (host), host/tool, a selector such as @repo=name, or owner:SUBJECT (whoever answers for a VM, service or database: the record's machine and session, or the person there when nobody is live); with needs, where to look (default: everywhere)"),
 		"needs":        str("send it to the one session that has all of these capabilities, comma-separated: repo:owner/name, branch:, tool:, model:, role: or a declared word such as gpu (aivoicebus_who lists them); listening now first, then the most recently seen"),
 		"body":         str("what to do, self-contained: the other agent has none of your context"),
 		"ttl":          str("how long it stays open, such as 2h or 1d (default 3d)"),
+		"confirm_caps": flag("an owner:... target whose record nobody pinned is only previewed until this is true: anyone with the token can write one, so look at who it resolved to first"),
 		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("wait this long for the answer (at most %d); 0: return at once", maxWaitSeconds)},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct {
 			To, Body, TTL, Needs string
-			WaitSeconds          int `json:"wait_seconds"`
+			ConfirmCaps          bool `json:"confirm_caps"`
+			WaitSeconds          int  `json:"wait_seconds"`
 		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
@@ -72,7 +74,20 @@ var taskTool = tool{
 			return "", err
 		}
 		why := ""
-		if a.Needs != "" {
+		if r, text, isOwner, err := ownerRoute(c, a.To, tasks.OwnerRouteOpts{}); isOwner {
+			switch {
+			case err != nil:
+				return "", err
+			case a.Needs != "":
+				return "", errors.New("an owner:SUBJECT target picks its own session (the record's machine and what it needs): call it again without needs")
+			case !r.Res.Pinned && !a.ConfirmCaps:
+				return text + confirmOwnerNote, nil
+			}
+			a.To, why = r.To, text
+			if r.Person {
+				a.Body = msg.PersonTag + " " + a.Body
+			}
+		} else if a.Needs != "" {
 			needs, err := msg.ParseNeeds(a.Needs)
 			if err != nil {
 				return "", fmt.Errorf("%v: call it again with valid needs", err)
@@ -92,7 +107,8 @@ var taskTool = tool{
 				return "", err
 			}
 			a.To, why = p.To, fmt.Sprintf("needs: %s (%s)\n", view.Name(p.To, msg.MaxIdentity), p.Why)
-		} else if a.To == "" {
+		}
+		if a.To == "" {
 			return "", errors.New("to is where the task goes (a machine, host/tool or @selector), or give needs: call it again with one")
 		}
 		var warn strings.Builder
