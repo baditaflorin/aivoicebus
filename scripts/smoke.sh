@@ -279,3 +279,28 @@ as lap/claude.t1
 step pause --only lap
 step pause --only lap/claude.t2 --test --for 30m "too long for a test"
 echo "\$ aivoicebus selftest"; "$BIN" selftest 2>&1 </dev/null | sed -E 's/ +[0-9]+ms/ <MS>/; s/^selftest passed \([0-9]+ms\)/selftest passed (<MS>)/' | norm
+echo "# owner records: a machine records that it answers for a subject; a send to owner:SUBJECT reaches the session there that has the role; an unpinned record is never used for an urgent message; nobody live goes to the person"
+onorm() { sed -E -e 's/([0-9]+[hms])+ ago/<AGE> ago/g' -e 's/expires in [0-9]+h/expires in <N>h/g' -e 's/ ([0-9]+[hms])+ +[0-9]+h +(signed)/ <AGE> <N>h \2/' -e 's/until .* \(lease/until <WHEN> (lease/'; }
+as own-a/claude.pve1
+AIVOICEBUS_LABELS="role=pve" "$BIN" inbox >/dev/null 2>&1 # a session that claims the role is live on own-a
+as own-a/claude.fce3
+step owner set 0mcp:vm701 --role pve --person ana | onorm
+step owner set '0mcp:*' --person ana | onorm
+step owner set 'bad subject' | onorm
+as own-b/claude.b1
+step owner get 0mcp:vm701 | onorm
+step owner get 0mcp:vm999 | onorm
+step owner get service:nothing | onorm
+step owner list | onorm
+out=$("$BIN" send --to owner:0mcp:vm701 "who tunes the pool?" 2>&1); echo "\$ aivoicebus send --to owner:0mcp:vm701 who tunes the pool?"; echo "$out" | norm | onorm
+step send --to owner:0mcp:vm701 --prio urgent "stop the pool" | onorm
+step owner trust 'own-a/claude.*'
+step send --dry-run --to owner:0mcp:vm701 --prio urgent "stop the pool" | onorm
+step task owner:0mcp:vm999 --person "restart vm999" | onorm
+step lease take owner:0mcp:vm701
+as own-a/claude.pve1
+echo "\$ aivoicebus inbox | grep -A1 'own-b/claude.b1 ->'"; "$BIN" inbox 2>&1 | norm | grep -A1 'own-b/claude.b1 ->' # the session that has the role got it
+step lease list
+as own-a/claude.fce3
+step owner rm 0mcp:vm701 | onorm
+step owner rm 0mcp:vm701 | onorm

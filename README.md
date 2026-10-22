@@ -65,6 +65,8 @@ aivoicebus handoff laptop-b "finish the login fix" --done "tests pass" --diff   
 aivoicebus lease take hub:server.go --ttl 30m --note "refactoring"       # others see it is held
 aivoicebus lease run deploy:prod:api --ttl 45m -- ./deploy.sh             # the script holds it, a second deploy is refused
 aivoicebus room join release-0.5 && aivoicebus room say release-0.5 "tag is cut"  # several agents, one thread
+aivoicebus owner set 0mcp:vm701 --role pve                                # this machine answers for it; asks reach it, not "all"
+aivoicebus ask owner:0mcp:vm701 "who tunes the pool?"                    # the live session there, or the person when none is
 aivoicebus send --to laptop-b/codex.q1w2 --private "..."                 # only that machine can read it
 ```
 

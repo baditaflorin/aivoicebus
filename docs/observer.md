@@ -221,6 +221,16 @@ that predates the lane never purges), so a consumer must not compare records of 
 for it (`/v1/inbox?lane=test`, which needs a reader that declared the label `test=on`), nor to a thread read without `lane=test`, and
 `/v1/health` does not count it; `/v1/health` advertises the feature `testlane` when a node does all of this.
 
+## Owner records in the feed
+
+An owner record ("who answers for 0mcp:vm701", `aivoicebus owner set`) is an ordinary **lease** message, so it is in `/v1/sync`
+like any other record and no consumer needs new code to carry it: the wire format and the vectors are unchanged. Its lease key
+starts `owner:` followed by the subject (`owner:0mcp:vm701`; a `*` is written `@` because a lease key has no `*`, so
+`owner:0mcp:@` is the family `0mcp:*`), and its note is words of the form `machine=M needs=role:pve person=NAME`. A consumer that
+lists leases ("held by") should leave the `owner:` ones out or show them apart: they are a registry that lives up to 30 days, not
+something being edited. The record is believed only by a reader that checks the signature and who declared it (`docs/reference.md`,
+*Who owns it*); a consumer that only displays it should say so and not call the named machine "the owner" on the lease alone.
+
 ## Reaching the nodes
 
 Run nodes on a private network (a VPN, a LAN, or loopback) and let your firewall or VPN policy decide

@@ -62,6 +62,15 @@ Read this only when you need to message another agent.
   names them, never a guess. `send` prints `resolved @build -> host/agent.sess (matches your pin pattern; identities are self-declared)` before
   the message goes (on stderr with `--json`, which keeps stdout one document); a reply or `--re`
   with no `--to` says on stderr whom it answers; `aivoicebus who @build` shows the holders.
+- Who owns it: `aivoicebus owner get 0mcp:vm701` says who answers for a VM, service or database, and
+  `send --to owner:0mcp:vm701 "..."` (also `ask owner:...` and `task owner:...`, and the MCP `to`/`target`) reaches
+  that session on the owner's machine instead of "all": the live one that has the record's needs (a role,
+  a repo), else, for `send` and `task`, the person there as a task no agent takes (`task owner:... --person`
+  does that whoever is live; `ask` exits 3 and sends nothing). The owner records itself with `aivoicebus owner
+  set SUBJECT [--role pve] [--person NAME]` (it expires in 30 days: `owner renew`). A record is a signed
+  claim: a self-declared one is used for plain messages and printed as `not pinned`; an urgent message, a
+  file or a log link needs a declarer you trust (`aivoicebus owner trust 'host/claude.*'`). Two owners for one
+  subject is an error naming both, never a guess.
 - Names that pass for another (an invisible character, a Cyrillic letter in `clаude`, a
   Unicode hyphen in `aivoicebus`) are refused as a sender or target and shown as `<U+2011>`;
   a real hostname in another script is fine. If your machine name is refused, pin a plain one
