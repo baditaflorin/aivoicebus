@@ -13,6 +13,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -129,7 +130,7 @@ var sendTool = tool{
 		"Never put secrets, tokens or keys in a message; keep it short. Set dry_run to see who it would reach and what it would cost without sending. " +
 		"An urgent message interrupts the reader mid-session: use it only when they must stop and look now.",
 	schema: obj([]string{"body"}, map[string]any{
-		"to":           str("target: host/tool.session, host/tool, */tool, host, all, or a selector like @repo=name; optional when re is set (the reply goes to whoever wrote that message)"),
+		"to":           str("target: host/tool.session, host/tool, */tool, host, all, a selector like @repo=name, or owner:SUBJECT (whoever answers for a VM, service or database: owner:0mcp:vm701); optional when re is set (the reply goes to whoever wrote that message)"),
 		"body":         str("the message text"),
 		"re":           str("id of the message this replies to"),
 		"thread":       str("thread id (default: new, or the reply's)"),
@@ -138,7 +139,7 @@ var sendTool = tool{
 		"kind":         map[string]any{"type": "string", "enum": msg.KindNames(), "description": "question: stops being delivered to other sessions once someone answers; answer needs re"},
 		"queue":        flag("send anyway when no recently seen session matches a selector, or the one session named was not seen in the last 30m (it waits for that session)"),
 		"dry_run":      flag("check and report only; nothing is sent"),
-		"confirm_caps": flag("a target routed by capability (can=...) is only previewed until this is true: capabilities are self-declared, so look at the sessions it resolved to first"),
+		"confirm_caps": flag("a target routed by capability (can=...) or by an owner record nobody pinned (owner:...) is only previewed until this is true: both are self-declared, so look at who it resolved to first"),
 		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("after sending, wait this long for the answer in the thread and return it (at most %d): a conversation with another agent without the user relaying", maxWaitSeconds)},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
@@ -159,6 +160,20 @@ var sendTool = tool{
 		if err != nil {
 			return "", err
 		}
+		ownerText, ownerPreview := "", false
+		if r, text, isOwner, err := ownerRoute(c, a.To, tasks.OwnerRouteOpts{Urgent: strings.EqualFold(a.Prio, msg.PrioUrgent)}); isOwner {
+			if err != nil {
+				return "", err
+			}
+			ownerText, ownerPreview = text, !r.Res.Pinned && !a.ConfirmCaps
+			a.To = r.To
+			if r.Person {
+				if a.Kind != "" && a.Kind != msg.KindTask {
+					return "", fmt.Errorf("nobody on %s is live, so this goes as a task for the person there, and kind %s is not a task: call it again without kind", view.OneLine(r.Machine, 40), view.OneLine(a.Kind, 20))
+				}
+				a.Kind, a.Body = msg.KindTask, msg.PersonTag+" "+a.Body
+			}
+		}
 		var warn strings.Builder
 		// Force is deliberately not an argument: an agent cannot override a guardrail.
 		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, Re: a.Re, Thread: a.Thread,
@@ -167,9 +182,14 @@ var sendTool = tool{
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}
 		var b strings.Builder
-		if a.DryRun || (plan.ByCaps && !a.ConfirmCaps) {
+		b.WriteString(ownerText)
+		if a.DryRun || ownerPreview || (plan.ByCaps && !a.ConfirmCaps) {
 			plan.Describe(&b)
-			if !a.DryRun {
+			switch {
+			case a.DryRun:
+			case ownerPreview:
+				b.WriteString(confirmOwnerNote + "\n")
+			default:
 				b.WriteString("nothing was sent: this target routes by capability, which any session can claim. Check the sessions above, then call again with confirm_caps true.\n")
 			}
 		} else {

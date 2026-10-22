@@ -208,6 +208,9 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 		if ws.state != "" {
 			return outbox.Usagef("--wait-state does not combine with --file or --tail: send it, then aivoicebus state ID --wait-state %s", ws.state)
 		}
+		if err := ownerTarget(c, to, kind, &body, *prio, true, s); err != nil {
+			return err
+		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
 			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole, Authored: authored, Test: *test}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
@@ -222,6 +225,9 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	c.Labels = identity.Labels("") // a --wait-reply reads this session's mail with it
 	inferred, err := inferRe(c, re, *to, reply, s)
 	if err != nil {
+		return err
+	}
+	if err := ownerTarget(c, to, kind, &body, *prio, false, s); err != nil {
 		return err
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,

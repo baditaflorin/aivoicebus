@@ -99,3 +99,15 @@ func ReadRoles() (string, error) {
 	}
 	return "", nil
 }
+
+// OwnerTrustFile is the file of the declarers whose owner records this sender trusts.
+const OwnerTrustFile = "owner-trust"
+
+// ReadOwnerTrust is the sender's trusted declarers (~/.config/aivoicebus/owner-trust) as written; ""
+// when there are none. See msg.ParseOwnerPins.
+func ReadOwnerTrust() (string, error) {
+	if d := Dir(); d != "" {
+		return ReadSmall(d + "/" + OwnerTrustFile)
+	}
+	return "", nil
+}

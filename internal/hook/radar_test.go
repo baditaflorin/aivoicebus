@@ -280,3 +280,21 @@ func TestLeaseLinesNameWhatOthersHold(t *testing.T) {
 		t.Error("no leases must print nothing")
 	}
 }
+
+// Owner records are leases too, but they are the registry's and not something to check before editing: the
+// radar leaves them out, so a few dozen of them never crowd a real hold off the line.
+func TestLeaseLinesLeaveOutOwnerRecords(t *testing.T) {
+	now := time.Now()
+	live := []msg.Lease{
+		{Key: "owner:0mcp:vm701", By: "imac/claude.fce3", ID: "o1", At: now, Until: now.Add(24 * time.Hour), Note: "machine=imac"},
+		{Key: "owner:service:gateway", By: "imac/claude.fce3", ID: "o2", At: now, Until: now.Add(24 * time.Hour), Note: "machine=imac"},
+		{Key: "deploy:prod", By: "c/gemini.3", ID: "c1", At: now, Until: now.Add(time.Hour)},
+	}
+	lines := leaseLines(live, "me/codex.9", "hub")
+	if len(lines) != 1 || !strings.Contains(lines[0], "deploy:prod") || strings.Contains(lines[0], "owner:") {
+		t.Errorf("%q", lines)
+	}
+	if got := leaseLines(live[:2], "me/codex.9", "hub"); got != nil {
+		t.Errorf("only owner records: nothing to print, got %q", got)
+	}
+}

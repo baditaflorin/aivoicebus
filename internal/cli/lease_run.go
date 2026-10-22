@@ -63,6 +63,9 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 		return outbox.Usagef("lease run KEY: one key of 1 to 120 letters, digits and . _ : / @ + -")
 	}
 	key := fl.Arg(0)
+	if err := refuseOwnerKey(key); err != nil {
+		return err
+	}
 	if err := parseFlags(fl, fl.Args()[1:], s); err != nil { // flags may follow the key too
 		return err
 	}

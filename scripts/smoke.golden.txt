@@ -836,3 +836,82 @@ selftest (a probe between two throwaway identities on this machine)
   ack <MS>  ok    acknowledged as the reader
   hidden <MS>  ok    a plain read of the reader does not show it (the node hides the test lane); the node purges it in about 10m
 selftest passed (<MS>)
+# owner records: a machine records that it answers for a subject; a send to owner:SUBJECT reaches the session there that has the role; an unpinned record is never used for an urgent message; nobody live goes to the person
+$ aivoicebus owner set 0mcp:vm701 --role pve --person ana
+warning: only 1 node(s) took the write
+owner:0mcp:vm701 -> own-a needs role:pve recorded until <WHEN> (lease <ID>)
+it expires by itself: `aivoicebus owner renew` extends this machine's records, `aivoicebus owner rm 0mcp:vm701` removes it
+[exit 0]
+$ aivoicebus owner set 0mcp:* --person ana
+warning: only 1 node(s) took the write
+owner:0mcp:* -> own-a recorded until <WHEN> (lease <ID>)
+it expires by itself: `aivoicebus owner renew` extends this machine's records, `aivoicebus owner rm '0mcp:*'` removes it
+[exit 0]
+$ aivoicebus owner set bad subject
+error: owner set bad subject: a subject uses lower case letters, digits and . _ : / + - (and * for a family) only, like 0mcp:vm701 or service:gateway: `aivoicebus owner set -h` shows the form
+[exit 2]
+$ aivoicebus owner get 0mcp:vm701
+owner:0mcp:vm701 -> own-a needs role:pve (ana): record by own-a/claude.fce3, <AGE> ago, signed, not pinned, expires in <N>h
+  a message would go to own-a/claude.pve1: has role:pve; none of those is listening, seen most recently (<AGE> ago): it sees it on its next prompt
+[exit 0]
+$ aivoicebus owner get 0mcp:vm999
+owner:0mcp:vm999 -> own-a (ana) via 0mcp:*: record by own-a/claude.fce3, <AGE> ago, signed, not pinned, expires in <N>h
+  a message would go to own-a: 2 live session(s) there are shown it, and the first to claim it keeps it
+[exit 0]
+$ aivoicebus owner get service:nothing
+error: no owner is recorded for service:nothing: whoever answers for it records itself with `aivoicebus owner set service:nothing` (`aivoicebus owner list` shows what is recorded)
+[exit 3]
+$ aivoicebus owner list
+SUBJECT                        MACHINE                  NEEDS                  PERSON     DECLARED BY                AGE      EXPIRES  CHECK
+0mcp:*                         own-a                                           ana        own-a/claude.fce3          <AGE> <N>h signed
+0mcp:vm701                     own-a                    role:pve               ana        own-a/claude.fce3          <AGE> <N>h signed
+[exit 0]
+$ aivoicebus send --to owner:0mcp:vm701 who tunes the pool?
+  owner:0mcp:vm701 -> own-a needs role:pve (ana): record by own-a/claude.fce3, <AGE> ago, signed, not pinned, expires in <N>h
+  -> own-a/claude.pve1: has role:pve; none of those is listening, seen most recently (<AGE> ago): it sees it on its next prompt
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  reaches 1 session(s) seen in the last 24h
+undo: aivoicebus retract <ID>
+$ aivoicebus send --to owner:0mcp:vm701 --prio urgent stop the pool
+error: owner:0mcp:vm701 names own-a, but its declarer own-a/claude.fce3 is not one you trust, and an owner record nobody pinned is never used for an urgent message or a file or log link (anyone with the token can write one). Pin the declarer: aivoicebus owner trust 'own-a/claude.*'
+[exit 1]
+$ aivoicebus owner trust own-a/claude.*
+owner records declared by own-a/claude.* are now trusted: they outrank other claims to the same subject, and are the only ones used for an urgent message, a file or a log link
+[exit 0]
+$ aivoicebus send --dry-run --to owner:0mcp:vm701 --prio urgent stop the pool
+  owner:0mcp:vm701 -> own-a needs role:pve (ana): record by own-a/claude.fce3, <AGE> ago, signed, pinned, expires in <N>h
+  -> own-a/claude.pve1: has role:pve; none of those is listening, seen most recently (<AGE> ago): it sees it on its next prompt
+dry run: nothing was sent
+  from      own-b/claude.b1
+  to        own-a/claude.pve1
+  priority  urgent
+  expires   never
+  reaches   1 session(s) seen in the last 24h
+  context   about 93 characters in each reader's session start (93 in all)
+  body      13 characters
+[exit 0]
+$ aivoicebus task owner:0mcp:vm999 --person restart vm999
+  owner:0mcp:vm999 -> own-a (ana) via 0mcp:*: record by own-a/claude.fce3, <AGE> ago, signed, pinned, expires in <N>h
+  -> own-a/human: you asked for the person on own-a: it goes as a task for the person there, which no agent takes
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  no matching session seen in the last 24h; it waits for one to start; expires in 3d unless --ttl says otherwise
+undo: aivoicebus retract <ID>
+[exit 0]
+$ aivoicebus lease take owner:0mcp:vm701
+error: owner:0mcp:vm701 is in the owner namespace: an owner record is written with `aivoicebus owner set SUBJECT` and removed with `aivoicebus owner rm SUBJECT`, not taken as a lease
+[exit 2]
+$ aivoicebus inbox | grep -A1 'own-b/claude.b1 ->'
+--- <ID>  own-b/claude.b1 -> own-a/claude.pve1  thread=<ID>  <TIME>
+who tunes the pool?
+$ aivoicebus lease list
+(no leases held)
+[exit 0]
+$ aivoicebus owner rm 0mcp:vm701
+warning: only 1 node(s) took the write
+removed 1 record(s) for owner:0mcp:vm701
+[exit 0]
+$ aivoicebus owner rm 0mcp:vm701
+error: this machine declared no owner record for 0mcp:vm701: `aivoicebus owner list` shows what is recorded and by whom
+[exit 3]

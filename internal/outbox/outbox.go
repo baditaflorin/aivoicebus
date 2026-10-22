@@ -183,6 +183,11 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	if to, err = ExpandTarget(to); err != nil {
 		return p, err
 	}
+	if subject, ok := msg.OwnerSubjectOf(to); ok {
+		// owner:SUBJECT is turned into a machine, a session or a person before a message is made (tasks.RouteOwner,
+		// called by send, task, ask and the MCP tools); a message built on it would go to a machine that does not exist.
+		return p, Usagef("owner:%s is resolved before a message is made, and this way of sending did not: send, task and ask do it (`aivoicebus owner get %s` says who it reaches), or send to the machine it names", view.Name(subject, 80), view.Name(subject, 80))
+	}
 	if role, ok := msg.IsRoleAlias(to); ok { // @build: the one live session holding the role, shown
 		res, err := ResolveRole(c, role, me, msg.RoleOpts{
 			Trust:  r.TrustRole || os.Getenv("AIVOICEBUS_TRUST_ROLES") == "1",

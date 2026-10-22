@@ -157,6 +157,54 @@ long-lived agent name on this machine; `AIVOICEBUS_NAME=codex.build1 codex` keep
 across restarts, and it can never collide with an automatic session suffix (always 4 or fewer
 characters).
 
+### Who owns it: owner records
+
+"Who owns VM 701?" is the question that most often went to `all` and was read by everyone and answered by
+nobody. `aivoicebus owner set 0mcp:vm701 --role pve --person florin` records that this machine answers for
+the subject, `aivoicebus owner get 0mcp:vm701` says who a message would reach, and `send --to
+owner:0mcp:vm701 "..."`, `ask owner:0mcp:vm701 "..."` and `task owner:0mcp:vm701 "..."` (and the MCP `to`
+of `aivoicebus_send` and `aivoicebus_task`, the `target` of `aivoicebus_ask`) deliver to it.
+
+- **A record** says who answers for a **subject**: any text of lower-case letters, digits and `. _ : / + -`
+  (at most 114 characters), compared as text. Use the names `fleet-where` and `fleet-sh` already use, so
+  one name means one thing: `0mcp:vm701` (fleet and Proxmox id: a bare `vm:701` is ambiguous between fleets),
+  `alias:0mcp_docker_build`, `service:go-fleet-backup`, `domain:example.com`. A record holds `machine`
+  (required: the owner's machine, default this one), `needs` (which of its sessions answer, in the `--needs`
+  words: `role:pve`, `repo:owner/name`; `--role pve` is `--needs role:pve`; default: any session there) and
+  `person` (a label for people: the person is reached by machine, `<machine>/human`). It holds none of what
+  `fleet-where` knows (address, ssh alias, containers): the subject is the reference, nothing is copied.
+  `0mcp:*` declares a default for a family; the most specific record wins, an exact one over any family
+  (and `*` alone or a family under three literal characters is refused).
+- **It is a lease** on the key `owner:SUBJECT` (a `*` is written `@` in the key, which has no `*`), with the
+  fields in its note: nothing on the nodes is new, so the wire format is the same, and every node that holds
+  leases (0.6.0 or later) stores and replicates it. It lives at most 30 days (`--ttl`, default 30d) and then
+  drops out, so a retired owner leaves by itself; `aivoicebus owner renew` extends this machine's records;
+  `owner rm SUBJECT` removes one, from any session of the machine that wrote it. `lease list` leaves
+  owner records out unless a glob names them (`lease list 'owner:*'`), the session-start radar does not
+  show them, and `lease take owner:...` is refused. A client older than this release shows them as leases.
+- **Who is believed.** Any holder of the shared token can write a record, so the reader decides. A record is
+  used only when its signature verifies and the machine's key is the one pinned (`aivoicebus keys`: the first
+  key seen is pinned, as ssh does, so "signed" means "the same key as before"). The machine that declares it must be
+  the owner it names, or the sender must trust the declarer (`aivoicebus owner trust 'host/claude.*'`, the
+  same pattern as `role pin`, kept in `~/.config/aivoicebus/owner-trust`): a claim for someone else is shown
+  by `owner get` and never used. A record from a declarer you trust outranks every other claim to the subject
+  and is the only kind used for `--prio urgent`, `--file` or a log link, as for a pinned role. Two different
+  owners at the same level are an error naming both (a pin on one decides it). `send` prints, before the
+  message goes: `owner:0mcp:vm701 -> imac needs role:pve (florin): record by imac/claude.fce3, 3d ago,
+  signed, not pinned, expires in 27d` and where it goes. The MCP tools only preview an unpinned record until
+  `confirm_caps` is true, like a capability route.
+- **Where it goes.** A live session on the owner's machine (listening now, or seen within 30 minutes)
+  that has the record's needs, as `--needs` picks one; with no needs, the machine (every session there sees it, the
+  first claim keeps it). With nobody live: `send` and `task` become a task for the person there (`[for the
+  person]`, which no agent takes, said on stderr); `ask` exits 3 and sends nothing, since a person's task cannot be
+  waited on for a quarter of an hour. `task owner:SUBJECT --person` is the person whoever is live. A machine
+  no session was heard on for 7 days is refused: the record may be stale, and a retired machine's person never reads it.
+  A `--kind` other than a task, a file or a log link cannot wait in a person's task and is refused.
+
+`aivoicebus owner list [GLOB...]` shows every record with who declared it, its age, its expiry and the
+check on its signature; `owner get SUBJECT [--json]` shows the one a send would use, the records that were
+not used and why, and where a message would go now.
+
 `aivoicebus send --dry-run ...` checks a message and prints who it would reach and what it
 would put into their contexts, without sending. `send` refuses an urgent message to five or
 more sessions and a long body to three or more (`--force` overrides, for people; the MCP

@@ -22,6 +22,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"whoami", "print this session's identity"},
 	{"name", "give this session a persistent name"},
 	{"role", "claim or release a role other sessions can address"},
+	{"owner", "who answers for a subject (a VM, a service, a database): `owner set` records it, `owner get` says who a message reaches, and `send --to owner:SUBJECT`, `task owner:SUBJECT` and `ask owner:SUBJECT` use it"},
 	{"quiet", "set quiet hours for non-urgent messages"},
 	{"serve", "run a node (loopback by default; see --addr)"},
 	{"join", "connect this machine to an existing mesh"},

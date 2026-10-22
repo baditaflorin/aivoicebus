@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ func leaseCmd(args []string, s Streams) error {
 		if err != nil {
 			return err
 		}
-		hs := matchingHolders(msg.Holders(live), globs)
+		hs := withoutOwnerRecords(matchingHolders(msg.Holders(live), globs), globs)
 		if *asJSON {
 			return writeJSON(s.Out, hs)
 		}
@@ -72,6 +73,9 @@ func leaseCmd(args []string, s Streams) error {
 			return outbox.Usagef("lease take KEY: one key of 1 to 120 letters, digits and . _ : / @ + -")
 		}
 		key := fs.Arg(0)
+		if err := refuseOwnerKey(key); err != nil {
+			return err
+		}
 		if err := parseFlags(fs, fs.Args()[1:], s); err != nil { // flags may follow the key too
 			return err
 		}
@@ -96,6 +100,9 @@ func leaseCmd(args []string, s Streams) error {
 		if len(args) != 2 || !msg.ValidLeaseKey(args[1]) {
 			return usage
 		}
+		if err := refuseOwnerKey(args[1]); err != nil {
+			return err
+		}
 		n, err := releaseLeases(c, me, args[1])
 		if err != nil {
 			return err
@@ -107,6 +114,24 @@ func leaseCmd(args []string, s Streams) error {
 		return nil
 	}
 	return usage
+}
+
+// refuseOwnerKey keeps owner records out of the lease commands: they are written and removed by `owner`,
+// and "the earliest holder wins" is not how an owner is chosen (msg/owner.go).
+func refuseOwnerKey(key string) error {
+	if msg.IsOwnerKey(key) {
+		return outbox.Usagef("%s is in the owner namespace: an owner record is written with `aivoicebus owner set SUBJECT` and removed with `aivoicebus owner rm SUBJECT`, not taken as a lease", view.OneLine(key, 80))
+	}
+	return nil
+}
+
+// withoutOwnerRecords leaves owner records out of `lease list` unless a glob asks for them (owner:*):
+// there can be many, and `aivoicebus owner list` is the view of them.
+func withoutOwnerRecords(hs []msg.Lease, globs []string) []msg.Lease {
+	if slices.ContainsFunc(globs, func(g string) bool { return strings.HasPrefix(g, msg.OwnerPrefix) }) {
+		return hs
+	}
+	return slices.DeleteFunc(slices.Clone(hs), func(h msg.Lease) bool { return msg.IsOwnerKey(h.Key) })
 }
 
 func holderOf(c *client.Client, key string) (msg.Lease, bool) {
