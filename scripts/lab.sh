@@ -871,10 +871,11 @@ ok "n5 keeps running until --stop" curl -fsS "$(url 5)/healthz"
 mkdir -p "$LAB/nodes/lab_n2/srv/aivoicebus-release"
 printf '{"serial":7,"nodes":[{"name":"n1","url":"%s"},{"name":"n5","url":"%s"}]}\n' "$(url 1)" "$(url 5)" >"$LAB/nodes/lab_n2/srv/aivoicebus-release/nodes.json"
 out=$(rmn n5 --stop); [ $? != 0 ] && has "--stop refuses while a published node list names it" "served by n2 (serial 7) still names n5" "$out" || fail "--stop went ahead with n5 still published"
-printf '{"serial":8,"nodes":[{"name":"n1","url":"%s"}]}\n' "$(url 1)" >"$LAB/nodes/lab_n2/srv/aivoicebus-release/nodes.json"
+# the next list is written the way the binary writes one (indented), and retires n5: that is no reason to refuse
+printf '{\n  "serial": 8,\n  "nodes": [\n    {\n      "name": "n1",\n      "url": "%s"\n    }\n  ],\n  "retired": [\n    {\n      "name": "n5",\n      "url": "%s"\n    }\n  ]\n}\n' "$(url 1)" "$(url 5)" >"$LAB/nodes/lab_n2/srv/aivoicebus-release/nodes.json"
 M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_WRITE_QUORUM=1 AIVOICEBUS_URL="$(url 5)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "written on n5 alone, after it left" 2>&1)
 out=$(rmn n5 --stop); rc=$?
-[ $rc = 0 ] && has "--stop then passes its checks" "dry run only" "$out" || { fail "--stop dry run exit $rc"; echo "$out" | tail -8; }
+[ $rc = 0 ] && has "--stop then passes its checks (a list that retires n5 does not hold it back)" "dry run only" "$out" || { fail "--stop dry run exit $rc"; echo "$out" | tail -8; }
 has "and counts the write n5 took after it left" "note: n5 took [0-9]* record(s) of its own" "$out"
 out=$(rmn n5 --stop --apply); rc=$?
 [ $rc = 0 ] && has "--stop --apply stops it" "no longer answers" "$out" || { fail "--stop --apply exit $rc"; echo "$out" | tail -8; }

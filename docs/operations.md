@@ -294,8 +294,8 @@ write to two), the same guarantee that lets the mesh lose any one node; `--apply
 records. A shared file goes to one node only: one put on the leaving node in that window makes `--stop`
 refuse and name the thread, because stopping would lose it.
 
-`--stop` refuses while the node is still listed, still a peer of a remaining node, or named by the signed
-node list a remaining node serves; then it disables and stops the service. Its data stays on the host.
+`--stop` refuses while the node is still listed, still a peer of a remaining node, or among the nodes of
+the signed node list a remaining node serves (a list that retires it is fine); then it disables and stops the service. Its data stays on the host.
 `--gone` takes out a node that no longer answers at all (its host died): nothing can be compared, so
 whatever only it held is lost, and it refuses while the node answers.
 
@@ -304,9 +304,9 @@ What it does not do, and prints as next steps:
 - other copies of `deploy/nodes.conf` (another checkout, another admin's machine): one that still lists
   the node puts it back into the peer lists the next time `install.sh` runs from it;
 - the signed node list (`aivoicebus release nodes`, then `deploy/publish-nodes.sh`), which needs the release key;
-- machines, dashboards and exporters whose `AIVOICEBUS_URL` names the node. A signed list adds nodes to a
-  machine but never takes a configured one away, so such a machine keeps trying the node and, once it
-  stops, counts it as down in `aivoicebus status` until its `AIVOICEBUS_URL` changes;
+- machines, dashboards and exporters whose `AIVOICEBUS_URL` names the node. Such a machine keeps trying the
+  node and, once it stops, counts it as down in `aivoicebus status` until its `AIVOICEBUS_URL` changes,
+  unless it runs a release that drops the nodes a signed list retires;
 - the network rule for the node's port.
 
 `rollout.sh` and the token scripts refuse while any node of `nodes.conf` does not answer ssh, so take a

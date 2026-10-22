@@ -148,18 +148,20 @@ peers_of_leaving() {
   return 0
 }
 # lists_naming_leaving: the remaining nodes whose published signed node list still names the leaving
-# node, or that cannot say. A node that publishes no list (404) names nobody.
+# node among its nodes, or that cannot say. A node that publishes no list (404) names nobody, and a list
+# that names it under "retired" (it tells machines to stop using it) does not count.
 lists_naming_leaving() {
-  local n name ip code body
+  local n name ip code body listed
   for n in "${REST[@]}"; do
     IFS=: read -r name _ ip <<<"$n"
     code=$(http_code "$TOKEN_FILE" "http://$ip:$PORT/v1/release/nodes.json")
     case "$code" in
       404) ;;
       200)
-        body=$(http_get "$TOKEN_FILE" "http://$ip:$PORT/v1/release/nodes.json" || true)
-        if [ -z "$body" ]; then echo "$name (its list could not be read)"
-        elif grep -qF "//$IP:$PORT\"" <<<"$body"; then echo "$name (serial $(grep -o '"serial":[0-9]*' <<<"$body" | head -1 | cut -d: -f2))"; fi ;;
+        body=$(http_get "$TOKEN_FILE" "http://$ip:$PORT/v1/release/nodes.json" | tr -d '\n' || true)
+        listed=$(grep -o '"nodes": *\[[^]]*\]' <<<"$body" || true) # its entries are flat objects
+        if [ -z "$listed" ]; then echo "$name (its list could not be read)"
+        elif grep -qF "//$IP:$PORT\"" <<<"$listed"; then echo "$name (serial $(grep -o '"serial": *[0-9]*' <<<"$body" | head -1 | tr -dc 0-9))"; fi ;;
       *) echo "$name (answered $code)" ;;
     esac
   done
@@ -352,8 +354,8 @@ Next, by you:
        aivoicebus release nodes --conf $CONF_FILE --dir dist/nodes
        deploy/publish-nodes.sh dist/nodes --apply
   2. Machines, dashboards and exporters whose AIVOICEBUS_URL names http://$IP:$PORT: take it out (on a
-     machine: ~/.config/aivoicebus/env) and restart them. A signed list adds nodes to a machine but never
-     takes a configured one away: those keep trying $NAME, and once it stops, their status counts it as down.
+     machine: ~/.config/aivoicebus/env) and restart them. Until then they keep trying $NAME, and once it
+     stops their status counts it as down, unless they run a release that drops the nodes a signed list retires.
 NEXT
 if [ "$MODE" = remove ]; then
   echo "  3. Then stop it: $0 $NAME --stop (the checks), then $0 $NAME --stop --apply"
