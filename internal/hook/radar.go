@@ -185,7 +185,7 @@ func ago(d time.Duration) string {
 func leaseLines(live []msg.Lease, me, repo string) []string {
 	var mine, other []msg.Lease
 	for _, h := range msg.Holders(live) {
-		if h.By == me {
+		if h.By == me || msg.IsOwnerKey(h.Key) { // owner records are the registry's (`aivoicebus owner`), not something to check before editing
 			continue
 		}
 		if repo != "" && strings.Contains(strings.ToLower(h.Key), strings.ToLower(repo)) {

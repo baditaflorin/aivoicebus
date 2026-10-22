@@ -45,6 +45,7 @@ func init() {
 		"whoami":  whoami,
 		"name":    nameCmd,
 		"role":    roleCmd,
+		"owner":   ownerCmd,
 		"hook":    hookCmd,
 		"setup":   setup,
 		"doctor":  doctor,
