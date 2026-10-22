@@ -14,6 +14,7 @@
 # What it does NOT do, because each is a decision or a security setting, and prints as next steps:
 #   - the network rules for the node (firewall or VPN policy: the other nodes and your clients must reach its port)
 #   - the dashboard's AIVOICEBUS_URL, and a re-signed node list for clients (aivoicebus release nodes + deploy/publish-nodes.sh)
+# Taking a node out again: deploy/remove-node.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONF_FILE="${AIVOICEBUS_NODES_CONF:-deploy/nodes.conf}"

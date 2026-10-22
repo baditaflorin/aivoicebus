@@ -8,7 +8,7 @@
 # hook and MCP server) are pointed at them and every behaviour the unit tests only simulate
 # is exercised on real sockets and real processes: replication, a hung node, a lost disk,
 # the per-prompt hook, an MCP session, a backup restore, token rotation, canary rollouts
-# with automatic rollback, and adding a node; then the release tooling: signing from the
+# with automatic rollback, and adding and removing a node; then the release tooling: signing from the
 # binaries' own stamp, the release lock between sessions, and the rollout's watcher.
 #
 #   scripts/lab.sh            # needs Linux (127.0.0.0/8 loopback), Go, curl, bash; run it on a build host
@@ -865,6 +865,59 @@ deploy/install.sh --apply --peers-only n1 >/dev/null 2>&1
 has "mesh --signed-check says which node already refuses them" "already refuses unsigned ones" "$(AIVOICEBUS_URL="$(url 1)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" mesh --signed-check 2>&1)"
 AIVOICEBUS_NODE_REQUIRE_SIGNED=0 deploy/install.sh --apply --peers-only n1 >/dev/null 2>&1
 [ "$(unsigned 1 four)" = 200 ] && pass "AIVOICEBUS_NODE_REQUIRE_SIGNED=0 switches it off again" || fail "n1 still refuses unsigned messages"
+
+# Last, because it shrinks the mesh: n5 leaves the normal way, n4 is left holding a shared file only it
+# has, and n3 dies and is taken out with --gone.
+section "removing a node: the mirror of adding one"
+rmn() { AIVOICEBUS_VERIFY_BIN="$NEW" deploy/remove-node.sh "$@" 2>&1; }
+in_conf() { grep -q "^$1:" "$LAB/nodes.conf"; }
+out=$(rmn n1); [ $? != 0 ] && has "the first node is refused (it keeps the release lock)" "keeps the release lock" "$out" || fail "remove-node took the first node"
+printf 'n1:lab_n1:127.0.0.11\nn2:lab_n2:127.0.0.12\n' >"$LAB/two.conf"
+out=$(AIVOICEBUS_NODES_CONF="$LAB/two.conf" rmn n2); [ $? != 0 ] && has "a removal that would leave one node is refused" "a mesh needs at least 2" "$out" || fail "remove-node left a one-node mesh"
+out=$(rmn n5 --stop); [ $? != 0 ] && has "--stop refuses a node that is still listed" "is still in" "$out" || fail "--stop went ahead on a listed node"
+out=$(rmn n5 --gone); [ $? != 0 ] && has "--gone refuses a node that answers" "it is not gone" "$out" || fail "--gone took a node that answers"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_WRITE_QUORUM=1 AIVOICEBUS_URL="$(url 5)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "written on n5 alone, just before it leaves" 2>&1)
+has "a message is written on n5 alone" "^sent " "$M"
+out=$(rmn n5); rc=$?
+[ $rc = 0 ] && has "the dry run passes its checks" "dry run only" "$out" || { fail "remove-node dry run exit $rc"; echo "$out" | tail -8; }
+in_conf n5 && pass "and leaves nodes.conf alone" || fail "the dry run edited nodes.conf"
+out=$(rmn n5 --apply); rc=$?
+[ $rc = 0 ] && pass "remove-node --apply exits 0" || { fail "remove-node exit $rc"; echo "$out" | tail -25; }
+has "it waits until the others hold what n5 holds" "   they do" "$out"
+has "a probe goes through the remaining nodes" "probe: selftest passed" "$out"
+has "aivoicebus mesh finds nothing wrong with them" "aivoicebus mesh: nothing wrong" "$out"
+has "the next steps name the signed node list" "aivoicebus release nodes --conf" "$out"
+in_conf n5 && fail "n5 is still in nodes.conf" || pass "n5 is out of nodes.conf"
+has "a '# removed' line keeps its alias and address" "^# removed [0-9TZ:-]* n5:lab_n5:127.0.0.15$" "$(cat "$LAB/nodes.conf")"
+for i in 1 2 3 4; do grep -q "127.0.0.15" "$LAB/nodes/lab_n$i/etc/aivoicebus/node.env" && fail "node $i still lists n5 as a peer" || pass "node $i no longer lists n5"; done
+has "the message n5 alone took is on node 4" "written on n5 alone" "$(AIVOICEBUS_ME=lab/reader AIVOICEBUS_URL="$(url 4)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" inbox --all 2>&1)"
+ok "n5 keeps running until --stop" curl -fsS "$(url 5)/healthz"
+mkdir -p "$LAB/nodes/lab_n2/srv/aivoicebus-release"
+printf '{"serial":7,"nodes":[{"name":"n1","url":"%s"},{"name":"n5","url":"%s"}]}\n' "$(url 1)" "$(url 5)" >"$LAB/nodes/lab_n2/srv/aivoicebus-release/nodes.json"
+out=$(rmn n5 --stop); [ $? != 0 ] && has "--stop refuses while a published node list names it" "served by n2 (serial 7) still names n5" "$out" || fail "--stop went ahead with n5 still published"
+# the next list is written the way the binary writes one (indented), and retires n5: that is no reason to refuse
+printf '{\n  "serial": 8,\n  "nodes": [\n    {\n      "name": "n1",\n      "url": "%s"\n    }\n  ],\n  "retired": [\n    {\n      "name": "n5",\n      "url": "%s"\n    }\n  ]\n}\n' "$(url 1)" "$(url 5)" >"$LAB/nodes/lab_n2/srv/aivoicebus-release/nodes.json"
+M=$(AIVOICEBUS_ME=lab/sender AIVOICEBUS_WRITE_QUORUM=1 AIVOICEBUS_URL="$(url 5)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" send --to lab/reader "written on n5 alone, after it left" 2>&1)
+out=$(rmn n5 --stop); rc=$?
+[ $rc = 0 ] && has "--stop then passes its checks (a list that retires n5 does not hold it back)" "dry run only" "$out" || { fail "--stop dry run exit $rc"; echo "$out" | tail -8; }
+has "and counts the write n5 took after it left" "note: n5 took [0-9]* record(s) of its own" "$out"
+out=$(rmn n5 --stop --apply); rc=$?
+[ $rc = 0 ] && has "--stop --apply stops it" "no longer answers" "$out" || { fail "--stop --apply exit $rc"; echo "$out" | tail -8; }
+ok "n5 no longer answers" bash -c "! curl -fsS --max-time 2 '$(url 5)/healthz'"
+has "its line is marked stopped" "^# removed [0-9TZ:-]* n5:lab_n5:127.0.0.15 stopped " "$(cat "$LAB/nodes.conf")"
+eventually "aivoicebus mesh finds nothing wrong with the four left" 20 bash -c "AIVOICEBUS_URL='$(url 1),$(url 2),$(url 3),$(url 4)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' mesh"
+out=$(rmn n4 --apply); rc=$?
+[ $rc = 0 ] && has "n4 leaves too" "n4 is out of the mesh" "$out" || { fail "remove-node n4 exit $rc"; echo "$out" | tail -20; }
+printf 'put on n4 after it left\n' >"$LAB/late.txt"
+has "a shared file is put on n4 alone after it left" "as version" "$(HOME="$LAB/sh-a" AIVOICEBUS_ME=labsa/agent.s1 AIVOICEBUS_URL="$(url 4)" AIVOICEBUS_TOKEN="$(tok)" "$NEW" share put "$ST" "$LAB/late.txt" 2>&1)"
+out=$(rmn n4 --stop); [ $? != 0 ] && has "--stop refuses: a shared file goes to one node, and only n4 has it" "no remaining node holds, in thread(s) $ST" "$out" || fail "--stop would lose a shared file"
+ok "and n4 still runs" curl -fsS "$(url 4)/healthz"
+nodectl 3 stop
+out=$(rmn n3 --apply); [ $? != 0 ] && has "a node that does not answer cannot leave the normal way" "If it is dead for good" "$out" || fail "remove-node went ahead without reading n3"
+out=$(rmn n3 --gone --apply); rc=$?
+[ $rc = 0 ] && has "--gone takes a dead node out" "n3 is out of the mesh" "$out" || { fail "--gone exit $rc"; echo "$out" | tail -20; }
+has "and marks it gone" "^# removed [0-9TZ:-]* n3:lab_n3:127.0.0.13 gone$" "$(cat "$LAB/nodes.conf")"
+eventually "aivoicebus mesh finds nothing wrong with the two left" 20 bash -c "AIVOICEBUS_URL='$(url 1),$(url 2)' AIVOICEBUS_TOKEN='$(tok)' '$NEW' mesh"
 
 echo
 if [ "$FAILED" = 0 ]; then echo "lab passed"; else echo "LAB FAILED"; fi

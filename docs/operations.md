@@ -296,6 +296,49 @@ the other nodes and your clients reach the new node, the
 dashboard's `AIVOICEBUS_URL`, and a re-signed node list so machines learn the node by themselves
 (`aivoicebus release nodes --dir dist/nodes`, `deploy/publish-nodes.sh dist/nodes --apply`).
 
+## Removing a node
+
+    deploy/remove-node.sh node-d                  # the plan, checked against the live mesh
+    deploy/remove-node.sh node-d --apply          # out of nodes.conf and out of every other node's peer list
+    # ... the next steps it prints: the signed node list, AIVOICEBUS_URL where the node is configured ...
+    deploy/remove-node.sh node-d --stop           # may its service stop now?
+    deploy/remove-node.sh node-d --stop --apply   # stop it
+
+The mirror of adding one. It refuses to leave fewer than two nodes, and to remove the first node of
+`nodes.conf`, which keeps the release lock (put another node's line first while the lock is free).
+With `--apply` it takes the release lock, checks every remaining node answers ssh, and waits until
+every remaining node holds everything the leaving one holds: origin by origin of the version vector
+(`log` in `/v1/health`, the numbers `add-node.sh` sums), and every shared-space record it can serve,
+a log of its own that `/v1/health` does not count. Only then does it take the line out of `nodes.conf`
+(a `# removed` line keeps the node's alias and address), refresh the remaining nodes' peer lists one at
+a time, and verify: every remaining node answers with every peer link up and none to the leaving node,
+`aivoicebus selftest` through the remaining nodes goes through, they all hold whatever any of them holds,
+and `aivoicebus mesh` finds nothing wrong. The dry run reads the same things and changes nothing.
+
+After `--apply` the node keeps running, so a machine that still lists it keeps working, but nothing pulls
+from it any more. A message, ack or retraction written to it then also reached another node (clients
+write to two), the same guarantee that lets the mesh lose any one node; `--apply` and `--stop` count such
+records. A shared file goes to one node only: one put on the leaving node in that window makes `--stop`
+refuse and name the thread, because stopping would lose it.
+
+`--stop` refuses while the node is still listed, still a peer of a remaining node, or among the nodes of
+the signed node list a remaining node serves (a list that retires it is fine); then it disables and stops the service. Its data stays on the host.
+`--gone` takes out a node that no longer answers at all (its host died): nothing can be compared, so
+whatever only it held is lost, and it refuses while the node answers.
+
+What it does not do, and prints as next steps:
+
+- other copies of `deploy/nodes.conf` (another checkout, another admin's machine): one that still lists
+  the node puts it back into the peer lists the next time `install.sh` runs from it;
+- the signed node list (`aivoicebus release nodes`, then `deploy/publish-nodes.sh`), which needs the release key;
+- machines, dashboards and exporters whose `AIVOICEBUS_URL` names the node. Such a machine keeps trying the
+  node and, once it stops, counts it as down in `aivoicebus status` until its `AIVOICEBUS_URL` changes,
+  unless it runs a release that drops the nodes a signed list retires;
+- the network rule for the node's port.
+
+`rollout.sh` and the token scripts refuse while any node of `nodes.conf` does not answer ssh, so take a
+node out before its host goes away, or with `--gone` after.
+
 ## Tokens
 
 Three kinds, all in each node's token file (`/etc/aivoicebus/token`, one per line). Every
@@ -402,7 +445,7 @@ installs that second hook; `aivoicebus doctor` reports a half-installed set.
 binary (fake ssh, scp and systemctl map each alias to a directory) and then drives the real
 CLI, hook and MCP server at them: replication, a frozen node, a lost disk, backup and
 restore, token rotation, machine tokens, rollouts of a good, a broken, a crash-looping and a
-mislabelled release, adding a node, and the refusals (a node down, the wrong token, a revoke
+mislabelled release, adding a node, removing one (and one that died), and the refusals (a node down, the wrong token, a revoke
 that fails half way and is finished by running it again), and the release tooling: signing from
 the binaries' stamp at their commit, the release lock (two rollouts at once, a killed one, a
 stale one), a resumed rollout's canary soak, and the watcher stopping a rollout on a rejected
