@@ -28,11 +28,11 @@ import (
 
 // taskCmd: `aivoicebus task TARGET "text"` is `send --to TARGET --kind task`.
 func taskCmd(args []string, s Streams) error {
-	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--person] [--any] [--needs repo:owner/name,gpu] [--with-thread ID] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--ttl 1d] [--file F]   (one session there takes it)`)
+	usage := outbox.Usagef(`usage: task [MACHINE] "what to do" [--person] [--any] [--needs repo:owner/name,gpu] [--with-thread ID] [--tool codex] [--can gpu] [--model 'gpt-*'] [--wait-reply 10m [--quiet-after 10m] [--claim-within 2m --fallback M2,M3]] [--until 20m [--detach]] [--ttl 1d] [--file F]   (one session there takes it)`)
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	args = joinWaitState(args) // --wait-state ready 10m: both words are the flag's
-	valued := map[string]bool{"ttl": true, "wait-reply": true, "wait-state": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true}
+	valued := map[string]bool{"ttl": true, "wait-reply": true, "wait-state": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true, "until": true, "reply-by": true, "need-by": true, "escalate": true, "escalate-wait": true}
 	var machine, tool, can, model, fallback, claimWithin, each, waitAll, needs, withThread string
 	anyListening, person := false, false
 	var rest []string
@@ -92,6 +92,12 @@ func taskCmd(args []string, s Streams) error {
 	}
 	if person && (each != "" || anyListening || fallback != "" || tool != "" || can != "" || model != "") {
 		return outbox.Usagef(`--person sends it to one machine's person: task MACHINE --person "what to do"`)
+	}
+	if each != "" && slices.ContainsFunc(rest, func(a string) bool {
+		k, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		return strings.HasPrefix(a, "-") && (k == "until" || k == "reply-by" || k == "need-by" || k == "detach")
+	}) {
+		return outbox.Usagef(`--each does not combine with a deadline: one command waits for one deadline, so give each machine its own: task M1 "..." --until 20m`)
 	}
 	if each != "" {
 		var text []string

@@ -22,14 +22,18 @@ import (
 )
 
 // watch tells you when a task this machine sent has sat untaken, or was taken and then went silent
-// (no progress, answer or end for --quiet-after): once per task and kind of alert, as a line and,
-// when a notify URL is set, as a POST to it (ntfy and most webhook relays take that), so nobody
-// has to keep asking "did anyone get it?" or "is anyone still on it?".
+// (no progress, answer or end for --quiet-after), or when the deadline of a message it sent
+// (send --reply-by, task --until) passed with nobody having read it, a reply in, or nobody having
+// taken the offer: once per task and kind of alert, as a line and, when a notify URL is set, as a POST
+// to it (ntfy and most webhook relays take that), so nobody has to keep asking "did anyone get it?"
+// or "is anyone still on it?". A deadline that came out well (read, nobody replied; taken) is marked
+// reported without an alert: `status ID` shows it.
 
 const (
 	notifyFile  = config.NotifyFile
-	alertedFile = "alerted" // the tasks already alerted on, one id per line ("quiet:ID" for a silent one)
+	alertedFile = "alerted" // the tasks already alerted on, one id per line ("quiet:ID" for a silent one, "due:ID" for a deadline)
 	quietKey    = "quiet:"
+	dueKey      = "due:"
 	alertedKeep = 200
 )
 
@@ -40,7 +44,7 @@ func loadAlerted() map[string]bool {
 	b, _ := os.ReadFile(filepath.Join(config.Dir(), alertedFile))
 	for _, l := range strings.Split(string(b), "\n") {
 		l = strings.TrimSpace(l)
-		if msg.ValidID(strings.TrimPrefix(l, quietKey)) {
+		if msg.ValidID(strings.TrimPrefix(strings.TrimPrefix(l, quietKey), dueKey)) {
 			out[l] = true
 		}
 	}
@@ -59,7 +63,8 @@ func noteAlerted(id string) {
 }
 
 // watchOnce alerts on every task stuck longer than after (untaken) or silent for quiet (taken,
-// then nothing; 0: not looked for) that it has not alerted on before, and says how many it found.
+// then nothing; 0: not looked for), and on every deadline that passed unreported with an outcome a
+// person should know, that it has not alerted on before, and says how many it found.
 func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int, error) {
 	now := time.Now()
 	host := msg.HostOf(identity.Me())
@@ -67,7 +72,19 @@ func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int
 	var alerts []alert
 	stuck, err := tasks.Unanswered(c, host, after, now)
 	for _, st := range stuck {
+		if _, ok := outbox.DeadlineFor(host, st.ID); ok {
+			continue // an offer with its own deadline is reported at that deadline, not at --after
+		}
 		alerts = append(alerts, alert{st.ID, "aivoicebus: a task is waiting", tasks.AlertText(st, now)})
+	}
+	var due []tasks.DueReport
+	if err == nil {
+		due, err = tasks.Due(c, host, now)
+		for _, r := range due {
+			if tasks.Alarming(r.Judged) {
+				alerts = append(alerts, alert{dueKey + r.Deadline.ID, "aivoicebus: a deadline passed", r.Line})
+			}
+		}
 	}
 	if quiet > 0 && err == nil {
 		var silent []tasks.Silent
@@ -79,8 +96,19 @@ func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int
 	seen := loadAlerted()
 	nu := notifyURL()
 	n := 0
+	for _, r := range due {
+		if !tasks.Alarming(r.Judged) { // read and nobody replied, or taken: good news needs no alert
+			outbox.MarkReported(host, r.Deadline.ID, now)
+		}
+	}
+	settled := func(key string) { // a deadline that was told about is not looked at again
+		if id, ok := strings.CutPrefix(key, dueKey); ok {
+			outbox.MarkReported(host, id, now)
+		}
+	}
 	for _, a := range alerts {
 		if seen[a.key] {
+			settled(a.key)
 			continue
 		}
 		n++
@@ -92,6 +120,7 @@ func watchOnce(c *client.Client, after, quiet time.Duration, out io.Writer) (int
 			}
 		}
 		noteAlerted(a.key)
+		settled(a.key)
 	}
 	return n, err
 }
@@ -104,7 +133,7 @@ func watchCmd(args []string, s Streams) error {
 	after := fs.Duration("after", 15*time.Minute, "alert on a task this machine sent that nobody took after this long")
 	every := fs.Duration("every", time.Minute, "how often to look")
 	quiet := fs.Duration("quiet-after", tasks.QuietAfter, "alert on a task this machine sent that someone took and then said nothing about (no progress, answer or end) this long; 0: never")
-	once := fs.Bool("once", false, "look once and exit (exit 1 when a task is stuck)")
+	once := fs.Bool("once", false, "look once and exit (exit 1 when a task is stuck or a deadline passed unread, objected to or untaken)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -123,12 +152,12 @@ func watchCmd(args []string, s Streams) error {
 		if n > 0 {
 			return exitError{exitFailure}
 		}
-		fmt.Fprintf(s.Out, "nothing new: no task sent from this machine waits untaken past %s or taken and silent past %s, other than any already alerted on\n", after.String(), quiet.String())
+		fmt.Fprintf(s.Out, "nothing new: no task sent from this machine waits untaken past %s or taken and silent past %s, and no deadline passed with nobody having read it or taken it, other than any already alerted on\n", after.String(), quiet.String())
 		return nil
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintf(s.Err, "watching the tasks this machine sends: an alert when one waits %s untaken or %s silent after it was taken%s\n", after.String(), quiet.String(), map[bool]string{true: ", posted to the notify URL", false: ""}[notifyURL() != ""])
+	fmt.Fprintf(s.Err, "watching the tasks and deadlines this machine sends: an alert when a task waits %s untaken or %s silent after it was taken, or a --reply-by or --until deadline passes unread or untaken%s\n", after.String(), quiet.String(), map[bool]string{true: ", posted to the notify URL", false: ""}[notifyURL() != ""])
 	for {
 		if _, err := watchOnce(c, *after, *quiet, s.Out); err != nil && !client.IsUnreachable(err) {
 			return err

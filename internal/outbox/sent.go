@@ -106,24 +106,28 @@ func rememberSent(m msg.Message) {
 
 // writeSent replaces the file atomically (mode 0600), so a reader never sees half of one and a
 // crash leaves the old one.
-func writeSent(dir string, book sentBook) {
-	b, err := json.Marshal(book)
+func writeSent(dir string, book sentBook) { writeAtomic(dir, sentFile, "sent-*.tmp", book) }
+
+// writeAtomic writes v as JSON to dir/name through a temporary file of the given pattern and a
+// rename, mode 0600, and reports whether it all worked.
+func writeAtomic(dir, name, pattern string, v any) bool {
+	b, err := json.Marshal(v)
 	if err != nil || os.MkdirAll(dir, 0o700) != nil {
-		return
+		return false
 	}
-	tmp, err := os.CreateTemp(dir, "sent-*.tmp")
+	tmp, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return
+		return false
 	}
 	defer os.Remove(tmp.Name()) // a no-op once renamed
 	if _, err := tmp.Write(append(b, '\n')); err != nil {
 		tmp.Close()
-		return
+		return false
 	}
 	if tmp.Chmod(0o600) != nil || tmp.Close() != nil {
-		return
+		return false
 	}
-	_ = os.Rename(tmp.Name(), filepath.Join(dir, sentFile))
+	return os.Rename(tmp.Name(), filepath.Join(dir, name)) == nil
 }
 
 // lastSent is the message who takes back when it names none: the latest it sent as exactly this

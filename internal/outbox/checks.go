@@ -3,6 +3,7 @@ package outbox
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -49,16 +50,27 @@ func StaleTarget(roster []msg.RosterEntry, to, me string, now time.Time, within 
 	if st.Known && live(st.Entry) {
 		return Stale{}, false
 	}
-	repo := st.Entry.Labels["repo"]
-	host := msg.HostOf(to)
+	st.Live = LiveOn(roster, msg.HostOf(to), me, st.Entry.Labels["repo"], now, within, to)
+	return st, true
+}
+
+// LiveOn lists the sessions live on the machine host: in a wait, or seen within `within`; never me, a
+// join probe or one of skip. Sessions working in repo come first (when repo is not ""), then the ones
+// in a wait, then the most recently seen.
+func LiveOn(roster []msg.RosterEntry, host, me, repo string, now time.Time, within time.Duration, skip ...string) []msg.RosterEntry {
+	var live []msg.RosterEntry
 	for _, e := range roster {
-		if msg.HostOf(e.Me) == host && !strings.EqualFold(e.Me, to) && !strings.EqualFold(e.Me, me) && !msg.IsProbe(e.Me) && live(e) {
-			st.Live = append(st.Live, e)
+		if msg.HostOf(e.Me) != host || strings.EqualFold(e.Me, me) || msg.IsProbe(e.Me) || !(e.Listening || now.Sub(e.Seen) <= within) {
+			continue
 		}
+		if slices.ContainsFunc(skip, func(s string) bool { return strings.EqualFold(e.Me, s) }) {
+			continue
+		}
+		live = append(live, e)
 	}
 	sameRepo := func(e msg.RosterEntry) bool { return repo != "" && e.Labels["repo"] == repo }
-	sort.SliceStable(st.Live, func(i, j int) bool {
-		a, b := st.Live[i], st.Live[j]
+	sort.SliceStable(live, func(i, j int) bool {
+		a, b := live[i], live[j]
 		switch {
 		case sameRepo(a) != sameRepo(b):
 			return sameRepo(a)
@@ -69,7 +81,7 @@ func StaleTarget(roster []msg.RosterEntry, to, me string, now time.Time, within 
 		}
 		return a.Me < b.Me
 	})
-	return st, true
+	return live
 }
 
 // Seen is when the target was last seen, in words: "last seen Oct 19 21:30 EEST (9h ago)".

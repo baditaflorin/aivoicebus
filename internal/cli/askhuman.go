@@ -65,7 +65,30 @@ func askHumanCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	me := identity.Me()
+	res, err := askPerson(c, identity.Me(), q, choices, *wait, s.Err)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		if err := writeJSON(s.Out, res); err != nil {
+			return err
+		}
+	} else if res.Answered {
+		fmt.Fprintf(s.Out, "the person answered (%s): %s\n", res.Via, res.Answer)
+	} else {
+		fmt.Fprintf(s.Out, "no answer in %s\n", *wait)
+	}
+	if !res.Answered {
+		return exitError{exitTimeout}
+	}
+	return nil
+}
+
+// askPerson asks the person on me's machine q and waits up to wait for the answer, which comes from the
+// phone (the notification's choice buttons, checked against a one-time code only this call knows) or
+// from the terminal (aivoicebus answer). With wait 0 it asks and returns at once: the answer then
+// lands in me's inbox as an ordinary message nobody has verified. progress gets the "asked" line.
+func askPerson(c *client.Client, me, q string, choices []string, wait time.Duration, progress io.Writer) (askResult, error) {
 	nu := notifyURL()
 	code := ""
 	if nu != "" && len(choices) > 0 && len(c.URLs) > 0 {
@@ -75,11 +98,11 @@ func askHumanCmd(args []string, s Streams) error {
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: msg.HumanOf(me), Body: msg.AskBody(q, choices, code), Prio: msg.PrioUrgent, Queue: true, TargetSaid: true}, io.Discard)
 	if err != nil {
-		return err
+		return askResult{}, err
 	}
 	req, err := plan.Send(c)
 	if err != nil {
-		return err
+		return askResult{}, err
 	}
 	if nu != "" {
 		actions := ""
@@ -92,11 +115,11 @@ func askHumanCmd(args []string, s Streams) error {
 		}
 		_ = tasks.NotifyActions(nu, "aivoicebus: "+msg.SafeName(me)+" asks you", q, actions)
 	}
-	fmt.Fprintf(s.Err, "asked (%s); the person answers on the phone, or in a terminal: aivoicebus answer %s\n", req.ID, req.ID)
+	fmt.Fprintf(progress, "asked (%s); the person answers on the phone, or in a terminal: aivoicebus answer %s\n", req.ID, req.ID)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	res := askResult{ID: req.ID}
-	deadline := time.Now().Add(*wait)
+	deadline := time.Now().Add(wait)
 	for time.Until(deadline) > time.Second && !res.Answered {
 		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: req.Thread}, time.Until(deadline), 3*time.Second)
 		if err != nil {
@@ -114,19 +137,7 @@ func askHumanCmd(args []string, s Streams) error {
 			}
 		}
 	}
-	if *asJSON {
-		if err := writeJSON(s.Out, res); err != nil {
-			return err
-		}
-	} else if res.Answered {
-		fmt.Fprintf(s.Out, "the person answered (%s): %s\n", res.Via, res.Answer)
-	} else {
-		fmt.Fprintf(s.Out, "no answer in %s\n", *wait)
-	}
-	if !res.Answered {
-		return exitError{exitTimeout}
-	}
-	return nil
+	return res, nil
 }
 
 // readTTYLine reads one line typed on the terminal (a variable so tests can answer it).
