@@ -302,6 +302,8 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			refuse(w, msg.RefusedReservedID, "bad request: "+err.Error(), http.StatusBadRequest)
 		case errors.Is(err, store.ErrReplyToNotice):
 			refuse(w, msg.RefusedNotice, "bad request: "+err.Error(), http.StatusBadRequest)
+		case errors.Is(err, store.ErrIDTaken):
+			refuse(w, msg.RefusedIDTaken, err.Error(), http.StatusConflict)
 		case errors.Is(err, store.ErrTurnLimit):
 			refuse(w, turnReason(err), err.Error(), http.StatusConflict)
 		case errors.As(err, &limited):

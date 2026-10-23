@@ -500,8 +500,59 @@ func (c *Client) quorumWith(path string, in, out any, want int, soft func(error)
 	return unreachable(last)
 }
 
-// Send posts a message (written to two nodes) and returns it as stored.
+// Send posts a message (written to two nodes) and returns it as stored. When another message holds
+// its id it goes out under a fresh one: see SendRedrawing.
 func (c *Client) Send(m msg.Message) (msg.Message, error) {
+	out, _, err := c.SendRedrawing(m)
+	return out, err
+}
+
+// SendRedrawing is Send that also returns the message as it went out: m, or m under a fresh id of
+// the same shape (msg.NewIDLike). Ids are random, so two senders can draw one. A node of this release
+// refuses the second (msg.RefusedIDTaken); a node of an older release answers a held id with the message it holds
+// and a 200, which is the same collision (see idTaken). Either way nothing of this message is stored on that
+// node, so it is signed again (the signature covers the id) and sent once more; a second collision is an error.
+func (c *Client) SendRedrawing(m msg.Message) (out, sent msg.Message, err error) {
+	out, err = c.send(m)
+	if !idTaken(m, out, err) {
+		return out, m, err
+	}
+	m = redrawn(m)
+	out, err = c.send(m)
+	if idTaken(m, out, err) {
+		var se *StatusError
+		if !errors.As(err, &se) { // an old node's answer is a refusal made here
+			se = &StatusError{Code: http.StatusConflict, Status: "409 Conflict", Text: "a node of an older release answered with another message under this id", Reason: msg.RefusedIDTaken}
+		}
+		return msg.Message{}, m, se
+	}
+	return out, m, err
+}
+
+// idTaken reports whether a node's answer to m says that another message holds m's id: the refusal
+// of a node of this release, or from an older one a 200 with a message that has m's id and is not m (it
+// answers a held id with the held message). A message that comes back withdrawn is m itself, retracted.
+func idTaken(m, out msg.Message, err error) bool {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Refused() == msg.RefusedIDTaken
+	}
+	return err == nil && out.ID == m.ID && out.Retracted == nil && !m.SameSend(out)
+}
+
+// redrawn is m under a fresh id of its shape, with the signature of the old one dropped.
+func redrawn(m msg.Message) msg.Message {
+	old := m.ID
+	m.ID = msg.NewIDLike(old)
+	if m.Thread == old { // a message that names itself as its thread
+		m.Thread = m.ID
+	}
+	m.Sig, m.Key, m.Box = "", "", ""
+	return m
+}
+
+// send is one posting of m, signed when the machine has keys.
+func (c *Client) send(m msg.Message) (msg.Message, error) {
 	if m.FromTitle == "" {
 		m.FromTitle = c.titleFor(m.From) // the sender's session name now, kept with the message
 	}
