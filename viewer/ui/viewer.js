@@ -18,6 +18,8 @@ const lib = /** @type {any} */ (globalThis).AVLib;
  * @typedef {{id: string, from: string, from_title?: string, from_model?: string, to: string, re?: string, body: string,
  *   at: string, prio?: string, kind?: string, retracted?: object, read_by: number, readers?: string[],
  *   taken_by?: string, state?: string, state_by?: string, recipients: string[]}} ThreadMessage
+ * @typedef {{id: string, thread: string, from: string, from_title?: string, to: string, to_title?: string, at: string, line: string,
+ *   last_seen?: string, handover: boolean, successor?: string, read_by?: string}} Orphan
  * @typedef {{title: string, rev: number, demo: boolean, sessions: number, messages: number,
  *   last_pull: string|null, error: string}} Status
  */
@@ -276,6 +278,32 @@ function conversation(c) {
   return li;
 }
 
+/** One message left to a session that is gone: who it was for, how long ago, and what became of it.
+ * @param {Orphan} o */
+function orphan(o) {
+  const li = el("li");
+  const b = /** @type {HTMLButtonElement} */ (el("button", "conv"));
+  b.type = "button";
+  b.dataset.thread = o.thread;
+  b.appendChild(el("div", "conv-subject" + (o.line ? "" : " muted"), o.line || "(no text)"));
+  const people = el("div", "people");
+  people.appendChild(identityChip(o.from, o.from_title));
+  people.appendChild(el("span", "swap", "→"));
+  people.appendChild(identityChip(o.to, o.to_title));
+  b.appendChild(people);
+  let fate;
+  if (o.read_by) fate = "handed on: read by " + o.read_by;
+  else if (o.handover && o.successor) fate = "marked for the successor: goes to " + o.successor + " when it reads";
+  else if (o.handover) fate = "marked for the successor: waits for the next session in its repo";
+  else fate = "kept for " + o.to + ": its sender did not let it go to a successor";
+  b.appendChild(el("div", "meta", "sent " + ago(o.at) + " · " + (o.last_seen ? "addressee last seen " + ago(o.last_seen) : "addressee not seen for days") + " · " + fate));
+  b.addEventListener("click", () => {
+    navigate({ thread: o.thread }, true);
+  });
+  li.appendChild(b);
+  return li;
+}
+
 /** @param {ThreadMessage} m */
 function message(m) {
   const li = el("li", "msg" + (m.retracted ? " withdrawn" : ""));
@@ -390,6 +418,16 @@ async function load(force) {
   if (state.missing.session) missingBanner(sessionBanner, "Session " + state.session);
   else if (!convs.length) list.appendChild(el("li", "empty", state.session ? "This session has no conversation yet." : "No conversation yet."));
   byId("n-convs").textContent = String(shownConvs.length);
+
+  /** @type {Orphan[]} */
+  const orphans = (await get("api/orphaned")) || [];
+  const lane = /** @type {HTMLDetailsElement} */ (byId("orphaned"));
+  lane.hidden = !orphans.length;
+  const olist = byId("orphans");
+  clear(olist);
+  orphans.forEach((o) => olist.appendChild(orphan(o)));
+  const waiting = orphans.filter((o) => !o.read_by).length;
+  byId("orphaned-title").textContent = "Orphaned: " + waiting + " waiting, " + (orphans.length - waiting) + " handed on";
 
   const head = byId("session-head");
   head.hidden = !state.session;

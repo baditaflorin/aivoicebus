@@ -152,6 +152,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 		ackIt = fs.Bool("ack", false, "mark the message replied to as read once the reply is sent")
 		end = fs.Bool("end", false, "this reply closes the conversation: the other side's wait stops, and nobody needs to answer it")
 	}
+	orSuccessor := fs.Bool("or-successor", reply, "if the session named is gone for 15 minutes with this unread, the nodes hand it to the session that replaces it (the newest live one on its machine with the same tool and repo, or one that claims its role): for one exact session, a note, a question or an answer. On for a reply (--or-successor=false keeps it for the session named), off for send")
 	trustRole := fs.Bool("trust-role", false, "use a role alias (@build) that nobody pinned and one session claims; never for urgent or file/log sends. Better: aivoicebus role pin build 'host/claude.*'")
 	test := fs.Bool("test", false, "send in the test lane: it reaches only sessions that opted in (AIVOICEBUS_TEST=1), is never put into a hook's context or a replay, is left out of stats, view and export, lives at most 10 minutes and is purged; a reply to a test message is one already. Read the answers with inbox --test")
 	if err := parseFlags(fs, args, s); err != nil {
@@ -162,6 +163,11 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 		return err
 	}
 	body := strings.Join(words, " ")
+	succSaid := false // --or-successor was typed, not only on by default
+	fs.Visit(func(f *flag.Flag) { succSaid = succSaid || f.Name == "or-successor" })
+	if succSaid && *orSuccessor && (*file != "" || *tail != "" || *test) {
+		return outbox.Usagef("--or-successor does not combine with --file, --tail or --test (a file lives five minutes and a test ten): run it again without it")
+	}
 	if len(metas.m) > 0 && *file == "" {
 		return outbox.Usagef("--meta goes with --file: it is sealed inside the file's payload")
 	}
@@ -261,7 +267,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
 		TTL: ttlText, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
-		Authored: authored, Test: *test}, s.Err)
+		Authored: authored, Test: *test, Successor: *orSuccessor && authored, SuccessorAsked: succSaid && *orSuccessor}, s.Err)
 	if err != nil {
 		return err
 	}

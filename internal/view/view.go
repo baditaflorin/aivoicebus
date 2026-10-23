@@ -180,6 +180,10 @@ func tags(m msg.Message) string {
 	if m.Private {
 		t = append(t, "[private]")
 	}
+	if m.Inherited != "" { // written to a session that ended: this reader replaces it
+		_, agent, _ := strings.Cut(m.Inherited, "/")
+		t = append(t, "[inherited from "+Name(agent, msg.MaxIdentity)+"]")
+	}
 	for _, tag := range []string{msg.Tag(msg.Priorities, m.Prio), msg.Tag(msg.Kinds, m.Kind)} {
 		if tag != "" {
 			t = append(t, tag)

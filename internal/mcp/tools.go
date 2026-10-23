@@ -138,6 +138,7 @@ var sendTool = tool{
 		"ttl":          str("how long the message stays relevant, such as 90m, 2h, 3d"),
 		"kind":         map[string]any{"type": "string", "enum": msg.KindNames(), "description": "question: stops being delivered to other sessions once someone answers; answer needs re"},
 		"queue":        flag("send anyway when no recently seen session matches a selector, or the one session named was not seen in the last 30m (it waits for that session)"),
+		"or_successor": flag("if the one session named is gone for 15 minutes with this unread, the nodes hand it to the session that replaces it (the newest live one on its machine with the same tool and repo, or one that claims its role). Default true when re is set (a reply), false otherwise; set it false to keep a reply for the session named"),
 		"dry_run":      flag("check and report only; nothing is sent"),
 		"confirm_caps": flag("a target routed by capability (can=...) or by an owner record nobody pinned (owner:...) is only previewed until this is true: both are self-declared, so look at who it resolved to first"),
 		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("after sending, wait this long for the answer in the thread and return it (at most %d): a conversation with another agent without the user relaying", maxWaitSeconds)},
@@ -146,9 +147,10 @@ var sendTool = tool{
 		var a struct {
 			To, Body, Re, Thread, Prio, TTL, Kind string
 			Queue                                 bool
-			DryRun                                bool `json:"dry_run"`
-			ConfirmCaps                           bool `json:"confirm_caps"`
-			WaitSeconds                           int  `json:"wait_seconds"`
+			OrSuccessor                           *bool `json:"or_successor"`
+			DryRun                                bool  `json:"dry_run"`
+			ConfirmCaps                           bool  `json:"confirm_caps"`
+			WaitSeconds                           int   `json:"wait_seconds"`
 		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
@@ -176,8 +178,12 @@ var sendTool = tool{
 		}
 		var warn strings.Builder
 		// Force is deliberately not an argument: an agent cannot override a guardrail.
+		succ := a.Re != "" // a reply is handed on unless it says not; a first message only when it asks
+		if a.OrSuccessor != nil {
+			succ = *a.OrSuccessor
+		}
 		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, Re: a.Re, Thread: a.Thread,
-			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true}, &warn)
+			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true, Successor: succ, SuccessorAsked: succ && a.OrSuccessor != nil}, &warn)
 		if err != nil {
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}

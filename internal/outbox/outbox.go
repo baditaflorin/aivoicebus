@@ -67,6 +67,12 @@ type Request struct {
 	// the urgent fan-out guard, which is about choosing to interrupt that many sessions, is not asked
 	// again. The long-body guard is.
 	Amending bool
+	// Successor marks the message as one the nodes may hand to the session that replaces the one it
+	// names, once that one has been gone for msg.GoneAfter (msg/successor.go). It applies when the
+	// message goes to one exact session and is a note, a question or an answer, and is otherwise left
+	// off, unless SuccessorAsked says the sender asked for it by name: then a message it cannot apply to
+	// is refused with the reason.
+	Successor, SuccessorAsked bool
 	// Test sends the message in the test lane (msg/testlane.go): it reaches only sessions that opted in,
 	// lives at most msg.TestLife and is purged. A reply to a test message is one without asking.
 	Test bool
@@ -84,6 +90,9 @@ type Plan struct {
 	Role    *msg.RoleResolution // the same, for output that is read by programs
 	Expiry  time.Duration       // default lifetime that will apply; 0 when none
 	Lowered bool                // the message said it needs nothing and no priority was chosen, so it goes as fyi (Authored)
+	// Successor is set when the message carries the mark that lets the nodes hand it to the session that
+	// replaces the one it names (Request.Successor).
+	Successor bool
 
 	// Recipients names the sessions a message routed by capability (can=...) would reach, and
 	// CapNote warns when only one or two of them declared it: capabilities are claimed by the
@@ -226,6 +235,17 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			test = false
 		}
 	}
+	if r.Successor && !test && !r.File && !r.Attach {
+		m.ID = msg.NewSuccessorID()
+		switch {
+		case m.Inheritable():
+			p.Successor = true
+		case r.SuccessorAsked:
+			return p, Usagef("--or-successor: %s", successorWhy(m)) // nextstep: successorWhy says it
+		default: // a reply that cannot be handed on is a plain reply
+			m.ID = msg.NewID()
+		}
+	}
 	if d, err := strconv.Atoi(os.Getenv("AIVOICEBUS_TASK_DEPTH")); err == nil && d > 0 {
 		// Sent from a run a worker started for a task: what this sends is one task deeper.
 		m.Depth = min(d, msg.MaxDepthField)
@@ -352,14 +372,29 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		}
 	}
 
+	if p.Successor && r.SuccessorAsked { // a node that predates the mark delivers the message to the session it names only
+		if old, err := c.Successor(); err == nil && old != "" {
+			fmt.Fprintf(warn, "warning: %s does not hand mail to the session that replaces an ended one: a session reading from it is not given this message if %s is gone (update the nodes: `aivoicebus nodes`)\n", old, view.Name(to, msg.MaxIdentity))
+		}
+	}
+	said := false                                                   // a note about whom the message goes to has been made
 	roster, rosterErr := c.RosterAll()                              // a decision, not a display: probes are counted
 	if now := time.Now(); r.Authored && !test && rosterErr == nil { // a test message has its own, stricter check below
 		if st, stale := StaleTarget(roster, to, me, now, LiveWithin); stale {
 			switch {
 			case !named: // the answer goes where its asker is, whatever happened since: say so and send it
 				fmt.Fprintln(warn, st.Warning(now, LiveWithin))
+				if p.Successor {
+					p.Notes, said = append(p.Notes, successorLine(st, roster, me, now)), true
+				}
+			case p.Successor && r.SuccessorAsked && st.HasSuccessor():
+				p.Notes, said = append(p.Notes, successorLine(st, roster, me, now)), true
 			case !r.Queue && !r.Force:
-				return p, errors.New(st.Refusal(now, LiveWithin))
+				text := st.Refusal(now, LiveWithin)
+				if p.Successor && r.SuccessorAsked {
+					text += "\n  --or-successor does not help here: " + st.NoSuccessor()
+				}
+				return p, errors.New(text)
 			}
 		}
 	}
@@ -438,6 +473,9 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	if p.Lowered {
 		p.Notes = append(p.Notes, LoweredNote)
+	}
+	if p.Successor && r.SuccessorAsked && !said {
+		p.Notes = append(p.Notes, fmt.Sprintf("if %s is gone for %s with this unread, it goes to the session that replaces it", view.Name(m.To, msg.MaxIdentity), SpanShort(msg.GoneAfter)))
 	}
 	p.Msg = m
 	return p, nil
@@ -552,6 +590,9 @@ func (p Plan) Describe(w io.Writer) {
 		prio += ", " + m.Kind
 	}
 	fmt.Fprintf(w, "  priority  %s\n", prio)
+	if p.Successor {
+		fmt.Fprintf(w, "  successor if %s is gone for %s with this unread, it goes to the session that replaces it\n", view.Name(m.To, msg.MaxIdentity), SpanShort(msg.GoneAfter))
+	}
 	if p.Lowered {
 		fmt.Fprintln(w, "            lowered to fyi because the words say nothing is needed; --prio ask to interrupt")
 	}

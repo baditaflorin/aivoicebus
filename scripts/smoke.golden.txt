@@ -38,6 +38,8 @@ Usage of send:
     	--reply-by as a time: <TIME>Z (UTC), <TIME> (this machine's clock) or 2026-10-22T<TIME>Z
   -open-link
     	with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once
+  -or-successor
+    	if the session named is gone for 15 minutes with this unread, the nodes hand it to the session that replaces it (the newest live one on its machine with the same tool and repo, or one that claims its role): for one exact session, a note, a question or an answer. On for a reply (--or-successor=false keeps it for the session named), off for send
   -prio string
     	fyi | ask | urgent (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing): fyi is only counted at session start, urgent is shown first
   -private
@@ -105,6 +107,8 @@ Usage of send:
     	--reply-by as a time: <TIME>Z (UTC), <TIME> (this machine's clock) or 2026-10-22T<TIME>Z
   -open-link
     	with --file: put the key in the link as before instead of sealing it for the recipient machine (for a reader on 0.10.4 or older, or the pipe's own p save): whoever reads the board can then fetch the file once
+  -or-successor
+    	if the session named is gone for 15 minutes with this unread, the nodes hand it to the session that replaces it (the newest live one on its machine with the same tool and repo, or one that claims its role): for one exact session, a note, a question or an answer. On for a reply (--or-successor=false keeps it for the session named), off for send
   -prio string
     	fyi | ask | urgent (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing): fyi is only counted at session start, urgent is shown first
   -private
@@ -551,7 +555,7 @@ ok    claude instructions    snippet b105598f
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)
-ok    node features          smoke: amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,share,states,tasks,testlane,token-seen,turns,unsigned-report
+ok    node features          smoke: amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,share,states,successor,tasks,testlane,token-seen,turns,unsigned-report
 WARN  token kind             the mesh's shared token: whoever holds it can send as this machine. Unless this is the machine you deploy from (which keeps it), the operator gives it its own: deploy/machine-token.sh add air --apply (from the root of an aivoicebus checkout), then aivoicebus token hand air
 [exit 0]
 $ aivoicebus uninstall --dry-run
@@ -854,7 +858,7 @@ $ aivoicebus selftest
 warning: only 1 node(s) took the write
 warning: only 1 node(s) took the write
 selftest (a probe between two throwaway identities on this machine)
-  health <MS>  ok    node smoke release <VER>, features amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,share,states,tasks,testlane,token-seen,turns,unsigned-report
+  health <MS>  ok    node smoke release <VER>, features amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,quarantine,receipts,retract,retract-dry-run,share,states,successor,tasks,testlane,token-seen,turns,unsigned-report
   send <MS>  ok    id <ID>
   visible <MS>  ok    the reader's inbox showed the probe intact (time to visible, polls included)
   ack <MS>  ok    acknowledged as the reader
@@ -986,4 +990,52 @@ $ aivoicebus status <ID>
   offered until <TIME>: not taken yet
   state: offered (said by imac/claude.d1 at <TIME>)
   its thread: 1 message(s), 19 characters (about 4 tokens to read)
+[exit 0]
+# a session that ends: --or-successor lets the nodes hand a message to the session that replaces it once it has been gone for 15 minutes (reply does by default); it applies to one exact session only
+$ aivoicebus send --to lap/claude.o2 --or-successor --dry-run the answer you asked for
+dry run: nothing was sent
+  from      lap/claude.o1
+  to        lap/claude.o2
+  priority  ask
+  successor if lap/claude.o2 is gone for 15m with this unread, it goes to the session that replaces it
+  expires   never
+  reaches   1 session(s) seen in the last 24h
+  context   about 88 characters in each reader's session start (88 in all)
+  body      24 characters
+[exit 0]
+$ aivoicebus send --to lap --or-successor to a machine
+error: --or-successor: it applies to a message to one exact session (--to host/tool.session; `aivoicebus who` lists them), not to lap: run it again without --or-successor
+[exit 2]
+$ aivoicebus send --to lap/claude.o2 --or-successor --file /dev/null x
+error: --or-successor does not combine with --file, --tail or --test (a file lives five minutes and a test ten): run it again without it
+[exit 2]
+$ aivoicebus send --to lap/claude.o2 --or-successor the answer you asked for
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  reaches 1 session(s) seen in the last 24h; if lap/claude.o2 is gone for 15m with this unread, it goes to the session that replaces it
+undo: aivoicebus retract <ID>
+$ aivoicebus reply --re <ID> --dry-run got it
+no --to: answering lap/claude.o1, the other side of message <ID>
+dry run: nothing was sent
+  from      lap/claude.o2
+  to        lap/claude.o1
+  re        <ID>
+  priority  ask
+  successor if lap/claude.o1 is gone for 15m with this unread, it goes to the session that replaces it
+  expires   never
+  reaches   1 session(s) seen in the last 24h
+  context   about 70 characters in each reader's session start (70 in all)
+  body      6 characters
+[exit 0]
+$ aivoicebus reply --re <ID> --or-successor=false --dry-run got it
+no --to: answering lap/claude.o1, the other side of message <ID>
+dry run: nothing was sent
+  from      lap/claude.o2
+  to        lap/claude.o1
+  re        <ID>
+  priority  ask
+  expires   never
+  reaches   1 session(s) seen in the last 24h
+  context   about 70 characters in each reader's session start (70 in all)
+  body      6 characters
 [exit 0]

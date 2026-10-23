@@ -74,6 +74,14 @@ func (v *Viewer) Handler(o HTTPOptions) http.Handler {
 		}
 		writeJSON(w, Conversations(v.st.Messages(), titles(roster), session))
 	})
+	mux.HandleFunc("/api/orphaned", func(w http.ResponseWriter, r *http.Request) {
+		roster, _, _, _ := v.snapshot()
+		out := Orphans(roster, v.st.Messages(), v.st.Receipts, time.Now())
+		if out == nil {
+			out = []Orphan{} // never null in JSON
+		}
+		writeJSON(w, out)
+	})
 	mux.HandleFunc("/api/thread", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")
 		if !threadRef.MatchString(id) {

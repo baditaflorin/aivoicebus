@@ -635,7 +635,20 @@ func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	var ms []msg.Message
 	err := c.do(c.URLs, "GET", q, nil, &ms)
 	Check(ms)
+	markInherited(ms, me)
 	return c.keepLane(ms), err
+}
+
+// markInherited tells a reader whose mail it was given that was written to another session: a node
+// hands the mail of a session that ended to the one that replaces it (msg/successor.go), and what
+// it hands over is the message as written, addressed to the session that ended.
+func markInherited(ms []msg.Message, me string) {
+	for i := range ms {
+		ms[i].Inherited = ""
+		if from, ok := msg.InheritedFrom(ms[i], me); ok && ms[i].Retracted == nil {
+			ms[i].Inherited = from
+		}
+	}
 }
 
 // keepLane drops the test messages from a read that did not ask for the lane. A node that has the
@@ -761,6 +774,7 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 			return nil, 0, fmt.Errorf("%s does not hold reads open (no %s)", base, msg.HeaderGen) // nextstep: callers fall back to polling
 		}
 		Check(ms)
+		markInherited(ms, me)
 		return c.keepLane(ms), g, nil
 	}
 	return nil, 0, last
@@ -994,6 +1008,22 @@ func (c *Client) TestLane() (old string, err error) {
 	}
 	for _, h := range hs {
 		if !h.Has(msg.FeatureTestLane) {
+			return "node " + view.OneLine(h.Node, 40) + " (" + view.OneLine(h.Version, 20) + ")", nil
+		}
+	}
+	return "", nil
+}
+
+// Successor says whether every node hands a marked message to the session that replaces the one it
+// names (msg.FeatureSuccessor). A node that does not is named in old: it delivers the message to the
+// session it names and to nobody else, as it always did, so nothing is lost, but nothing is handed on.
+func (c *Client) Successor() (old string, err error) {
+	hs, err := c.Healths()
+	if err != nil {
+		return "", err
+	}
+	for _, h := range hs {
+		if !h.Has(msg.FeatureSuccessor) {
 			return "node " + view.OneLine(h.Node, 40) + " (" + view.OneLine(h.Version, 20) + ")", nil
 		}
 	}

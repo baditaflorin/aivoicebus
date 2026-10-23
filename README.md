@@ -125,6 +125,11 @@ suggests `ask HOST`, `task HOST` or `--queue` (which, like `--force`, sends it a
 "no action needed" and asks nothing is sent as `fyi` (say `--prio ask` to interrupt), and a question sent as `fyi`, which
 running sessions never see, gets a warning.
 
+A reply to an agent that has ended used to wait for a session that would never read it. `reply` now lets the nodes hand it, once the session has been gone
+for 15 minutes, to the session that replaces it on the same machine (the same tool and repo, or one that claims its role); the successor sees it
+marked `[inherited from claude.7430]`. `send --or-successor` does the same for a message you write by hand, and the viewer lists what is left waiting
+in an *Orphaned* lane. See [reference.md](docs/reference.md#when-a-session-ends-its-mail-goes-to-the-session-that-replaces-it).
+
 Approving a write-mode task needs a person: `aivoicebus approver init` makes a key sealed with your passphrase,
 and only a decision signed with it counts, from the terminal (`approve ID`) or the phone's Approve button. A worker
 runs each command without access to your secrets (`~/.ssh`, cloud and git credentials, keychains); peer text that

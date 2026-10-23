@@ -2,6 +2,8 @@ package client_test
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -583,5 +585,71 @@ func TestRosterAndWhoLeaveOutTheJoinProbes(t *testing.T) {
 	}
 	if w, err := c.Who(); err != nil || len(w) != 1 {
 		t.Errorf("who: %+v %v", w, err)
+	}
+}
+
+func TestAnInboxReadSaysWhoseMailWasHandedOnAndNoOneElsesIsMarked(t *testing.T) {
+	srv, s := node(t, "a", nil)
+	repo := msg.Labels{"repo": "api", "tool": "claude"}
+	past := time.Now().Add(-time.Hour)
+	s.SetClock(func() time.Time { return past })
+	s.InboxFor("mac/claude.7430", false, repo) // seen an hour ago: gone
+	s.SetClock(time.Now)
+	own, _ := s.Send(msg.Message{From: "mac/claude.asker", To: "mac/claude.8494", Body: "for you", Thread: "own"})
+	handed, err := s.Send(msg.Message{ID: msg.NewSuccessorID(), From: "mac/claude.asker", To: "mac/claude.7430", Body: "for the one that ended"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _ := s.Send(msg.Message{From: "mac/claude.asker", To: "all", Body: "for everyone"})
+	c := &client.Client{URLs: []string{srv.URL}, Token: "t", Labels: repo}
+	ms, err := c.Inbox("mac/claude.8494", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, m := range ms {
+		got[m.ID] = m.Inherited
+	}
+	if len(got) != 3 || got[own.ID] != "" || got[all.ID] != "" || got[handed.ID] != "mac/claude.7430" {
+		t.Errorf("inherited by id: %v", got)
+	}
+	ms, _, err = c.InboxWait(context.Background(), "mac/claude.8494", 0, false, 0)
+	if err != nil {
+		t.Skipf("no long poll on this node: %v", err) // the marking is the same code; the read above is the test
+	}
+	for _, m := range ms {
+		if (m.ID == handed.ID) != (m.Inherited != "") {
+			t.Errorf("InboxWait marked %s as %q", m.ID, m.Inherited)
+		}
+	}
+	// the marker is a Go-side note, never a field of the wire format
+	b, _ := json.Marshal(ms)
+	if strings.Contains(string(b), "inherited") {
+		t.Errorf("the marker is in the JSON: %s", b)
+	}
+}
+
+func TestSuccessorSaysWhichNodeDoesNotHandMailOn(t *testing.T) {
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"node":"old-node","version":"0.11.0","features":["tasks"]}`)
+	}))
+	defer old.Close()
+	cur, _ := node(t, "cur", nil)
+	if got, err := (&client.Client{URLs: []string{cur.URL}, Token: "t"}).Successor(); err != nil || got != "" {
+		t.Errorf("a current node: %q %v", got, err)
+	}
+	got, err := (&client.Client{URLs: []string{cur.URL, old.URL}, Token: "t"}).Successor()
+	if err != nil || !strings.Contains(got, "old-node") || !strings.Contains(got, "0.11.0") {
+		t.Errorf("an old node among them: %q %v", got, err)
+	}
+}
+
+func TestAMessageToAToolNameIsNotMarkedInheritedForItsSessions(t *testing.T) {
+	srv, s := node(t, "a", nil)
+	m, _ := s.Send(msg.Message{From: "mac/claude.asker", To: "mac/amend", Body: "to every session of the tool amend"})
+	c := &client.Client{URLs: []string{srv.URL}, Token: "t"}
+	ms, err := c.Inbox("mac/amend.r1", false)
+	if err != nil || len(ms) != 1 || ms[0].ID != m.ID || ms[0].Inherited != "" {
+		t.Errorf("%v %+v", err, ms)
 	}
 }

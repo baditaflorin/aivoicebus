@@ -24,10 +24,16 @@ func PersonOnly(m Message) bool {
 	if IsHuman(m.To) {
 		return true
 	}
+	return PersonTagged(m) && !OneSession(m.To)
+}
+
+// PersonTagged reports whether m's first line starts with one of the person's tags, whoever it is
+// addressed to: the tag says whom it is meant for even when the sender chose one session to carry it.
+func PersonTagged(m Message) bool {
 	line, _, _ := strings.Cut(strings.TrimSpace(m.Body), "\n")
 	for _, t := range personTags {
 		if strings.HasPrefix(line, strings.TrimSpace(t)) {
-			return !OneSession(m.To)
+			return true
 		}
 	}
 	return false

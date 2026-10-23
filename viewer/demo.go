@@ -87,6 +87,13 @@ func (v *Viewer) Demo(now time.Time) error {
 		return err
 	}
 	_ = v.st.Ack(t.ID, "build-1/codex.q1w2")
+	// An answer to a session that has ended since, which its sender let go to the successor: it waits in the
+	// Orphaned lane for the next session in repo dashboard on imac.
+	v.st.SetClock(func() time.Time { return at(10) })
+	if _, err := v.st.Send(msg.Message{ID: msg.NewSuccessorID(), From: "laptop-b/claude.k9x3", FromTitle: sessions[2].title, To: "imac/gemini.z7y6", Re: h.ID,
+		Body: "The flaky run is the cookie path: see my reply above, and rerun after pulling fix/login."}); err != nil {
+		return err
+	}
 	v.mu.Lock()
 	v.roster = roster
 	v.rev++

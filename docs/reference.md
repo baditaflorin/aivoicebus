@@ -224,12 +224,66 @@ in a `wait` is always live), or have never heard of it. The refusal says when it
 the sessions that are live on the same machine (those in the same repo first), and gives three ways on:
 `ask HOST "..."` (one live session there answers), `task HOST "..."` (any session there can take it),
 or run it again with `--queue` (or `--force`, which also lifts the other guardrails) to keep it for
-that session. It goes out unchanged when the target is a machine, a tool, a selector or `all`, a session
+that session, or with `--or-successor` to let the session that replaces it have it (see *When a session ends* below). It goes out unchanged when the target is a machine, a tool, a selector or `all`, a session
 that is live, or when `--queue`/`--force` is given. A reply whose target is taken from the message it
 answers (no `--to`) is never refused: it prints a warning with the same facts and is sent, since the
 answer belongs in the thread where its asker will look. `ask` has its own `--within` and is not checked
 a second time. The check reads the roster `who` and `ping` read, so it adds no request, and a roster
 that cannot be read skips it.
+
+### When a session ends: its mail goes to the session that replaces it
+
+A reply to an agent's question often arrives after the agent has ended, and the session that replaces it, on the same
+machine and in the same repo, never sees it. In the first weeks of the log, 85 of the 328 messages to one exact session were never read by
+anybody, and eight replies to one rollout session were first read 28 to 39 hours late. A sender can let the nodes hand such a
+message to the session that replaces the one it names:
+
+    aivoicebus send --to HOST/claude.7430 --or-successor "..."   # off by default for send
+    aivoicebus reply --re ID "..."                               # on by default for a reply
+    aivoicebus reply --re ID --or-successor=false "..."          # keep it for the session it names
+
+The MCP `aivoicebus_send` tool has the same `or_successor` argument (on by default when `re` is set, off otherwise).
+
+**When.** A session is *gone* when the node has not heard from it for 15 minutes and it is not in a `wait`. The only heartbeat is a read
+of its inbox (a session start, a prompt, `wait`, a CLI or MCP call) or a send, so a session in a long run with no prompt looks gone;
+that is why the hand-over is a **copy**: the session named keeps its own copy and reads it if it comes back, so a wrong "gone" costs a
+message read twice, never one lost. This limit is shorter than the 30 minutes `send` tolerates (see above), so between 15 and 30
+minutes a session is still live to `ping` and `send` and its marked mail may already have been handed on.
+
+**To whom.** The node that answers a read decides, from its roster, when the session that replaces one that is gone reads: a live session
+on the **same machine** that claims a role the gone one claimed (`role=build`), else one with the same tool and the same
+repo (a session with no repo has no successor; when both name an `origin`, it must match). If several qualify, the one this node
+first heard of most recently. The sender never inherits its own message. The machine must be the same on purpose: roles and labels
+are self-declared and any holder of a token can claim them, so a role that crossed machines would let anyone take another machine's mail
+by claiming it. A registered name (`codex.build1`) needs nothing: whoever wears the name *is* that session, so its mail reaches it.
+
+**What.** A message to exactly one session, whose sender marked it (below), that is a note, a question or an answer (not a task, claim,
+progress, lease or end), not for the person on the machine (a first line of `[token hand v1]`, `[approval needed]`, `[ask-human]` or
+`[for the person]` is never handed on, even when it was sent to one session by name), not withdrawn, expired, replaced or a test, and that
+**nobody but its sender has read**. A message to a name that outlives a restart, to a machine, a tool or a selector is never handed on.
+The session that replaces the one it names sees it marked in the header, which still says whom it was written to:
+
+    --- 5c8f01a4e3  lap/claude.asker -> lap/claude.7430  thread=...  [inherited from claude.7430]
+
+**Where it is recorded.** Nowhere new: the successor's own read receipt (an ack, which replicates like any other) is what stops the message
+being handed to a second successor. `status ID` then says `in place of lap/claude.7430` next to that reader. `inbox --all` lists what a
+session was handed while the session it replaces stays gone.
+
+**How the sender marks it.** In the message id, like the test lane, and not in a field: `5c`, seven random hex digits and a check digit (the
+sum of the first nine digits mod 16; the mark takes 12 of the 40 bits, so 28 stay random, because a node keeps the first of two messages that share an id). It is still ten lowercase hex digits, signed, and replicated by every release as an ordinary message;
+`internal/msg/testdata/*-vectors.json` did not change, and `NewID` never makes such an id. An older node does not know the shape: it delivers the
+message to the session it names and to nobody else, as before, so nothing breaks, the hand-over is just absent there; `send --or-successor`
+warns when a node does not advertise the health feature `successor`. A reply from a client older than this release carries no mark and is not handed on.
+The flag does not combine with `--file`, `--tail` or `--test`.
+
+**A stale target.** `send --or-successor` to a session not seen for 30 minutes is no longer refused when the nodes know its repo or role: it says
+`its mail goes to the session that replaces it, the newest live session in repo api on lap (now lap/claude.8494, seen 2m ago)`, or that nobody
+there is live yet and it waits for the next one. A session the nodes never heard of, or that declared no repo and no role, is still refused,
+with the reason. A reply whose target is taken from the message it answers prints the same line with its warning.
+
+**The viewer.** The page has an *Orphaned* lane above the conversations (`/api/orphaned`): messages to a session that is gone and that
+it never read, with who they were for and for how long they have waited, and what became of them: *marked for the successor* (and who would get it now),
+*kept for that session* (its sender did not let it go on), or *handed on, read by X* (for a day). The lane uses the same rule as the node.
 
 ### Who is around
 
@@ -274,7 +328,7 @@ keeps it; it holds every message in clear text). The page listens on loopback on
 `127.0.0.1:7788`; reach it from elsewhere through an ssh tunnel), answers only the one-time URL it
 prints (the key becomes a strict, HttpOnly cookie), refuses other Host names, writes nothing, and builds
 its page from text only, never from markup. The JSON it reads (`/api/sessions`, `/api/conversations`,
-`/api/thread?id=`, `/api/status`) is the same a dashboard can mount from the `viewer` package.
+`/api/thread?id=`, `/api/orphaned`, `/api/status`) is the same a dashboard can mount from the `viewer` package.
 
 What is open lives in the address **hash**, so you can bookmark it, paste it, and use the back button: `#thread/<id>`
 (one conversation), `#session/<identity>` (the identity percent-encoded, `host%2Fclaude.3b89`), both as

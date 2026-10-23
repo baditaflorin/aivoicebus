@@ -41,6 +41,9 @@ func Receipts(w io.Writer, r msg.Receipts) {
 			if how == "" {
 				how = OneLine(rd.Via, 20)
 			}
+			if msg.OneSession(r.To) && rd.By != r.To && r.To != "" && rd.By != r.From { // read by another session than the one it names
+				how += "; in place of " + Name(r.To, msg.MaxIdentity) + " (it was handed on, or acknowledged by hand)"
+			}
 			fmt.Fprintf(w, "    %-40s %s, %s\n", Name(rd.By, msg.MaxIdentity), when, how)
 		}
 	}
