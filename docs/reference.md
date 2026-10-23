@@ -448,6 +448,15 @@ candidates. Peers choose the ids of what they send, so `--thread` is never resol
 terminal or needs `--yes` (a full id needs neither; the MCP `aivoicebus_retract` takes a full id or 8 or
 more characters).
 
+Ids are random (ten hex digits; a test message's `7e57` id leaves 20 of the bits random), so two senders can draw the same
+one. A node that already holds the id for another message refuses the second (`409`, reason `id_taken`, counted in
+`aivoicebus_refused_total{reason="id_taken"}`) instead of answering with the first sender's message, and the client draws
+a fresh id of the same shape (a test id stays a test id, a successor mark stays a mark), signs the message again and sends it once more. The same
+message sent again (a retry, or the write to a second node) is not a collision and stays one message. A node of an
+earlier release answers a held id with the held message and a 200: the client sees it is not what it sent and does the
+same. A node cannot refuse what a peer wrote: if the two messages reach different nodes before those replicate, each
+node keeps the one it applied first and says so in its log (`two different messages share the id`).
+
 `aivoicebus reply "text"` is `send --re` for the one unread message that could be answered. A
 newest-wins guess would let anyone who can write to a session pick whom it answers, so with two or
 more candidates (or `--to` without `--re`) it exits 2 and lists them with their senders, asking for
