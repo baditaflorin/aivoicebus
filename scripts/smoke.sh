@@ -330,3 +330,14 @@ OID=$(echo "$out" | awk '$1=="sent"{print $2}')
 as lap/claude.o2
 step reply --re "$OID" --dry-run "got it"
 step reply --re "$OID" --or-successor=false --dry-run "got it"
+echo "# two messages with one id: a node refuses the second (the sender draws a new id and sends again); the same message again is still the first"
+as idt/claude.a1
+post_id() { # FROM BODY: one POST /v1/send under a hand-chosen id; the status and the refusal word, which the CLI turns into a second try
+  echo "\$ POST /v1/send from=$1 body=\"$2\"" | norm
+  curl -sS -o /dev/null -D - -X POST -H "Authorization: Bearer $TOKEN" -d "{\"id\":\"00aa11bb22\",\"from\":\"$1\",\"to\":\"idt/claude.b2\",\"body\":\"$2\"}" "$AIVOICEBUS_URL/v1/send" |
+    tr -d '\r' | grep -iE '^(HTTP/|x-aivoicebus-refused:)' | sed -E 's#^HTTP/[0-9.]+ #status #'
+}
+post_id idt/claude.a1 "first words"
+post_id idt/claude.c3 "other words"
+post_id idt/claude.a1 "first words"
+step thread 00aa11bb22

@@ -257,7 +257,8 @@ ever holds the observer token, so the access lets it read the mesh and not act o
 `/metrics` also says what the node refused and why, so a dashboard sees a loop or a runaway agent
 as it happens: `aivoicebus_refused_total{reason=...}` counts refused sends since start, by reason
 (`rate_sender`, `rate_machine`, `rate_pair` for two agents replying in a loop, `turns`, `deadline`,
-`loop` for the same thing said over and over, `unsigned` under `--require-signed`);
+`loop` for the same thing said over and over, `unsigned` under `--require-signed`, `id_taken` for a message whose
+random id another message already holds: the sender draws a new one and sends again);
 `aivoicebus_messages_last_hour` is the messages the node took in during the last hour; and
 `aivoicebus_decide_total{outcome=...}` counts phone decisions (`recorded`, `bad_code`).
 

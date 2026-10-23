@@ -179,6 +179,14 @@ Message ids are the ten lowercase hex digits `aivoicebus send` makes. `/v1/send`
 hand-chosen id in uppercase hex, but such a message cannot be retracted: no consumer would
 recognise a claim on it, so the route answers 400 instead of writing one.
 
+An id another message already holds is a 409 (`X-Aivoicebus-Refused: id_taken`, `aivoicebus_refused_total{reason="id_taken"}`,
+one line in the node's log), and nothing is stored; the same message again (same sender, target, reply, kind, priority
+and text) is the one held, as before. Rolling out needs no order: a client of this release draws a new id and sends again on that
+refusal, and on an old node's 200 with someone else's message; an older client shows the refusal's words and does not retry; an older node
+keeps answering a collision with the held message. The records themselves are unchanged (`internal/msg/testdata` is untouched), so replication, the
+feed and the dashboard see nothing new. Where two nodes each took one of two messages with a shared id before replicating,
+each keeps the one it applied first, and `two different messages share the id` in the node's log names both senders.
+
 **Allowance.** 60 retractions an hour, separate from the 20 sends an hour, kept per exact claimed
 `by` (not per machine or per token), per node, in memory: a restart forgets it, and the nodes do not
 share it. It is counted only when a retraction is actually written: refusals, repeats (`already`)

@@ -25,6 +25,7 @@ const (
 	RefusedNotSender    = "not_sender"      // only a message's sender (or its machine) may retract it (403)
 	RefusedReservedID   = "reserved_id"     // the id is a retraction notice's (400)
 	RefusedNotice       = "reply_to_notice" // a reply to a retraction notice (400)
+	RefusedIDTaken      = "id_taken"        // another message holds the id the message was sent under (409)
 	RefusedBadRequest   = "bad_request"     // the request is malformed: usually a client older or newer than the node (400)
 	RefusedTooLarge     = "too_large"       // a file larger than a node takes (413)
 	RefusedGone         = "gone"            // a file that expired or was already read (404)

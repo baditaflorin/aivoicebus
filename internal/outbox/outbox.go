@@ -559,9 +559,12 @@ func ExpandTarget(to string) (string, error) {
 }
 
 // Send writes the planned message to the mesh and remembers it as the last one sent from this
-// machine, so `retract` can take it back without being given the id.
-func (p Plan) Send(c *client.Client) (msg.Message, error) {
-	out, err := c.Send(p.Msg)
+// machine, so `retract` can take it back without being given the id. When another message holds its id
+// it goes out under a fresh one of the same shape (client.SendRedrawing), and the plan holds the id it
+// went out under: `send` tells a repeat of earlier words (a node's answer under another id) from a new message by it.
+func (p *Plan) Send(c *client.Client) (msg.Message, error) {
+	out, sent, err := c.SendRedrawing(p.Msg)
+	p.Msg = sent
 	if err != nil {
 		var se *client.StatusError
 		if errors.As(err, &se) && se.Code == http.StatusUnprocessableEntity && strings.Contains(se.Text, "looks like it contains") {

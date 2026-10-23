@@ -585,9 +585,15 @@ func (s *Store) logf(format string, args ...any) {
 }
 
 // addMsgLocked appends m unless a message with its id is already held (the same
-// message written to two nodes) and updates the indexes.
+// message written to two nodes) and updates the indexes. A record of another message under a held
+// id (two senders drew one id, and each wrote to a different node) keeps its place in the log
+// numbering and is not indexed: the node keeps the message it applied first, and says so in its log
+// (Send refuses such a message when the node already holds the id, but cannot for one a peer wrote).
 func (s *Store) addMsgLocked(m msg.Message) {
-	if _, dup := s.idx[m.ID]; dup {
+	if i, dup := s.idx[m.ID]; dup {
+		if held := s.msgs[i]; !held.SameSend(m) && !msg.TestPurged(held) && !msg.TestPurged(m) {
+			s.logf("two different messages share the id %s: kept the one from %s, dropped the one from %s", m.ID, held.From, m.From)
+		}
 		return
 	}
 	i := len(s.msgs)
@@ -1021,8 +1027,13 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	m.Verified, m.Private = "", false // what a reading client finds, never stored
 	if !msg.ValidID(m.ID) {
 		m.ID = msg.NewID()
-	} else if p, ok := s.byIDLocked(m.ID); ok { // client wrote to several nodes: idempotent
-		return s.tombstoneLocked(p), nil // a message that was retracted does not come back with its text
+	} else if p, ok := s.byIDLocked(m.ID); ok {
+		if !p.SameSend(m) { // ids are random: another sender drew this one, and must not be told its words were sent
+			s.refusedBy["id_taken"]++
+			s.logf("refused %s from %s: its id is held by a message from %s", m.ID, m.From, p.From)
+			return msg.Message{}, ErrIDTaken
+		}
+		return s.tombstoneLocked(p), nil // client wrote to several nodes: idempotent; a retracted message does not come back with its text
 	} else if s.noticeIDs[m.ID] {
 		return msg.Message{}, ErrReservedID
 	}
@@ -1286,6 +1297,11 @@ func (s *Store) AckWith(a msg.Ack) error {
 // ErrReservedID is what Send says of a message whose chosen id is one a retraction notice has: such
 // an id is for the notice, and a message holding it would be taken for it.
 var ErrReservedID = errors.New("that message id is reserved for a retraction notice; leave the id out")
+
+// ErrIDTaken is what Send says of a message whose id another message holds. Ids are random, so two
+// senders drawing one is rare but not impossible; a retry of the same message (msg.Message.SameSend)
+// is not this, it returns the message already held. Nothing is stored.
+var ErrIDTaken = errors.New("that message id is already held by another message, so nothing was stored: send it again (a new id is drawn each time)")
 
 // ErrTurnLimit is what Send says of one message too many in a thread that set max_turns.
 var ErrTurnLimit = errors.New("the conversation reached its turn limit or deadline")
@@ -1796,7 +1812,7 @@ type Stats struct {
 	Quarantined int   // placeholders held, each in place of a record that failed msg.Record.ValidateReplicated
 	Refused     int64 // records dropped for an origin that cannot be kept, since start
 	// RefusedBy is the sends refused since start, by reason: rate_sender, rate_machine, rate_pair,
-	// turns, deadline, budget, loop.
+	// turns, deadline, budget, loop, id_taken.
 	RefusedBy map[string]int64
 	// LastHour is the messages this node took in during the last hour.
 	LastHour int

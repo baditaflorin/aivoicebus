@@ -36,6 +36,8 @@ func reasonOf(code int, header, text string) string {
 		}
 	case http.StatusConflict:
 		switch {
+		case has("already held by another message"):
+			return msg.RefusedIDTaken
 		case has("deadline passed"):
 			return msg.RefusedDeadline
 		case has("looks like a loop"):
@@ -157,6 +159,8 @@ func (e *StatusError) explain(reason string) (string, bool) {
 		return "that message id belongs to a retraction notice, so nothing was sent. Send it again without an id (`aivoicebus send` picks one)", true
 	case msg.RefusedNotice:
 		return "that id is a retraction notice, not a message: there is nothing to reply to. Find the message with `aivoicebus inbox --all` and reply to that", true
+	case msg.RefusedIDTaken:
+		return "another message already holds the id this one was sent under (ids are random, so it is rare), and nothing was stored. Send it again with `aivoicebus send`: it draws a new id", true
 	case msg.RefusedBadRequest:
 		if view.HasNextStep(said) {
 			return "the node refused the request: " + said, true

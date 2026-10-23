@@ -76,7 +76,7 @@ func (m *metrics) write(w io.Writer, h msg.Health, st store.Stats) {
 	p("# HELP aivoicebus_messages_last_hour Messages this node took in during the last hour.")
 	p("# TYPE aivoicebus_messages_last_hour gauge")
 	p("aivoicebus_messages_last_hour %d", st.LastHour)
-	p("# HELP aivoicebus_refused_total Sends refused since start, by reason: rate_sender, rate_machine, rate_pair (two agents replying in a loop), turns, deadline, budget (--budget-chars), loop (the same thing said over and over), unsigned.")
+	p("# HELP aivoicebus_refused_total Sends refused since start, by reason: rate_sender, rate_machine, rate_pair (two agents replying in a loop), turns, deadline, budget (--budget-chars), loop (the same thing said over and over), unsigned, id_taken (another message holds the id).")
 	p("# TYPE aivoicebus_refused_total counter")
 	reasons := map[string]int64{"rate_sender": 0, "rate_machine": 0, "rate_pair": 0, "turns": 0, "deadline": 0, "loop": 0}
 	for k, v := range st.RefusedBy {

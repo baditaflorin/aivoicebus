@@ -422,6 +422,29 @@ func ValidID(id string) bool {
 	return err == nil
 }
 
+// NewIDLike returns a fresh random id of the shape of id: a test id (see NewTestID) for a test id, a
+// successor mark (NewSuccessorID) for one, an ordinary one for any other. It is what a sender draws when a
+// node says its id is held by another message, so the message stays what it was: a test message must remain
+// one, or it would be shown to everyone it is addressed to, and a marked one must stay marked, or the nodes
+// would no longer hand it on.
+func NewIDLike(id string) string {
+	switch {
+	case IsTestID(id):
+		return NewTestID()
+	case IsSuccessorID(id):
+		return NewSuccessorID()
+	}
+	return NewID()
+}
+
+// SameSend reports whether o is this message as one client sent it: the fields a sender chooses are
+// equal. The node sets At, Exp, Thread and the limits itself, so two nodes holding one message differ in
+// those, and a client that retries, or writes to several nodes, sends one message under one id. Two
+// messages that only share an id (ids are random, so it happens) differ here.
+func (m Message) SameSend(o Message) bool {
+	return m.From == o.From && m.To == o.To && m.Re == o.Re && m.Kind == o.Kind && m.Prio == o.Prio && m.Body == o.Body
+}
+
 // Matches reports whether address `to` targets identity `me`, for a session
 // that declares no labels (so a selector target never matches). See MatchesLabeled.
 func Matches(to, me string) bool { return MatchesLabeled(to, me, nil) }
