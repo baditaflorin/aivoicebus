@@ -113,11 +113,11 @@ func TestAHeldReadForOneThreadIsBusyNotListening(t *testing.T) {
 	if e := entry(); !e.Listening || e.Waits == nil || !e.Waits.Open() || e.Unverified() {
 		t.Fatalf("standing by as well: %+v", e)
 	}
-	endStandby()
+	endStandby(false)
 	if e := entry(); e.Listening || e.Busy() == "" {
 		t.Fatalf("the standby ended, the thread wait goes on: %+v", e)
 	}
-	endThread()
+	endThread(false)
 	if e := entry(); e.Listening || e.Waits != nil {
 		t.Fatalf("no wait: %+v", e)
 	}
@@ -125,9 +125,19 @@ func TestAHeldReadForOneThreadIsBusyNotListening(t *testing.T) {
 	if e := entry(); !e.Listening || !e.Unverified() {
 		t.Fatalf("a client that does not say: %+v", e)
 	}
-	endOld()
+	endOld(false)
 	s.HoldRead(me, clock.Add(-time.Second), &msg.WaitScope{}) // a read whose wait is over counts for nothing
 	if e := entry(); e.Listening || e.Waits != nil {
 		t.Fatalf("an expired wait: %+v", e)
+	}
+	// A read that brought nothing its wait takes still counts for HeldLinger: the client asks again
+	// within a second, and a session standing by on a busy mesh does not flicker.
+	s.HoldRead(me, clock.Add(20*time.Second), &msg.WaitScope{})(true)
+	if e := entry(); !e.Listening {
+		t.Fatalf("lingering: %+v", e)
+	}
+	*clock = clock.Add(HeldLinger + time.Second)
+	if e := entry(); e.Listening || e.Waits != nil {
+		t.Fatalf("after the linger: %+v", e)
 	}
 }

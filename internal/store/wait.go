@@ -22,21 +22,41 @@ type heldRead struct {
 	scope *msg.WaitScope
 }
 
+// HeldLinger is how long a held read still counts after it ended with nothing its wait takes: the
+// client asks again within a second (tasks.Wait), and any write on the node ends every held read,
+// so without it a session standing by on a busy mesh would flicker between listening and seen.
+const HeldLinger = 2 * time.Second
+
 // HoldRead marks me as waiting in a held inbox read until until, for what scope accepts (nil: the
-// client did not say), and returns what ends it. A session may wait in several at once (standing
-// by in the background while it waits for one reply): it listens while any of them takes anything.
-func (s *Store) HoldRead(me string, until time.Time, scope *msg.WaitScope) (done func()) {
+// client did not say), and returns what ends it: at once, or with linger (the read brought nothing
+// the wait takes, so the client is about to ask again) after HeldLinger. A session may wait in
+// several at once (standing by in the background while it waits for one reply): it listens while
+// any of them takes anything.
+func (s *Store) HoldRead(me string, until time.Time, scope *msg.WaitScope) (done func(linger bool)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
+	for id, h := range s.held[me] { // lingering reads that ran out
+		if !h.until.After(now) {
+			delete(s.held[me], id)
+		}
+	}
 	s.heldN++
 	id := s.heldN
 	if s.held[me] == nil {
 		s.held[me] = map[uint64]heldRead{}
 	}
 	s.held[me][id] = heldRead{until: until, scope: scope}
-	return func() {
+	return func(linger bool) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if h, ok := s.held[me][id]; ok && linger {
+			if end := s.now().Add(HeldLinger); end.Before(h.until) {
+				h.until = end
+			}
+			s.held[me][id] = h
+			return
+		}
 		delete(s.held[me], id)
 		if len(s.held[me]) == 0 {
 			delete(s.held, me)
