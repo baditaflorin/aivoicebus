@@ -139,6 +139,13 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	budgetChars := fs.Int("budget-chars", 0, "start a conversation that holds at most this many characters of messages in all: the nodes refuse a message that would pass it, an [end] always goes; bounds what it costs")
 	waitReply := fs.Duration("wait-reply", 0, "after sending, wait this long (e.g. 10m) for the answer in the thread and print it: two agents can go back and forth without anyone relaying (exit 6 if nothing came)")
 	quietAfter := fs.Duration("quiet-after", tasks.QuietAfter, "with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never")
+	var df deadlineFlags
+	fs.DurationVar(&df.replyBy, "reply-by", 0, "wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply")
+	fs.StringVar(&df.needBy, "need-by", "", "--reply-by as a time: 15:40Z (UTC), 15:40 (this machine's clock) or 2026-10-22T15:40:00Z")
+	fs.DurationVar(&df.until, "until", 0, "with a task (the offer): wait up to this long (1m to 24h) for someone to take it; untaken, its ttl is this so the nodes stop delivering it, and the command says it is not being done (exit 3)")
+	fs.StringVar(&df.escalate, "escalate", "", "with --reply-by, when nobody read it by the deadline: machine (an urgent reminder to the live sessions on its machine), person (ask-human), or machine,person in turn")
+	fs.DurationVar(&df.escWait, "escalate-wait", 10*time.Minute, "with --escalate person: how long to wait for the person's answer (0: ask and return)")
+	fs.BoolVar(&df.detach, "detach", false, "with a deadline: send, remember it and return at once; watch reports it when it passes, status ID shows it any time")
 	ackIt := new(bool)
 	end := new(bool)
 	if reply {
@@ -175,6 +182,28 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	}
 	if *quietAfter < 0 || (*quietAfter > 0 && *quietAfter < time.Second) {
 		return outbox.Usagef("--quiet-after is at least 1s, or 0 for never")
+	}
+	dl, err := parseDeadline(df, *kind, time.Now())
+	if err != nil {
+		return err
+	}
+	ttlText := *ttl
+	if dl != nil {
+		switch {
+		case *waitReply > 0 || ws.state != "":
+			return outbox.Usagef("a deadline and --wait-reply or --wait-state are ways to wait: use one")
+		case len(moves) > 0:
+			return outbox.Usagef("--fallback and ask have their own claim window: leave the deadline out")
+		case *file != "" || *tail != "":
+			return outbox.Usagef("a deadline does not combine with --file or --tail: send the message, then watch it with `aivoicebus status ID`")
+		case *test:
+			return outbox.Usagef("a deadline does not combine with --test: a test message lives at most 10 minutes")
+		case *end:
+			return outbox.Usagef("--end closes the conversation, so there is nothing to wait for")
+		}
+		if ttlText, err = deadlineTTL(*ttl, dl); err != nil {
+			return err
+		}
 	}
 	var fallbacks []string
 	claimWithin := new(time.Duration)
@@ -231,7 +260,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 		return err
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
-		TTL: *ttl, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
+		TTL: ttlText, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
 		Authored: authored, Test: *test}, s.Err)
 	if err != nil {
 		return err
@@ -255,11 +284,26 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 		}
 		plan.Msg.Body = sealed
 	}
+	if dl != nil && slices.Contains(dl.escalate, stepMachine) && !namesOneMachine(plan.Msg.To) {
+		return outbox.Usagef("--escalate machine needs a target on one machine (a machine, one of its sessions or tools), and %s reaches several: name one, or use --escalate person", view.Name(plan.Msg.To, msg.MaxIdentity))
+	}
+	if dl != nil {
+		if h, err := c.Health(); err == nil && !h.Has(msg.FeatureReceipts) {
+			return fmt.Errorf("nothing was sent: the node runs %s, which cannot report who read a message (it needs 0.4.0), so a deadline could never be judged; `aivoicebus mesh` shows what each node runs", view.OneLine(h.Version, 20))
+		}
+	}
 	if *dry {
+		dlLine := ""
+		if dl != nil {
+			dlLine = dl.describe(time.Now())
+		}
 		if *asJSON {
-			return writeJSON(s.Out, planView(plan))
+			return writeJSON(s.Out, planView(plan, dlLine))
 		}
 		plan.Describe(s.Out)
+		if dlLine != "" {
+			fmt.Fprintln(s.Out, "deadline: "+dlLine)
+		}
 		return nil
 	}
 	if inferred {
@@ -292,7 +336,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	if *ackIt && plan.Msg.Re != "" { // the reply is out: its message is handled
 		_ = c.AckVia(plan.Msg.Re, identity.Me(), msg.ViaCLI, 0)
 	}
-	if *asJSON && *waitReply == 0 && ws.state == "" {
+	if *asJSON && *waitReply == 0 && ws.state == "" && dl == nil {
 		return writeJSON(s.Out, sentView{ID: out.ID, Thread: out.Thread, To: view.Name(out.To, msg.MaxIdentity), Re: out.Re, Reach: reachOf(plan), Notes: append([]string{}, plan.Notes...)})
 	}
 	sentOut := s.Out
@@ -314,6 +358,13 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	fmt.Fprintln(s.Err, "undo: aivoicebus retract "+out.ID) // on stderr with the notes: stdout stays one line a script can read the id from
 	if len(plan.Suspect) > 0 {
 		fmt.Fprintln(s.Err, "if that went out: aivoicebus retract --leak "+out.ID)
+	}
+	if dl != nil {
+		said := body
+		if *private {
+			said = ""
+		}
+		return runDeadline(c, dl, plan, said, out, *asJSON, s)
 	}
 	if ws.state != "" {
 		return waitForState(c, identity.Me(), out.ID, ws, *asJSON, "", s)
@@ -765,7 +816,7 @@ func reachOf(p outbox.Plan) *int {
 }
 
 // planView is `send --dry-run --json`'s answer.
-func planView(p outbox.Plan) any {
+func planView(p outbox.Plan, deadline string) any {
 	m := p.Msg
 	return struct {
 		DryRun   bool     `json:"dry_run"`
@@ -780,8 +831,9 @@ func planView(p outbox.Plan) any {
 		Context  int      `json:"context_chars"`
 		Body     int      `json:"body_chars"`
 		Notes    []string `json:"notes"`
+		Deadline string   `json:"deadline,omitempty"`
 	}{true, view.Name(m.From, msg.MaxIdentity), view.Name(m.To, msg.MaxIdentity), m.Re, m.Priority(), m.Kind, m.TTL, int64(p.Expiry / time.Second), reachOf(p), p.Context,
-		utf8.RuneCountInString(m.Body), append([]string{}, p.Notes...)}
+		utf8.RuneCountInString(m.Body), append([]string{}, p.Notes...), deadline}
 }
 
 // who lists the sessions the answering node has heard from, with the labels

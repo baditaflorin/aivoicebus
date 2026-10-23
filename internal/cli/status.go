@@ -66,6 +66,9 @@ func statusCmd(args []string, s Streams) error {
 		return writeJSON(s.Out, out)
 	}
 	view.Receipts(s.Out, r)
+	if line := statusDeadline(c, fs.Arg(0)); line != "" {
+		fmt.Fprintln(s.Out, "  "+line)
+	}
 	if terr == nil && len(ms) > 0 { // the conversation's state, under who took it, and its size
 		if v := msg.ThreadState(ms); v.State != "" {
 			fmt.Fprintln(s.Out, "  "+view.StateLine(v))

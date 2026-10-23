@@ -25,6 +25,7 @@ const (
 	exitRejected    = 5 // a node refused the token or what it may do
 	exitTimeout     = 6 // `wait` (or --wait): nothing arrived in the time given
 	exitLeaseHeld   = 7 // `lease run`: the lease is someone else's, so the command did not run
+	exitUnseen      = 8 // `send --reply-by`: the deadline passed and nobody had read the message: silence is not consent
 )
 
 // exitReplaced is `worker`'s code when its binary was replaced: a service restarts it (EX_TEMPFAIL).

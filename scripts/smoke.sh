@@ -304,3 +304,17 @@ step lease list
 as own-a/claude.fce3
 step owner rm 0mcp:vm701 | onorm
 step owner rm 0mcp:vm701 | onorm
+echo "# deadlines: --reply-by says what became of a message instead of taking silence for consent (read and no reply: exit 0; nobody read it: exit 8); --until turns an offer nobody takes into 'not doing it'"
+as imac/claude.d1
+stepd() { step "$@" 2>&1 | sed -E 's/\(in [0-9hms.]+\)/(in <SPAN>)/'; }
+stepd send --to air/dl.r1 --queue --dry-run "deploying at 15:40Z; reply if you are mid-change" --reply-by 15m --escalate machine,person
+( sleep 1; AIVOICEBUS_ME=air/dl.r1 "$BIN" inbox --ack >/dev/null 2>&1 ) &
+RD=$!
+stepd send --to air/dl.r1 --queue "deploying at 15:40Z; reply if you are mid-change" --reply-by 3s
+wait "$RD"
+stepd send --to air/dl.r2 --queue "force-pushing branch x, tell me now" --reply-by 2s
+stepd send --to air/dl.r2 --queue --reply-by 25h "too far away"
+echo "\$ aivoicebus task air/dl.r3 --queue \"take the 5pm backup\" --until 1m --detach"
+out=$("$BIN" task air/dl.r3 --queue "take the 5pm backup" --until 1m --detach 2>&1 </dev/null); echo "$out" | sed -E 's/\(in [0-9hms.]+\)/(in <SPAN>)/' | norm
+OFFER=$(echo "$out" | awk '$1=="sent"{print $2}')
+stepd status "$OFFER"
