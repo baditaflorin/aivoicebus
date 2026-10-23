@@ -140,6 +140,52 @@ func (s Stale) Warning(now time.Time, within time.Duration) string {
 		view.Name(s.Target, msg.MaxIdentity), s.Seen(now), ago(within), s.liveLine(now, within))
 }
 
+// HasSuccessor reports whether the nodes can say which session replaces the stale one: they know it
+// and it declared a repository or a role.
+func (s Stale) HasSuccessor() bool {
+	return s.Known && (s.Entry.Labels["repo"] != "" || len(msg.RolesOf(s.Entry.Labels)) > 0)
+}
+
+// NoSuccessor is why no session can be named as the one that replaces the stale one.
+func (s Stale) NoSuccessor() string {
+	if !s.Known {
+		return "the nodes have not heard of " + view.Name(s.Target, msg.MaxIdentity) + ", so they do not know its repository"
+	}
+	return view.Name(s.Target, msg.MaxIdentity) + " declared no repository and no role, so nothing says which session replaces it"
+}
+
+// successorLine says where a message for the stale session goes: to the session that replaces it.
+// Who that is when it is read is the node's choice (the newest live one then); this is who it would be now.
+func successorLine(st Stale, roster []msg.RosterEntry, me string, now time.Time) string {
+	host := view.Name(msg.HostOf(st.Target), msg.MaxIdentity)
+	what := "the newest live session of its repository on " + host
+	if repo := st.Entry.Labels["repo"]; repo != "" {
+		what = "the newest live session in repo " + view.Name(repo, 40) + " on " + host
+	}
+	others := slices.DeleteFunc(slices.Clone(roster), func(e msg.RosterEntry) bool { return strings.EqualFold(e.Me, me) })
+	next, ok := msg.Successor(st.Entry, others, nil, now)
+	head := fmt.Sprintf("%s %s: its mail goes to the session that replaces it, %s", view.Name(st.Target, msg.MaxIdentity), st.Seen(now), what)
+	if !ok {
+		return head + "; nobody there is live yet, so it waits for the next one"
+	}
+	return fmt.Sprintf("%s (now %s, seen %s)", head, view.Name(next.Me, msg.MaxIdentity), since(now.Sub(next.Seen)))
+}
+
+// successorWhy is why a message cannot carry the mark that lets the nodes hand it to a successor.
+func successorWhy(m msg.Message) string {
+	switch {
+	case !msg.OneSession(m.To):
+		return fmt.Sprintf("it applies to a message to one exact session (--to host/tool.session; `aivoicebus who` lists them), not to %s: run it again without --or-successor", view.Name(m.To, 80))
+	case msg.IsPersistentSession(m.To):
+		return fmt.Sprintf("%s is a name that outlives a restart, so mail for it waits for whoever wears the name: run it again without --or-successor", view.Name(m.To, 80))
+	case m.Kind != "" && m.Kind != msg.KindQuestion && m.Kind != msg.KindAnswer:
+		return fmt.Sprintf("a %s is the bookkeeping of one conversation and is never handed on: run it again without --or-successor", view.OneLine(m.Kind, 20))
+	case msg.PersonTagged(m):
+		return "a message for the person on a machine is never handed to another session (the person runs what it says): run it again without --or-successor"
+	}
+	return "this message cannot be handed to another session: run it again without --or-successor"
+}
+
 // since is how long ago something was, as a person says it: "just now", "45m ago", "9h ago", "3d ago".
 func since(d time.Duration) string {
 	if d < time.Minute {

@@ -81,14 +81,15 @@ type Store struct {
 
 	// Indexes into msgs, kept in step with it, so reading mail costs what it
 	// returns and not the length of the whole history.
-	idx      map[string]int          // message id -> index
-	threads  map[string][]int        // thread id -> indices in arrival order
-	byTo     map[string][]int        // the exact `to` -> indices in arrival order
-	sels     map[string]msg.Selector // each distinct selector target, parsed (nil if malformed)
-	answers  map[string][]answerRef  // question or task id -> the answers and claims to it
-	lastSent map[string]time.Time    // sender -> time of its latest message
-	seen     map[string]seenInfo     // identity -> last contact with THIS node
-	now      func() time.Time        // the clock; replaced in tests
+	idx      map[string]int              // message id -> index
+	threads  map[string][]int            // thread id -> indices in arrival order
+	byTo     map[string][]int            // the exact `to` -> indices in arrival order
+	succ     map[string]map[string][]int // machine -> the one session a message that may go to its successor names -> indices (successor.go)
+	sels     map[string]msg.Selector     // each distinct selector target, parsed (nil if malformed)
+	answers  map[string][]answerRef      // question or task id -> the answers and claims to it
+	lastSent map[string]time.Time        // sender -> time of its latest message
+	seen     map[string]seenInfo         // identity -> last contact with THIS node
+	now      func() time.Time            // the clock; replaced in tests
 
 	lastPrune time.Time // when seen was last trimmed
 
@@ -277,6 +278,10 @@ type seenInfo struct {
 	// sighting, a gossiped send included, so it says nothing about how fresh the labels are.
 	labelsAt time.Time
 	title    string // what the session's tool last called it (msg.CleanTitle); "" when it declared none
+	// since is when this node first heard of the session (an inbox read, a send, a peer's roster): the
+	// newest of several live sessions in one repository is the successor of one that is gone. Local to
+	// this node and never gossiped, so another node may order two sessions differently. Zero: unknown.
+	since time.Time
 	// waitingUntil is when the inbox read the session is waiting in (a long poll) ends: until then
 	// it is listening right now. Kept on this node only.
 	waitingUntil time.Time
@@ -308,7 +313,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
-		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
+		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
 		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, purgedRefs: map[testRef]bool{}}
@@ -593,6 +598,7 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	}
 	s.threads[m.Thread] = append(s.threads[m.Thread], i)
 	s.byTo[m.To] = append(s.byTo[m.To], i)
+	s.indexSuccessorLocked(i, m)
 	if m.Kind == msg.KindLease {
 		s.leases = append(s.leases, i)
 	}
@@ -1499,7 +1505,7 @@ func (s *Store) InboxLane(me string, all bool, labels msg.Labels, lane bool) []m
 	defer s.mu.Unlock()
 	now := s.now().UTC()
 	s.sweepLocked(now)
-	s.seen[me] = seenInfo{at: now, labels: labels, labelsAt: now, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil} // a read that declares no title keeps the last one
+	s.seen[me] = seenInfo{at: now, labels: labels, labelsAt: now, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil, since: s.firstHeardLocked(me, now)} // a read that declares no title keeps the last one
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
@@ -1522,9 +1528,20 @@ func (s *Store) Peek(me string) []msg.Message {
 // inboxLocked is what reaches me: unread unless all, never what I sent.
 func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane bool, now time.Time) []msg.Message {
 	var out []msg.Message
-	for _, i := range s.candidatesLocked(me, labels) {
+	idxs := s.candidatesLocked(me, labels)
+	var handed map[int]bool // mail of a session that is gone, handed to me as its successor (successor.go)
+	if more := s.inheritedLocked(me, all, now); len(more) > 0 {
+		handed = make(map[int]bool, len(more))
+		for _, i := range more {
+			handed[i] = true
+		}
+		idxs = append(idxs, more...)
+		slices.Sort(idxs)
+		idxs = slices.Compact(idxs)
+	}
+	for _, i := range idxs {
 		m := s.msgs[i]
-		if m.From == me || !msg.MatchesLabeled(m.To, me, labels) { // the index is a superset filter; the rule is the authority
+		if m.From == me || (!handed[i] && !msg.MatchesLabeled(m.To, me, labels)) { // the index is a superset filter; the rule is the authority
 			continue
 		}
 		if s.hiddenTestLocked(m, lane, labels) {
@@ -1714,7 +1731,7 @@ func (s *Store) NoteTitle(me, title string) {
 		return
 	}
 	if !known {
-		cur.at = now
+		cur.at, cur.since = now, now
 	}
 	cur.title = title
 	s.seen[me] = cur
@@ -1825,6 +1842,7 @@ type presenceJSON struct {
 	Labels   msg.Labels `json:"labels,omitempty"`
 	LabelsAt time.Time  `json:"labels_at,omitempty"` // zero in a file an older release wrote: At stands in
 	Title    string     `json:"title,omitempty"`
+	Since    time.Time  `json:"since,omitempty"` // when this node first heard of it; zero in a file an older release wrote
 }
 
 // loadPresence reads presence.json, dropping sessions already past seenKeep.
@@ -1844,7 +1862,11 @@ func (s *Store) loadPresence() {
 			if at.IsZero() || at.After(v.At) {
 				at = v.At
 			}
-			s.seen[k] = seenInfo{at: v.At, labels: v.Labels, labelsAt: at, title: msg.CleanTitle(v.Title)}
+			since := v.Since
+			if since.IsZero() {
+				since = v.At // a file an older release wrote: the last sighting is the best guess
+			}
+			s.seen[k] = seenInfo{at: v.At, labels: v.Labels, labelsAt: at, title: msg.CleanTitle(v.Title), since: since}
 		}
 	}
 }
@@ -1861,7 +1883,7 @@ func (s *Store) flushPresenceLocked(_ time.Time, force bool) {
 	s.presenceSaved = time.Now()
 	m := make(map[string]presenceJSON, len(s.seen))
 	for k, v := range s.seen {
-		m[k] = presenceJSON{At: v.at, Labels: v.labels, LabelsAt: v.labelsAt, Title: v.title}
+		m[k] = presenceJSON{At: v.at, Labels: v.labels, LabelsAt: v.labelsAt, Title: v.title, Since: v.since}
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -1960,6 +1982,9 @@ func (s *Store) MergePresence(entries []msg.RosterEntry) int {
 		}
 		cur, known := s.seen[e.Me]
 		next := cur
+		if !known {
+			next.since = now // first heard of through a peer
+		}
 		if !known || at.After(cur.at) {
 			next.at = at
 			if title != "" {
@@ -2000,4 +2025,12 @@ func (s *Store) RosterSince(t time.Time) []msg.RosterEntry {
 		}
 	}
 	return out
+}
+
+// firstHeardLocked is when this node first heard of me: the time it recorded, else now.
+func (s *Store) firstHeardLocked(me string, now time.Time) time.Time {
+	if v := s.seen[me].since; !v.IsZero() {
+		return v
+	}
+	return now
 }

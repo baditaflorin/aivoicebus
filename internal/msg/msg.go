@@ -94,6 +94,11 @@ type Message struct {
 	Verified string `json:"verified,omitempty"`
 	Private  bool   `json:"private,omitempty"`
 
+	// Inherited is, on a message in a session's inbox that was written to another session (the one it
+	// replaces), that session's identity: set by the client that read it (never a field of the wire
+	// format, so never sent, stored or replicated), for a reader to be told whose mail it is. See successor.go.
+	Inherited string `json:"-"`
+
 	// Retracted is set by a node on a copy of a message its sender withdrew (see retract.go),
 	// whose Body is then a tombstone. Response only: it is never stored or replicated, and a
 	// message that arrives with it set has it cleared.
@@ -393,12 +398,13 @@ const (
 	FeatureBudget  = "budget"
 )
 
-// NewID returns a random 10-hex-char message id, never one with the shape of a test id (see NewTestID).
+// NewID returns a random 10-hex-char message id, never one with the shape of a test id (see NewTestID)
+// or of a successor mark (see NewSuccessorID).
 func NewID() string {
 	b := make([]byte, 5)
 	for {
 		randRead(b)
-		if id := hex.EncodeToString(b); !IsTestID(id) {
+		if id := hex.EncodeToString(b); !IsTestID(id) && !IsSuccessorID(id) {
 			return id
 		}
 	}

@@ -318,3 +318,15 @@ echo "\$ aivoicebus task air/dl.r3 --queue \"take the 5pm backup\" --until 1m --
 out=$("$BIN" task air/dl.r3 --queue "take the 5pm backup" --until 1m --detach 2>&1 </dev/null); echo "$out" | sed -E 's/\(in [0-9hms.]+\)/(in <SPAN>)/' | norm
 OFFER=$(echo "$out" | awk '$1=="sent"{print $2}')
 stepd status "$OFFER"
+echo "# a session that ends: --or-successor lets the nodes hand a message to the session that replaces it once it has been gone for 15 minutes (reply does by default); it applies to one exact session only"
+as lap/claude.o2
+"$BIN" inbox >/dev/null 2>&1 # declares the session, so it is live to the sends below (quietly: the broadcasts above wait here too)
+as lap/claude.o1
+step send --to lap/claude.o2 --or-successor --dry-run "the answer you asked for"
+step send --to lap --or-successor "to a machine"
+step send --to lap/claude.o2 --or-successor --file /dev/null "x"
+out=$("$BIN" send --to lap/claude.o2 --or-successor "the answer you asked for" 2>&1); echo "\$ aivoicebus send --to lap/claude.o2 --or-successor the answer you asked for"; echo "$out" | norm
+OID=$(echo "$out" | awk '$1=="sent"{print $2}')
+as lap/claude.o2
+step reply --re "$OID" --dry-run "got it"
+step reply --re "$OID" --or-successor=false --dry-run "got it"

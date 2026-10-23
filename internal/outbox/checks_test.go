@@ -316,3 +316,65 @@ func TestPrepareLowersAMessageThatSaysItNeedsNothing(t *testing.T) {
 		t.Errorf("a message the tool wrote itself is not linted: %v %q", err, warn.String())
 	}
 }
+
+func TestSuccessorLineSaysWhoWouldTakeAStaleSessionsMail(t *testing.T) {
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	repo := msg.Labels{"repo": "api", "tool": "claude"}
+	dead := msg.RosterEntry{Me: "mac/claude.7430", Seen: now.Add(-3 * time.Hour), Labels: repo}
+	live := msg.RosterEntry{Me: "mac/claude.8494", Seen: now.Add(-2 * time.Minute), Labels: repo}
+	me := msg.RosterEntry{Me: "mac/claude.1111", Seen: now, Labels: repo}
+	st, stale := StaleTarget([]msg.RosterEntry{dead, live, me}, dead.Me, me.Me, now, LiveWithin)
+	if !stale || !st.HasSuccessor() {
+		t.Fatalf("stale %v, has successor %v", stale, st.HasSuccessor())
+	}
+	got := successorLine(st, []msg.RosterEntry{dead, live, me}, me.Me, now)
+	for _, want := range []string{"mac/claude.7430 was last seen", "(3h ago)", "the newest live session in repo api on mac", "now mac/claude.8494, seen 2m ago"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "claude.1111") {
+		t.Errorf("the sender never takes its own mail: %q", got)
+	}
+	if got = successorLine(st, []msg.RosterEntry{dead, me}, me.Me, now); !strings.Contains(got, "nobody there is live yet, so it waits for the next one") {
+		t.Errorf("nobody live: %q", got)
+	}
+}
+
+func TestAStaleSessionWithNeitherRepoNorRoleHasNoSuccessor(t *testing.T) {
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	for name, e := range map[string]msg.RosterEntry{
+		"no labels":   {Me: "mac/claude.7430", Seen: now.Add(-3 * time.Hour)},
+		"only a tool": {Me: "mac/claude.7430", Seen: now.Add(-3 * time.Hour), Labels: msg.Labels{"tool": "claude"}},
+	} {
+		st, _ := StaleTarget([]msg.RosterEntry{e}, e.Me, "mac/claude.1111", now, LiveWithin)
+		if st.HasSuccessor() || !strings.Contains(st.NoSuccessor(), "declared no repository and no role") {
+			t.Errorf("%s: %v %q", name, st.HasSuccessor(), st.NoSuccessor())
+		}
+	}
+	withRole := msg.RosterEntry{Me: "mac/claude.7430", Seen: now.Add(-3 * time.Hour), Labels: msg.Labels{msg.RoleLabel: "build"}}
+	if st, _ := StaleTarget([]msg.RosterEntry{withRole}, withRole.Me, "mac/claude.1111", now, LiveWithin); !st.HasSuccessor() {
+		t.Error("a role is enough")
+	}
+	st, _ := StaleTarget(nil, "mac/claude.7430", "mac/claude.1111", now, LiveWithin)
+	if st.HasSuccessor() || !strings.Contains(st.NoSuccessor(), "have not heard of") {
+		t.Errorf("unknown: %v %q", st.HasSuccessor(), st.NoSuccessor())
+	}
+}
+
+func TestSuccessorWhyNamesTheFirstThingThatStopsIt(t *testing.T) {
+	for _, c := range []struct {
+		m    msg.Message
+		want string
+	}{
+		{msg.Message{To: "mac"}, "one exact session"},
+		{msg.Message{To: "mac/codex.build1"}, "name that outlives a restart"},
+		{msg.Message{To: "mac/claude.7430", Kind: msg.KindTask}, "bookkeeping of one conversation"},
+		{msg.Message{To: "mac/claude.7430", Body: msg.PersonTag + " x"}, "for the person on a machine"},
+		{msg.Message{To: "mac/join-reader"}, "name that outlives a restart"},
+	} {
+		if got := successorWhy(c.m); !strings.Contains(got, c.want) || !strings.Contains(got, "--or-successor") {
+			t.Errorf("%+v: %q, want %q and a next step", c.m, got, c.want)
+		}
+	}
+}

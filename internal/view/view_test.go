@@ -437,3 +437,47 @@ func TestPersonWaitingQuotesOnlyWhatAnAgentMayRead(t *testing.T) {
 		}
 	}
 }
+
+func TestAnInheritedMessageSaysWhoseItWas(t *testing.T) {
+	var b strings.Builder
+	m := msg.Message{ID: "5c1234567d", From: "mac/claude.asker", To: "mac/claude.7430", Thread: "a000000001", Body: "the answer", At: time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)}
+	Messages(&b, []msg.Message{m})
+	if strings.Contains(b.String(), "inherited") {
+		t.Errorf("a message nobody handed on is not marked: %q", b.String())
+	}
+	m.Inherited = m.To
+	b.Reset()
+	Messages(&b, []msg.Message{m})
+	if got := b.String(); !strings.Contains(got, "-> mac/claude.7430") || !strings.Contains(got, "[inherited from claude.7430]") {
+		t.Errorf("header: %q", got)
+	}
+	m.Inherited = "mac/claude.7430\x1b[31m" // a name a peer chose is cleaned like any other
+	b.Reset()
+	Messages(&b, []msg.Message{m})
+	if strings.Contains(b.String(), "\x1b") {
+		t.Errorf("a control character reached the terminal: %q", b.String())
+	}
+}
+
+func TestReceiptsSayWhenAnotherSessionReadWhatWasWrittenToOne(t *testing.T) {
+	at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	r := msg.Receipts{ID: "5c1234567d", From: "mac/claude.asker", To: "mac/claude.7430", At: at,
+		Reads: []msg.Receipt{{By: "mac/claude.8494", At: at.Add(time.Minute), Via: msg.ViaHook}}}
+	var b strings.Builder
+	Receipts(&b, r)
+	if got := b.String(); !strings.Contains(got, "mac/claude.8494") || !strings.Contains(got, "in place of mac/claude.7430") {
+		t.Errorf("%q", got)
+	}
+	r.Reads[0].By = "mac/claude.7430"
+	b.Reset()
+	Receipts(&b, r)
+	if strings.Contains(b.String(), "in place of") {
+		t.Errorf("a read by the session itself is not in place of anyone: %q", b.String())
+	}
+	r.To, r.Reads[0].By = "mac", "mac/claude.8494"
+	b.Reset()
+	Receipts(&b, r)
+	if strings.Contains(b.String(), "in place of") {
+		t.Errorf("a message to a machine is read by whoever is there: %q", b.String())
+	}
+}

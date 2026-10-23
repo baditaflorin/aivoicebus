@@ -951,3 +951,42 @@ func TestStatusWithoutAnIDIsTheHomeScreen(t *testing.T) {
 		t.Errorf("a bad id: %v %q", isErr, text)
 	}
 }
+
+func TestSendOrSuccessorMarksAReplyUnlessToldNotAndAFirstMessageOnlyWhenAsked(t *testing.T) {
+	s, st := start(t)
+	asked, _ := st.Send(msg.Message{From: "x/claude.1", To: "me/mcp.test", Body: "can you check this?"})
+	n := 0
+	reply := func(args map[string]any) msg.Message {
+		t.Helper()
+		n++ // the node keeps one copy of the same words from the same sender for ten minutes
+		args["body"], args["queue"] = fmt.Sprintf("checked, fine (%d)", n), true
+		text, isErr := s.call("aivoicebus_send", args)
+		if isErr {
+			t.Fatalf("%q", text)
+		}
+		id := strings.Fields(text)[1]
+		for _, m := range st.Thread(asked.ID) {
+			if m.ID == id {
+				return m
+			}
+		}
+		t.Fatalf("no message %s", id)
+		return msg.Message{}
+	}
+	if m := reply(map[string]any{"re": asked.ID}); !m.ForSuccessor() || m.To != "x/claude.1" {
+		t.Errorf("a reply is handed on by default: %+v", m)
+	}
+	if m := reply(map[string]any{"re": asked.ID, "or_successor": false}); m.ForSuccessor() {
+		t.Errorf("or_successor false keeps it: %+v", m)
+	}
+	if text, isErr := s.call("aivoicebus_send", map[string]any{"to": "x/claude.1", "body": "a first message", "queue": true}); isErr || !strings.HasPrefix(text, "sent ") {
+		t.Fatalf("%v %q", isErr, text)
+	}
+	text, isErr := s.call("aivoicebus_send", map[string]any{"to": "x/claude.1", "body": "a first message, handed on", "queue": true, "or_successor": true, "dry_run": true})
+	if isErr || !strings.Contains(text, "successor") {
+		t.Errorf("a first message that asks: %v %q", isErr, text)
+	}
+	if text, isErr = s.call("aivoicebus_send", map[string]any{"to": "x", "body": "to a machine", "queue": true, "or_successor": true}); !isErr || !strings.Contains(text, "one exact session") {
+		t.Errorf("asking where it cannot apply is told why: %v %q", isErr, text)
+	}
+}
