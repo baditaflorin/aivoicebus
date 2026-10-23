@@ -29,6 +29,11 @@
       </span>
     </div>
     <div class="banner" id="banner-session" role="status" hidden></div>
+    <details class="orphaned" id="orphaned" hidden>
+      <summary><span id="orphaned-title">Orphaned</span></summary>
+      <p class="muted" id="orphaned-help">Written to a session that has not been seen for 15 minutes. A message its sender let go to the successor is handed to the session that replaces the one it names; the others wait for it.</p>
+      <ol class="convs" id="orphans"></ol>
+    </details>
     <ol class="convs" id="convs"></ol>
   </section>
   <section class="pane thread-pane" id="thread-pane" hidden aria-labelledby="h-thread">

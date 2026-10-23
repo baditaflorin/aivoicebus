@@ -100,3 +100,6 @@ h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .06e
 .copy-fallback { display: block; margin: 0 20px 8px; padding: 6px 8px; background: var(--surface-2); border-radius: 6px; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; user-select: all; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 [hidden] { display: none !important; }
+.orphaned { border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; background: var(--surface-2); }
+.orphaned > summary { cursor: pointer; font-weight: 650; color: var(--warn); }
+.orphaned > .muted { color: var(--muted); font-size: 12px; margin: 6px 0 8px; }
