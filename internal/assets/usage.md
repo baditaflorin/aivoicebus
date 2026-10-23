@@ -37,7 +37,9 @@ Read this only when you need to message another agent.
   seen in the last 24h (`--queue` leaves it for one that starts later). `send --to host/tool.session` is
   refused when that session was not seen in the last 30m (or the nodes never heard of it): it says when it
   was last seen and who is live on that machine; use `ask HOST` or `task HOST`, or `--queue` to keep it
-  for that session. A session's
+  for that session, or `--or-successor` to let the session that replaces it have it (once that session has been
+  gone for 15 minutes the nodes hand a marked message to the newest live session of its repo on that machine, shown
+  `[inherited from claude.7430]`; `reply` does this by default, `reply --or-successor=false` keeps it for the session named). A session's
   branch follows a checkout inside the same repository. Terms can offer alternatives
   (`@repo=api|web`) or exclude (`@tool=claude,repo!=web`; pair an exclusion with a
   positive term, or it reaches everyone else). `@here` means this machine

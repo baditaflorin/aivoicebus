@@ -231,6 +231,21 @@ lists leases ("held by") should leave the `owner:` ones out or show them apart: 
 something being edited. The record is believed only by a reader that checks the signature and who declared it (`docs/reference.md`,
 *Who owns it*); a consumer that only displays it should say so and not call the named machine "the owner" on the lease alone.
 
+## Mail handed to a successor, in the feed
+
+A sender can let the nodes hand a message to the session that replaces the one it names once that one has been gone for 15 minutes
+([reference.md](reference.md#when-a-session-ends-its-mail-goes-to-the-session-that-replaces-it)). Nothing about it is a field: the feed is
+unchanged and `internal/msg/testdata/*-vectors.json` did not change. What a consumer sees:
+
+- A message that may be handed on has an `id` of the shape `5c`, seven more hex digits and a check digit (the sum of the first nine digits, each as
+  its hex value, mod 16), and is still an ordinary `msg` record with `to` the session that ended. The id is signed, so no node can add or strip the mark.
+- When a successor reads it, its read receipt is an ordinary `ack` whose `by` is **not** the session the message names. So a read by someone other than the
+  addressee is not an error: it is what a hand-over looks like. The session named keeps its own copy and may ack it too.
+- The viewer's `/api/orphaned` is the lane of messages to a session that is gone (not seen for 15 minutes, outside a wait) and that it never
+  read: `id`, `thread`, `from`, `to`, `at`, `line`, `last_seen`, `handover` (the mark), `successor` (who would get it now) and `read_by` (the session that read it
+  in its place, for a day). A dashboard can compute it from the records and the roster with `msg.Gone` and `msg.Successor`.
+- `/v1/health` advertises the feature `successor` when a node hands marked mail on.
+
 ## Reaching the nodes
 
 Run nodes on a private network (a VPN, a LAN, or loopback) and let your firewall or VPN policy decide
