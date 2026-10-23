@@ -325,3 +325,23 @@ func TestTheThreadViewSaysWhoTookATaskAndWhoReadIt(t *testing.T) {
 		t.Error("the demo board has no task")
 	}
 }
+
+// A card says whether the session is in a wait right now, and which: one waiting for a reply in its
+// own thread is busy, not listening; a node that does not say what a wait takes is unverified.
+func TestACardSaysWhetherTheSessionListensOrIsBusy(t *testing.T) {
+	roster := []msg.RosterEntry{
+		{Me: "lap/claude.w1", Waits: &msg.WaitScope{Thread: "25b8d841b3"}},
+		{Me: "lap/codex.l1", Listening: true, Waits: &msg.WaitScope{}},
+		{Me: "old/claude.o1", Listening: true},
+		{Me: "lap/claude.i1"},
+	}
+	want := map[string]string{"lap/claude.w1": "busy: waiting for a reply in 25b8d841b3", "lap/codex.l1": "listening", "old/claude.o1": "listening (unverified)", "lap/claude.i1": ""}
+	for _, c := range Sessions(roster, nil) {
+		if c.Listen != want[c.Me] {
+			t.Errorf("%s: %q, want %q", c.Me, c.Listen, want[c.Me])
+		}
+	}
+	if sameRoster(roster[:1], []msg.RosterEntry{{Me: "lap/claude.w1", Listening: true, Waits: &msg.WaitScope{}}}) {
+		t.Error("a session that went from busy to listening is not the same roster")
+	}
+}

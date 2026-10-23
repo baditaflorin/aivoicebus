@@ -101,3 +101,40 @@ func TestAskANamedSession(t *testing.T) {
 		}
 	}
 }
+
+// A session waiting for a reply in its own thread (send --wait-reply) is busy: ask goes to the one
+// standing by instead, and with nobody else listening falls back to the most recently seen without
+// calling it listening. One waiting for tasks only, or for the asker, does take the question; one
+// that an older node calls listening (no scope) is still taken at its word.
+func TestAskSkipsASessionWaitingForAReplyInAnotherThread(t *testing.T) {
+	busy := msg.RosterEntry{Me: "lap/claude.w1", Seen: now, Waits: &msg.WaitScope{Thread: "25b8d841b3"}}
+	standby := msg.RosterEntry{Me: "lap/codex.l1", Seen: now.Add(-time.Minute), Listening: true, Waits: &msg.WaitScope{}}
+	p, err := pickOf(t, []msg.RosterEntry{busy, standby}, "lap", PickOpts{})
+	if err != nil || p.To != standby.Me || !p.Listening {
+		t.Fatalf("busy and standing by: %+v %v", p, err)
+	}
+	p, err = pickOf(t, []msg.RosterEntry{busy, seen("lap/codex.c3", 10*time.Minute, false)}, "lap", PickOpts{})
+	if err != nil || p.To != busy.Me || p.Listening || !strings.Contains(p.Why, "nobody there is listening") {
+		t.Fatalf("only busy: %+v %v", p, err)
+	}
+	if p, err := pickOf(t, []msg.RosterEntry{busy}, busy.Me, PickOpts{}); err != nil || p.Listening || !strings.Contains(p.Why, "busy, waiting for a reply in 25b8d841b3") {
+		t.Errorf("named busy: %+v %v", p, err)
+	}
+	tasksOnly := msg.RosterEntry{Me: "lap/codex.t1", Seen: now, Waits: &msg.WaitScope{Only: msg.WaitOnlyTasks}}
+	forMe := msg.RosterEntry{Me: "lap/claude.f1", Seen: now, Waits: &msg.WaitScope{From: "desk/claude.me"}}
+	old := seen("lap/claude.o1", 0, true)
+	for _, e := range []msg.RosterEntry{tasksOnly, forMe, old} {
+		if p, err := pickOf(t, []msg.RosterEntry{busy, e}, "lap", PickOpts{}); err != nil || p.To != e.Me || !p.Listening {
+			t.Errorf("%s: %+v %v", e.Me, p, err)
+		}
+	}
+	if got := ForTaskFrom([]msg.RosterEntry{busy, tasksOnly}, "desk/claude.me"); got[0].Listening || !got[1].Listening || tasksOnly.Listening {
+		t.Errorf("ForTaskFrom: %+v (and the roster is not changed: %+v)", got, tasksOnly)
+	}
+	// --needs alike: the session that has it and stands by goes before a busy one seen later.
+	busy.Labels, standby.Labels = msg.Labels{"tool": "codex"}, msg.Labels{"tool": "codex"}
+	np, err := PickNeeds([]msg.RosterEntry{busy, standby}, "lap", []string{"tool:codex"}, PickOpts{Me: "desk/claude.me", Now: now})
+	if err != nil || np.To != standby.Me || !np.Listening {
+		t.Errorf("needs: %+v %v", np, err)
+	}
+}

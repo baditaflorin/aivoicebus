@@ -15,7 +15,7 @@ func TestListenerWarningNamesTheSessionStandingBy(t *testing.T) {
 	now := time.Now()
 	roster := []msg.RosterEntry{
 		{Me: "mac14/claude.632e", Title: "Old refactor", Seen: now.Add(-time.Hour)},
-		{Me: "mac14/claude.aac5", Title: "Aivoicebus standby", Seen: now, Listening: true},
+		{Me: "mac14/claude.aac5", Title: "Aivoicebus standby", Seen: now, Listening: true, Waits: &msg.WaitScope{}},
 		{Me: "mac14/worker", Seen: now, Listening: true},  // a worker is not a session someone meant
 		{Me: "air/claude.b1", Seen: now, Listening: true}, // another machine
 		{Me: "me/claude.0001", Seen: now, Listening: true},
@@ -67,7 +67,7 @@ func TestListenerWarningNamesTheSessionStandingBy(t *testing.T) {
 func TestPrepareWarnsWhenAnotherSessionThereIsListening(t *testing.T) {
 	c, s := meshWith(t, "me/claude.0001", map[string]string{"mac14/claude.632e": "", "mac14/claude.aac5": ""})
 	s.NoteTitle("mac14/claude.aac5", "Aivoicebus standby")
-	s.NoteWaiting("mac14/claude.aac5", time.Now().Add(time.Minute))
+	s.HoldRead("mac14/claude.aac5", time.Now().Add(time.Minute), &msg.WaitScope{})
 	var warn strings.Builder
 	p, err := Prepare(c, Request{To: "mac14/claude.632e", Body: "take over the release"}, &warn)
 	if err != nil {

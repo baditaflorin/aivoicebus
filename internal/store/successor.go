@@ -30,7 +30,8 @@ func (s *Store) indexSuccessorLocked(i int, m msg.Message) {
 // (a send counts, as in Roster), its labels, and whether it is in a wait.
 func (s *Store) entryLocked(me string, now time.Time) (msg.RosterEntry, bool) {
 	v, known := s.seen[me]
-	e := msg.RosterEntry{Me: me, Seen: v.at, Labels: v.labels, Title: v.title, Listening: v.waitingUntil.After(now)}
+	e := msg.RosterEntry{Me: me, Seen: v.at, Labels: v.labels, Title: v.title}
+	e.Listening, e.Waits = s.listenLocked(me, now)
 	if at, sent := s.lastSent[me]; sent && at.After(e.Seen) {
 		e.Seen = at
 		known = true

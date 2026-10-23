@@ -381,6 +381,11 @@ func SanitiseRoster(es []msg.RosterEntry) []msg.RosterEntry {
 			}
 			e.Labels = l
 		}
+		if e.Waits != nil {
+			w := *e.Waits
+			w.Thread, w.From, w.Only = Sanitise(w.Thread), Sanitise(w.From), Sanitise(w.Only)
+			e.Waits = &w
+		}
 		out[i] = e
 	}
 	return out

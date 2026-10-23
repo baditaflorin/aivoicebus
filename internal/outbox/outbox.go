@@ -414,6 +414,8 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 	}
 	if w := ListenerWarning(roster, to, me, time.Now()); w != "" {
 		fmt.Fprintln(warn, w)
+	} else if n := BusyNote(roster, to, m); n != "" {
+		fmt.Fprintln(warn, n)
 	}
 	p.Reach, p.Known = n, known
 	if known && usesCaps(sel) {
@@ -863,6 +865,30 @@ func ListenerWarning(roster []msg.RosterEntry, to, me string, now time.Time) str
 	return fmt.Sprintf("warning: %s, but %s on %s %s listening: %s. If you meant the one standing by, send to it instead.",
 		named, plural(len(others), "another session", "other sessions"), view.Name(host, msg.MaxIdentity),
 		plural(len(others), "is", "are"), strings.Join(others, ", "))
+}
+
+// BusyNote is a note when to names one session that is in a wait right now which would not take
+// m (msg.FeatureWaitScope): it waits for a reply in another conversation, so m waits for its next
+// prompt, and a --wait-reply sender knows why no answer comes at once. "" when there is nothing to
+// say, or when m answers a message whose thread only the node knows.
+func BusyNote(roster []msg.RosterEntry, to string, m msg.Message) string {
+	if m.Thread == "" {
+		if m.Re != "" {
+			return ""
+		}
+		m.Thread = m.ID // a message that answers nothing starts its own conversation
+	}
+	for _, e := range roster {
+		if !strings.EqualFold(e.Me, to) || e.Busy() == "" || e.Accepts(m) {
+			continue
+		}
+		what := e.Busy()
+		if e.Waits.Thread != "" {
+			what = "waiting for a reply in another conversation (" + view.Name(e.Waits.Thread, msg.MaxIdentity) + ")"
+		}
+		return fmt.Sprintf("note: %s is %s; it sees this at its next prompt", view.Name(e.Me, msg.MaxIdentity), view.Name(what, 2*msg.MaxIdentity))
+	}
+	return ""
 }
 
 func plural(n int, one, many string) string {

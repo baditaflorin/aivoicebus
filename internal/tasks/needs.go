@@ -50,7 +50,7 @@ func PickNeeds(roster []msg.RosterEntry, target string, needs []string, o PickOp
 		o.Now = time.Now()
 	}
 	var all, match []Candidate
-	for _, e := range roster {
+	for _, e := range ForTaskFrom(roster, o.Me) {
 		if e.Me == o.Me || !msg.MatchesLabeled(target, e.Me, e.Labels) {
 			continue
 		}
@@ -109,6 +109,8 @@ func CandidateLine(c Candidate, now time.Time) string {
 	switch {
 	case c.Listening:
 		state = "listening now"
+	case c.Busy() != "":
+		state = "busy (" + c.Busy() + "), seen " + ago
 	case !c.Live:
 		state = "not live, seen " + ago
 	}

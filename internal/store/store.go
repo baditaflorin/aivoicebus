@@ -81,15 +81,17 @@ type Store struct {
 
 	// Indexes into msgs, kept in step with it, so reading mail costs what it
 	// returns and not the length of the whole history.
-	idx      map[string]int              // message id -> index
-	threads  map[string][]int            // thread id -> indices in arrival order
-	byTo     map[string][]int            // the exact `to` -> indices in arrival order
-	succ     map[string]map[string][]int // machine -> the one session a message that may go to its successor names -> indices (successor.go)
-	sels     map[string]msg.Selector     // each distinct selector target, parsed (nil if malformed)
-	answers  map[string][]answerRef      // question or task id -> the answers and claims to it
-	lastSent map[string]time.Time        // sender -> time of its latest message
-	seen     map[string]seenInfo         // identity -> last contact with THIS node
-	now      func() time.Time            // the clock; replaced in tests
+	idx      map[string]int                 // message id -> index
+	threads  map[string][]int               // thread id -> indices in arrival order
+	byTo     map[string][]int               // the exact `to` -> indices in arrival order
+	succ     map[string]map[string][]int    // machine -> the one session a message that may go to its successor names -> indices (successor.go)
+	sels     map[string]msg.Selector        // each distinct selector target, parsed (nil if malformed)
+	answers  map[string][]answerRef         // question or task id -> the answers and claims to it
+	lastSent map[string]time.Time           // sender -> time of its latest message
+	seen     map[string]seenInfo            // identity -> last contact with THIS node
+	held     map[string]map[uint64]heldRead // identity -> the inbox reads it waits in now (HoldRead); kept on this node only
+	heldN    uint64
+	now      func() time.Time // the clock; replaced in tests
 
 	lastPrune time.Time // when seen was last trimmed
 
@@ -282,9 +284,6 @@ type seenInfo struct {
 	// newest of several live sessions in one repository is the successor of one that is gone. Local to
 	// this node and never gossiped, so another node may order two sessions differently. Zero: unknown.
 	since time.Time
-	// waitingUntil is when the inbox read the session is waiting in (a long poll) ends: until then
-	// it is listening right now. Kept on this node only.
-	waitingUntil time.Time
 }
 
 // labelsAtOrAt is when the labels were declared, or the sighting for an entry from a release that
@@ -314,7 +313,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	}
 	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
-		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, now: time.Now,
+		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, held: map[string]map[uint64]heldRead{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
 		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, purgedRefs: map[testRef]bool{}}
 	for _, o := range opts {
@@ -1521,7 +1520,7 @@ func (s *Store) InboxLane(me string, all bool, labels msg.Labels, lane bool) []m
 	defer s.mu.Unlock()
 	now := s.now().UTC()
 	s.sweepLocked(now)
-	s.seen[me] = seenInfo{at: now, labels: labels, labelsAt: now, title: s.seen[me].title, waitingUntil: s.seen[me].waitingUntil, since: s.firstHeardLocked(me, now)} // a read that declares no title keeps the last one
+	s.seen[me] = seenInfo{at: now, labels: labels, labelsAt: now, title: s.seen[me].title, since: s.firstHeardLocked(me, now)} // a read that declares no title keeps the last one
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
@@ -1764,7 +1763,9 @@ func (s *Store) Roster() []msg.RosterEntry {
 	byMe := map[string]msg.RosterEntry{}
 	now := s.now()
 	for k, v := range s.seen {
-		byMe[k] = msg.RosterEntry{Me: k, Seen: v.at, Labels: v.labels, Title: v.title, Listening: v.waitingUntil.After(now)}
+		e := msg.RosterEntry{Me: k, Seen: v.at, Labels: v.labels, Title: v.title}
+		e.Listening, e.Waits = s.listenLocked(k, now)
+		byMe[k] = e
 		if len(v.labels) > 0 {
 			e := byMe[k]
 			e.LabelsAt = v.labelsAt // when these labels were declared; Seen may move on below (a send)
