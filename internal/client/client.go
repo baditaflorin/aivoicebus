@@ -778,7 +778,15 @@ func verdict(m msg.Message) string {
 // for at most wait (msg.FeatureInboxWait). With hasGen false it answers at once, and either way it
 // returns the node's change counter for the next call. It asks the nodes in order and returns the
 // first answer; any failure is returned as is, and the caller can fall back to Inbox.
+// The wait accepts any message: the session is listening meanwhile.
 func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bool, wait time.Duration) ([]msg.Message, uint64, error) {
+	return c.InboxWaitFor(ctx, me, msg.WaitScope{}, gen, hasGen, wait)
+}
+
+// InboxWaitFor is InboxWait for a wait that accepts only what scope does: the node reports the
+// session busy, not listening, when that is narrower than anything (msg.FeatureWaitScope; an older
+// node ignores it and reports every wait as listening).
+func (c *Client) InboxWaitFor(ctx context.Context, me string, scope msg.WaitScope, gen uint64, hasGen bool, wait time.Duration) ([]msg.Message, uint64, error) {
 	q := "/v1/inbox?me=" + url.QueryEscape(me)
 	if l := c.Labels.String(); l != "" {
 		q += "&" + msg.ParamLabels + "=" + url.QueryEscape(l)
@@ -790,7 +798,7 @@ func (c *Client) InboxWait(ctx context.Context, me string, gen uint64, hasGen bo
 		q += "&" + msg.ParamLane + "=" + msg.LaneTest
 	}
 	if hasGen && wait >= time.Second {
-		q += fmt.Sprintf("&wait=%d&gen=%d", int(wait/time.Second), gen)
+		q += fmt.Sprintf("&wait=%d&gen=%d", int(wait/time.Second), gen) + scope.Query()
 	}
 	var last error = ErrNoURL
 	for _, base := range c.URLs {

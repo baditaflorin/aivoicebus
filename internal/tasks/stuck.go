@@ -41,14 +41,19 @@ type StuckResult struct {
 var needWord = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,31}$`)
 
 // Listening lists the sessions target reaches that wait for messages right now (a message reaches
-// them within a second), other than skip. It is what task --any picks from.
+// them within a second), other than skip, whose first is the asker: a session waiting for a reply
+// in its own thread only is not listening (ForTaskFrom). It is what task --any picks from.
 func Listening(c *client.Client, target string, skip ...string) ([]msg.RosterEntry, error) {
 	roster, err := c.Roster()
 	if err != nil {
 		return nil, err
 	}
 	var out []msg.RosterEntry
-	for _, e := range roster {
+	me := ""
+	if len(skip) > 0 {
+		me = skip[0]
+	}
+	for _, e := range ForTaskFrom(roster, me) {
 		if !e.Listening || slices.Contains(skip, e.Me) || !msg.MatchesLabeled(target, e.Me, e.Labels) {
 			continue
 		}

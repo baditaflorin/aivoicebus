@@ -238,3 +238,51 @@ func TestAskFitsItsDefaultClaimWaitInsideAShortReplyWait(t *testing.T) {
 		t.Fatalf("a short --wait-reply alone must work: %d %q", code, e)
 	}
 }
+
+// inThread is a session waiting for a reply in one thread only, as send --wait-reply does (a read
+// held open that says so): the nodes count it busy, not listening.
+func inThread(t *testing.T, c *client.Client, me, thread string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		var gen uint64
+		has := false
+		for ctx.Err() == nil {
+			_, g, err := c.InboxWaitFor(ctx, me, msg.WaitScope{Thread: thread}, gen, has, 20*time.Second)
+			if err != nil {
+				return
+			}
+			gen, has = g, true
+		}
+	}()
+	time.Sleep(800 * time.Millisecond)
+}
+
+// A session waiting for a reply in its own thread looks busy, not listening: ping and who say so,
+// ask goes to the one standing by instead of refusing to guess between them, and a message sent
+// to the busy one says it waits for its next prompt.
+func TestAskSkipsASessionWaitingForAReplyInAnotherThread(t *testing.T) {
+	mesh(t)
+	c, _ := client.FromEnv()
+	busy := "lap/claude.w1"
+	inThread(t, c, busy, "25b8d841b3")
+	standBy(t, c, "lap/codex.l1", answering(c, "lap/codex.l1", "42, from codex"))
+	t.Setenv("AIVOICEBUS_ME", boss)
+	code, out, e := run(t, "", "ping", "lap")
+	if code != 0 || !strings.Contains(out, busy+" (busy: waiting for a reply in 25b8d841b3): a message from anyone else waits for its next prompt") ||
+		!strings.Contains(out, "lap/codex.l1 (listening): in a wait") {
+		t.Fatalf("ping: %d\n%s\n%s", code, out, e)
+	}
+	if code, out, _ := run(t, "", "who"); code != 0 || !strings.Contains(out, busy+" (busy: waiting for a reply in 25b8d841b3)") {
+		t.Errorf("who: %d\n%s", code, out)
+	}
+	code, out, e = run(t, "", "ask", "lap", "what is 6*7?")
+	if code != 0 || !strings.Contains(out, "42, from codex") || !strings.Contains(e, "ask: lap/codex.l1: listening now") {
+		t.Fatalf("ask: %d\n%s\n%s", code, out, e)
+	}
+	code, _, e = run(t, "", "send", "--to", busy, "are you there?")
+	if code != 0 || !strings.Contains(e, "note: "+busy+" is waiting for a reply in another conversation (25b8d841b3); it sees this at its next prompt") {
+		t.Errorf("send: %d\n%s", code, e)
+	}
+}

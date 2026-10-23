@@ -572,8 +572,13 @@ func pingCmd(args []string, s Streams) error {
 		}
 		n++
 		line := view.Session(e, now)
-		if e.Listening {
+		switch {
+		case e.Unverified():
+			line += ": in a wait, but its node (or its client) is too old to say what the wait takes: it may be waiting for one reply only"
+		case e.Listening:
 			line += ": in a wait, a message reaches it within a second"
+		case e.Busy() != "":
+			line += ": a message from anyone else waits for its next prompt"
 		}
 		fmt.Fprintln(s.Out, line)
 	}

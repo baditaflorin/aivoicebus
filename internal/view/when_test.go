@@ -49,16 +49,19 @@ func TestSessionNamesTheTitleAndWhetherItIsListening(t *testing.T) {
 		e    msg.RosterEntry
 		want string
 	}{
-		{msg.RosterEntry{Me: "mac14-m1pro-mbp/claude.aac5", Title: "Aivoicebus standby", Listening: true, Seen: now},
+		{msg.RosterEntry{Me: "mac14-m1pro-mbp/claude.aac5", Title: "Aivoicebus standby", Listening: true, Waits: &msg.WaitScope{}, Seen: now},
 			`mac14-m1pro-mbp/claude.aac5 "Aivoicebus standby" (listening)`},
 		{msg.RosterEntry{Me: "mac14-m1pro-mbp/claude.632e", Title: "Fix the login redirect", Seen: now.Add(-time.Minute).Truncate(time.Minute)},
 			`mac14-m1pro-mbp/claude.632e "Fix the login redirect" (seen ` + When(now.Add(-time.Minute).Truncate(time.Minute), now) + `)`},
-		{msg.RosterEntry{Me: "build/codex.q1w2", Labels: msg.Labels{"tool": "codex"}, Listening: true},
+		{msg.RosterEntry{Me: "build/codex.q1w2", Labels: msg.Labels{"tool": "codex"}, Listening: true, Waits: &msg.WaitScope{}},
 			`build/codex.q1w2 (listening)`}, // the id already says codex
-		{msg.RosterEntry{Me: "build/reviewer", Labels: msg.Labels{"tool": "codex"}, Listening: true},
+		{msg.RosterEntry{Me: "build/reviewer", Labels: msg.Labels{"tool": "codex"}, Listening: true, Waits: &msg.WaitScope{}},
 			`build/reviewer [codex] (listening)`}, // a registered name does not
-		{msg.RosterEntry{Me: "air/claude.x1", Title: "say \"hi\"\nnow", Listening: true},
+		{msg.RosterEntry{Me: "air/claude.x1", Title: "say \"hi\"\nnow", Listening: true, Waits: &msg.WaitScope{}},
 			`air/claude.x1 "say 'hi' now" (listening)`}, // a title cannot break the line
+		{msg.RosterEntry{Me: "old/claude.o1", Listening: true}, `old/claude.o1 (listening (unverified))`}, // a node that does not say what the wait takes
+		{msg.RosterEntry{Me: "mac14/claude.734b", Seen: now, Waits: &msg.WaitScope{Thread: "25b8d841b3"}},
+			`mac14/claude.734b (busy: waiting for a reply in 25b8d841b3)`}, // in --wait-reply: a message from anyone else waits
 	}
 	for _, c := range cases {
 		if got := Session(c.e, now); got != c.want {

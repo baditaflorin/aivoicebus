@@ -156,8 +156,8 @@ func Claim(c *client.Client, me string, who Caller, id, body string, settle time
 // only, or replies only (a message that answers another: an answer, a claim, an end...).
 const (
 	OnlyAll     = "all"
-	OnlyTasks   = "tasks"
-	OnlyReplies = "replies"
+	OnlyTasks   = msg.WaitOnlyTasks
+	OnlyReplies = msg.WaitOnlyReplies
 )
 
 // ValidOnly reports whether o is one of the Only words ("" is all).
@@ -183,24 +183,15 @@ type Filter struct {
 }
 
 // Match reports whether m is what the wait is for.
-func (f Filter) Match(m msg.Message) bool {
-	switch f.Only {
-	case OnlyTasks:
-		if m.Kind != msg.KindTask {
-			return false
-		}
-	case OnlyReplies:
-		if m.Re == "" {
-			return false
-		}
+func (f Filter) Match(m msg.Message) bool { return f.Scope().Accepts(m) }
+
+// Scope is what the wait accepts, as a held read tells the node (msg.FeatureWaitScope).
+func (f Filter) Scope() msg.WaitScope {
+	w := msg.WaitScope{Thread: f.Thread, From: f.From, Only: f.Only}
+	if w.Only == OnlyAll {
+		w.Only = ""
 	}
-	if f.Thread != "" && m.Thread != f.Thread {
-		return false
-	}
-	if f.From != "" && m.From != f.From && msg.HostOf(m.From) != f.From && !strings.HasPrefix(m.From, f.From+".") {
-		return false
-	}
-	return true
+	return w
 }
 
 // ErrTimeout is a wait that saw nothing arrive.
@@ -234,7 +225,7 @@ func Wait(ctx context.Context, c *client.Client, me string, f Filter, d, every t
 		if held {
 			hold := min(time.Until(deadline), msg.MaxInboxWait)
 			var g uint64
-			ms, g, err = c.InboxWait(ctx, me, gen, hasGen, hold)
+			ms, g, err = c.InboxWaitFor(ctx, me, f.Scope(), gen, hasGen, hold)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, ErrTimeout

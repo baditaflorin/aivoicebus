@@ -122,7 +122,8 @@ func sameRoster(a, b []msg.RosterEntry) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].Me != b[i].Me || !a[i].Seen.Equal(b[i].Seen) || a[i].Title != b[i].Title || a[i].Labels.String() != b[i].Labels.String() {
+		if a[i].Me != b[i].Me || !a[i].Seen.Equal(b[i].Seen) || a[i].Title != b[i].Title || a[i].Labels.String() != b[i].Labels.String() ||
+			a[i].Listening != b[i].Listening || a[i].Busy() != b[i].Busy() {
 			return false
 		}
 	}

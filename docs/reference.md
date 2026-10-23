@@ -301,7 +301,17 @@ named with its title and its state, not by its short id alone:
     mac14-m1pro-mbp/claude.aac5 "Aivoicebus standby" (listening)
     mac14-m1pro-mbp/claude.632e "Fix the login redirect" (seen Oct 17 14:03 EEST)
 
-`listening` means it is in a wait right now (standing by): a message reaches it within a second.
+`listening` means it is in a wait right now that takes any message (standing by, a worker): a message
+reaches it within a second. A session in a wait for one thing only, a reply in its own conversation
+(`send --wait-reply`, `ask`, `wait --thread`), from one sender (`--from`), or of one kind (`--only`),
+shows as `(busy: waiting for a reply in 25b8d841b3)`: a message from anyone else waits for its next
+prompt. `ask`, `task --any`, `--needs` and `stuck --need peer` pick only sessions whose wait would take
+their task (one waiting for tasks only, or for the asker, does), and a message sent to a busy session
+notes "X is waiting for a reply in another conversation; it sees this at its next prompt", so a
+`--wait-reply` sender knows why no answer comes at once. The client tells the node what its wait takes
+(`wscope=1&wthread=T&wfrom=X&wonly=tasks` on the held read, feature `wait-scope`, 0.13.1 on), and the
+roster reports it as `waits`. A node or client older than that says only that a session waits:
+`(listening (unverified))`, picked as listening, as before; it may be waiting for one reply only.
 `send`, `reply`, `task`, `token hand` and the MCP send warn when the session named is not listening
 while another session of the same machine is, and name both: two ids of one machine differ only in
 four characters, and a hand-off once went to the wrong one. The message is sent anyway.
@@ -875,7 +885,8 @@ CLI), who took it if it is a task, how many replies it has, and whether it has e
 until something arrives (`/v1/inbox?wait=S&gen=G`, at most 25 s, answered as soon as the node takes
 in a new record), so `wait` and `--wait-reply` print an answer within a second of it reaching a node,
 with about one request per 25 s instead of one every 3 s. With an older node they fall back to asking
-every `--every`. While a session waits, `who` marks it `(listening)` and `ping` says it is listening.
+every `--every`. While a session waits, `who` marks it `(listening)` and `ping` says it is listening,
+or `(busy: ...)` when its wait takes only one conversation or sender (see above).
 
 Tasks, claims and ends need nodes of release 0.2.0 or later (they advertise `tasks` in
 `/v1/health`); a node older than that would quarantine them, so the client refuses to send one

@@ -10,7 +10,7 @@ const lib = /** @type {any} */ (globalThis).AVLib;
 
 /**
  * @typedef {{me: string, title?: string, tool: string, model?: string, machine: string, repo?: string, branch?: string,
- *   caps?: string[], last_seen: string, sent: number, received: number, threads: number, hidden?: string}} Session
+ *   caps?: string[], listen?: string, last_seen: string, sent: number, received: number, threads: number, hidden?: string}} Session
  * @typedef {{me: string, title?: string}} Participant
  * @typedef {{thread: string, subject?: string, participants: Participant[], audience?: string[],
  *   messages: number, first: string, last: string, last_from: string, withdrawn?: number,
@@ -243,7 +243,8 @@ function card(s) {
   }
   if (caps.length) chips.title = "can: " + caps.join(" ");
   b.appendChild(chips);
-  b.appendChild(el("div", "meta", "seen " + ago(s.last_seen) + " · sent " + s.sent + " · received " + s.received + " · " + s.threads + " conversation(s)"));
+  // In a wait right now: "listening" takes any message; "busy: waiting for a reply in T" takes only that.
+  b.appendChild(el("div", "meta", (s.listen ? s.listen + " · " : "") + "seen " + ago(s.last_seen) + " · sent " + s.sent + " · received " + s.received + " · " + s.threads + " conversation(s)"));
   b.addEventListener("click", () => {
     navigate({ session: state.session === s.me ? "" : s.me }, true);
   });

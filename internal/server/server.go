@@ -342,25 +342,35 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		lane := r.URL.Query().Get(msg.ParamLane) == msg.LaneTest // msg.FeatureTestLane: test messages are in a read only when it asks, and its reader opted in
 		// A long poll (wait=S&gen=G, see msg.FeatureInboxWait): when nothing has changed on this node
 		// since the reader's last look (gen), hold the read until something does, at most S seconds.
-		// The session counts as listening meanwhile, so `who` and `ping` can say so.
+		// The session counts as listening meanwhile when its wait accepts anything, or as busy when it
+		// says it waits for one thread or sender (msg.FeatureWaitScope), so `who` and `ping` can say so.
+		var done func(linger bool)
+		gone, takes := false, func(msg.Message) bool { return true } // a client that does not say what it waits for takes anything
 		if wait, err := strconv.Atoi(r.URL.Query().Get("wait")); err == nil && wait > 0 && !all {
 			d := min(time.Duration(wait)*time.Second, msg.MaxInboxWait)
 			g, changed := s.Gen()
 			if seen, err := strconv.ParseUint(r.URL.Query().Get("gen"), 10, 64); err == nil && seen == g {
 				s.InboxLane(me, false, labels, lane) // registers the session before it is marked listening
-				s.NoteWaiting(me, time.Now().Add(d))
+				scope := msg.ParseWaitScope(r.URL.Query())
+				done = s.HoldRead(me, time.Now().Add(d), scope)
 				t := time.NewTimer(d)
 				select {
 				case <-changed:
 				case <-t.C:
 				case <-r.Context().Done():
+					gone = true
 				}
 				t.Stop()
-				s.NoteWaiting(me, time.Time{})
+				if scope != nil {
+					takes = scope.Accepts
+				}
 			}
 		}
 		g, _ := s.Gen() // before the read: something arriving in between is then both in it and newer
 		inbox := s.InboxLane(me, all, labels, lane)
+		if done != nil { // the client asks again within a second unless this brought what its wait takes
+			done(!gone && !slices.ContainsFunc(inbox, takes))
+		}
 		w.Header().Set(msg.HeaderGen, strconv.FormatUint(g, 10))
 		if t := msg.CleanTitle(r.URL.Query().Get(msg.ParamTitle)); t != "" {
 			if _, bad := secrets.Strong(t); !bad {

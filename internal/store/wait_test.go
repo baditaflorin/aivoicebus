@@ -89,3 +89,55 @@ func TestASessionInAWaitIsListening(t *testing.T) {
 		t.Error("still listening after the wait")
 	}
 }
+
+// A held read that says it waits for one thread makes the session busy, not listening; one that
+// takes anything (standing by, maybe at the same time) makes it listening; one that does not say
+// (an older client) makes it listening without a scope, which `who` shows as unverified.
+func TestAHeldReadForOneThreadIsBusyNotListening(t *testing.T) {
+	s, clock := retractStore(t)
+	me := "lap/claude.a1"
+	s.InboxFor(me, false, nil)
+	entry := func() msg.RosterEntry {
+		for _, e := range s.Roster() {
+			if e.Me == me {
+				return e
+			}
+		}
+		return msg.RosterEntry{}
+	}
+	endThread := s.HoldRead(me, clock.Add(20*time.Second), &msg.WaitScope{Thread: "t1"})
+	if e := entry(); e.Listening || e.Busy() != "waiting for a reply in t1" {
+		t.Fatalf("in a thread wait: %+v", e)
+	}
+	endStandby := s.HoldRead(me, clock.Add(20*time.Second), &msg.WaitScope{})
+	if e := entry(); !e.Listening || e.Waits == nil || !e.Waits.Open() || e.Unverified() {
+		t.Fatalf("standing by as well: %+v", e)
+	}
+	endStandby(false)
+	if e := entry(); e.Listening || e.Busy() == "" {
+		t.Fatalf("the standby ended, the thread wait goes on: %+v", e)
+	}
+	endThread(false)
+	if e := entry(); e.Listening || e.Waits != nil {
+		t.Fatalf("no wait: %+v", e)
+	}
+	endOld := s.HoldRead(me, clock.Add(20*time.Second), nil)
+	if e := entry(); !e.Listening || !e.Unverified() {
+		t.Fatalf("a client that does not say: %+v", e)
+	}
+	endOld(false)
+	s.HoldRead(me, clock.Add(-time.Second), &msg.WaitScope{}) // a read whose wait is over counts for nothing
+	if e := entry(); e.Listening || e.Waits != nil {
+		t.Fatalf("an expired wait: %+v", e)
+	}
+	// A read that brought nothing its wait takes still counts for HeldLinger: the client asks again
+	// within a second, and a session standing by on a busy mesh does not flicker.
+	s.HoldRead(me, clock.Add(20*time.Second), &msg.WaitScope{})(true)
+	if e := entry(); !e.Listening {
+		t.Fatalf("lingering: %+v", e)
+	}
+	*clock = clock.Add(HeldLinger + time.Second)
+	if e := entry(); e.Listening || e.Waits != nil {
+		t.Fatalf("after the linger: %+v", e)
+	}
+}

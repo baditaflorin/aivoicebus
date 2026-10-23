@@ -889,21 +889,22 @@ func who(args []string, s Streams) error {
 	cutoff := now.Add(-span)
 	hidden, shown := 0, 0
 	rows := []msg.RosterEntry{} // what --json prints and --tools groups
-	show := func(me string, seen time.Time, labels msg.Labels, title string, listening bool) {
-		if !*all && seen.Before(cutoff) {
+	show := func(e msg.RosterEntry) {
+		if !*all && e.Seen.Before(cutoff) {
 			hidden++
 			return
 		}
 		shown++
+		e = msg.RosterEntry{Me: e.Me, Seen: e.Seen, Labels: e.Labels, Title: e.Title, Listening: e.Listening, Waits: e.Waits}
 		if *asJSON || *tools {
-			rows = append(rows, msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening})
+			rows = append(rows, e)
 			return
 		}
-		line := view.Session(msg.RosterEntry{Me: me, Seen: seen, Labels: labels, Title: title, Listening: listening}, now)
-		if l := labels.String(); l != "" {
+		line := view.Session(e, now)
+		if l := e.Labels.String(); l != "" {
 			line += "  " + view.Name(l, 300)
 		}
-		if caps := msg.CapsOf(me, labels); len(caps) > 0 { // what task/ask --needs matches
+		if caps := msg.CapsOf(e.Me, e.Labels); len(caps) > 0 { // what task/ask --needs matches
 			line += "  can: " + view.Name(strings.Join(caps, " "), 300)
 		}
 		fmt.Fprintln(s.Out, line)
@@ -914,7 +915,7 @@ func who(args []string, s Streams) error {
 	case err == nil:
 		for _, e := range roster {
 			if sel == nil || sel.Match(e.Labels) {
-				show(e.Me, e.Seen, e.Labels, e.Title, e.Listening)
+				show(e)
 			}
 		}
 	case client.IsNotFound(err):
@@ -927,7 +928,7 @@ func who(args []string, s Streams) error {
 			return err
 		}
 		for _, k := range slices.Sorted(maps.Keys(w)) {
-			show(k, w[k], nil, "", false)
+			show(msg.RosterEntry{Me: k, Seen: w[k]})
 		}
 	default:
 		return err

@@ -51,6 +51,19 @@ type Pick struct {
 	Alike     []msg.RosterEntry
 }
 
+// ForTaskFrom is roster with Listening set to whether each session's wait would take a task from
+// me right now (msg.RosterEntry.Accepts): one waiting for a reply in its own thread is not
+// listening for an ask, one waiting for tasks only, or for me, is. The roster is not changed.
+func ForTaskFrom(roster []msg.RosterEntry, me string) []msg.RosterEntry {
+	probe := msg.Message{Kind: msg.KindTask, From: me}
+	out := make([]msg.RosterEntry, len(roster))
+	for i, e := range roster {
+		e.Listening = e.Accepts(probe)
+		out[i] = e
+	}
+	return out
+}
+
 // IsSession reports whether to names exactly one session (host/tool.session).
 func IsSession(to string) bool {
 	h, a, ok := strings.Cut(to, "/")
@@ -68,6 +81,7 @@ func PickSession(roster []msg.RosterEntry, target string, o PickOpts) (Pick, err
 		o.Now = time.Now()
 	}
 	ago := func(e msg.RosterEntry) string { return o.Now.Sub(e.Seen).Round(time.Second).String() + " ago" }
+	roster = ForTaskFrom(roster, o.Me)
 	if IsSession(target) {
 		if o.Pick > 0 {
 			return Pick{}, fmt.Errorf("--pick chooses among sessions that look alike; %s already names one: run it again without --pick", target)
@@ -78,6 +92,9 @@ func PickSession(roster []msg.RosterEntry, target string, o PickOpts) (Pick, err
 			}
 			if e.Listening {
 				return Pick{To: target, Listening: true, Why: "named; listening now, it reads the question within a second"}, nil
+			}
+			if b := e.Busy(); b != "" && o.Now.Sub(e.Seen) <= o.Within {
+				return Pick{To: target, Why: "named; busy, " + b + ": it sees the question on its next prompt"}, nil
 			}
 			if o.Now.Sub(e.Seen) <= o.Within {
 				return Pick{To: target, Why: "named; not listening, seen " + ago(e) + ": it sees the question on its next prompt"}, nil

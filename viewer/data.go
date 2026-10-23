@@ -24,6 +24,9 @@ type Session struct {
 	Received int       `json:"received"`       // messages addressed to exactly this session
 	Threads  int       `json:"threads"`        // conversations it took part in
 	Caps     []string  `json:"caps,omitempty"` // what task/ask --needs matches (msg.CapsOf)
+	// Listen is "listening" (in a wait that takes any message), "listening (unverified)" (its node
+	// does not say what the wait takes) or "busy: waiting for a reply in T"; empty when in no wait.
+	Listen string `json:"listen,omitempty"`
 
 	modelAt        time.Time // when the message the model came from was sent
 	modelFromLabel bool      // the roster's label decides; messages only fill in
@@ -152,6 +155,10 @@ func Sessions(roster []msg.RosterEntry, ms []msg.Message) []Session {
 		s.Repo, s.Branch = clean(e.Labels["repo"], maxLabel), clean(e.Labels["branch"], maxLabel)
 		if m := msg.CleanModel(e.Labels[msg.ModelLabel]); m != "" {
 			s.Model, s.modelFromLabel = m, true
+		}
+		s.Listen = ""
+		if e.Listening || e.Busy() != "" {
+			s.Listen = clean(view.SessionState(e, time.Time{}), maxLabel*2)
 		}
 		s.Caps = nil
 		for _, c := range msg.CapsOf(e.Me, e.Labels) {

@@ -119,9 +119,15 @@ type RosterEntry struct {
 	Labels Labels    `json:"labels,omitempty"`
 	// Title is what the session's tool last called it (see CleanTitle); empty when it declared none.
 	Title string `json:"title,omitempty"`
-	// Listening is set by the node a session is waiting on right now (in `aivoicebus wait` or
-	// --wait-reply): a message to it is read within a second. Not gossiped; MergeRosters ORs it.
+	// Listening is set by the node a session is waiting on right now in a wait that accepts any
+	// message (`aivoicebus wait`, standing by, a worker): a message to it is read within a second.
+	// A node before FeatureWaitScope sets it for every wait, --wait-reply included (Unverified).
+	// Not gossiped; MergeRosters ORs it.
 	Listening bool `json:"listening,omitempty"`
+	// Waits is what the session's held read accepts, from a node and client that say so
+	// (FeatureWaitScope): {} for anything (Listening is then set too), or one thread, one sender,
+	// tasks or replies only (Busy). Nil when it is in no wait, or nobody said. Not gossiped.
+	Waits *WaitScope `json:"waits,omitempty"`
 	// LabelsAt is when the session declared these labels (an inbox read). Seen also moves when it
 	// sends, on every node the message reaches, while those nodes may hold older labels, so which
 	// labels are newest is judged by this; zero (an older node) falls back to Seen.
@@ -156,6 +162,9 @@ func MergeRosters(lists ...[]RosterEntry) []RosterEntry {
 			}
 			if e.Title != "" && !e.Seen.Before(titleAt[e.Me]) {
 				cur.Title, titleAt[e.Me] = e.Title, e.Seen
+			}
+			if e.Waits != nil && (cur.Waits == nil || e.Listening && !cur.Listening) { // the wait that listens tells
+				cur.Waits = e.Waits
 			}
 			cur.Listening = cur.Listening || e.Listening
 			byMe[e.Me] = cur

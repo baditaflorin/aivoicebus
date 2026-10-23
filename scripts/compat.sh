@@ -65,6 +65,8 @@ feature_since() {
     brakes) echo 0.12.0 ;;    # repeats judged by similarity: new replies pass the pair brake to 48, numbers are words, rewordings are repeats
     signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
     budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
+    inboxwait) echo 0.4.0 ;;  # holds an inbox read open (wait=S&gen=G) and calls the session listening meanwhile
+    waitscope) echo 0.13.1 ;; # a held read says what its wait takes (wscope=1&wthread=T): a wait for one thread is busy, not listening
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
 }
@@ -491,6 +493,40 @@ for k in "${!NAME[@]}"; do
 done
 got=$(cli 0 "$NEW" "bg-new/claude.a1" thread --digest "${bgroot[0]}" 2>/dev/null | grep -c 'of its 80 characters')
 check "$got" 1 "new CLI's digest shows the size against the budget"
+
+scenario "a held read says what its wait takes"
+# Each node holds reads open for two sessions of its own: one waiting for a reply in one thread, one
+# waiting for anything, both saying so (wscope=1), re-asked as a client does until the roster is read.
+# A node that knows (waitscope) calls the first busy (not listening, waits.thread) and the second
+# listening (waits {}); an older one that holds reads calls both listening and says nothing more
+# (unverified); one older than held reads calls neither listening.
+held() { # PORT ME QUERY SECONDS: re-ask a held read for SECONDS, in the background
+  local p=$1 me=$2 q=$3 end=$((SECONDS + $4)) g
+  while [ $SECONDS -lt $end ]; do
+    g=$(curl -fsS -D - -o /dev/null -H "Authorization: Bearer $TOK" "http://127.0.0.1:$p/v1/inbox?me=$me" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="x-aivoicebus-gen"{print $2}')
+    curl -fsS -o /dev/null -H "Authorization: Bearer $TOK" "http://127.0.0.1:$p/v1/inbox?me=$me&wait=2&gen=${g:-0}&$q" 2>/dev/null || sleep 0.2
+  done
+}
+listen_of() { # PORT ME -> listening | unverified | busy:THREAD | none, as the node's roster says
+  get "$1" /v1/roster 2>/dev/null | py 'import json,sys
+try: rs=json.load(sys.stdin) or []
+except Exception: rs=[]
+e=([e for e in rs if e.get("me")==sys.argv[1]] or [{}])[0]
+w=e.get("waits")
+print(("listening" if w is not None else "unverified") if e.get("listening") else ("busy:"+w.get("thread","")) if w is not None else "none")' "$2"
+}
+for k in "${!NAME[@]}"; do
+  p=${PORT[$k]} n=${NAME[$k]}
+  held "$p" "ws-$n/claude.t1" "wscope=1&wthread=th$n" 4 & h1=$!
+  held "$p" "ws-$n/claude.a1" "wscope=1" 4 & h2=$!
+  sleep 1.5
+  tw=none; aw=none
+  if has "$k" waitscope; then tw="busy:th$n"; aw=listening
+  elif has "$k" inboxwait; then tw=unverified; aw=unverified; fi
+  check "$(listen_of "$p" "ws-$n/claude.t1")" "$tw" "$n (${VER[$k]}): a session waiting for a reply in one thread is $tw"
+  check "$(listen_of "$p" "ws-$n/claude.a1")" "$aw" "$n (${VER[$k]}): a session waiting for anything is $aw"
+  wait "$h1" "$h2" 2>/dev/null
+done
 
 scenario "the brakes tell a loop from progress"
 # Each node is asked alone (written through it, with sessions of its own). A burst of 30 replies that

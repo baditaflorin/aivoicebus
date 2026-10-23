@@ -49,10 +49,17 @@ func Session(e msg.RosterEntry, now time.Time) string {
 	return b.String()
 }
 
-// SessionState is "listening" or "seen <when>", the state Session shows in brackets.
+// SessionState is the state Session shows in brackets: "listening" (in a wait that takes any
+// message), "listening (unverified)" (its node or client does not say what the wait takes, see
+// msg.FeatureWaitScope), "busy: waiting for a reply in T" (a wait that takes only that), or "seen <when>".
 func SessionState(e msg.RosterEntry, now time.Time) string {
-	if e.Listening {
+	switch {
+	case e.Unverified():
+		return "listening (unverified)"
+	case e.Listening:
 		return "listening"
+	case e.Busy() != "":
+		return "busy: " + Name(e.Busy(), msg.MaxIdentity)
 	}
 	return "seen " + When(e.Seen, now)
 }
