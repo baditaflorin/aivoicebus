@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -29,8 +30,14 @@ func problems(r *Report) []Problem {
 		}
 	}
 	if rel := r.Release; rel != nil {
-		if rel.Update {
-			add("release", fmt.Sprintf("release %s is available (this is %s)", rel.Latest, rel.Here), "aivoicebus update")
+		switch a := rel.Auto; {
+		case !rel.Update:
+		case a.Failed():
+			add("release", fmt.Sprintf("release %s is available (this is %s); auto-update did not install %s: %s", rel.Latest, rel.Here, orDash(a.To), view.OneLine(a.Error, 160)), "the person, in a terminal: aivoicebus update")
+		case a == nil || !a.On:
+			add("release", fmt.Sprintf("release %s is available (this is %s)", rel.Latest, rel.Here), "the person, in a terminal: aivoicebus update (or once, to have it done by itself: aivoicebus update --auto on)")
+		case a.skips(rel.Latest):
+			add("release", fmt.Sprintf("release %s is available (this is %s); auto-update leaves it out: it was rolled back here", rel.Latest, rel.Here), "the person, in a terminal, if they want it after all: aivoicebus update")
 		}
 		if len(rel.Nodes) > 1 {
 			add("release", "the nodes run different releases: "+releases(rel.Nodes), "aivoicebus mesh")
@@ -193,10 +200,15 @@ func line(r Report, section string) string {
 			s += "; nodes run " + releases(rel.Nodes)
 		}
 		switch {
+		case rel.Update && rel.Auto != nil && rel.Auto.On && !rel.Auto.skips(rel.Latest):
+			return s + "; " + rel.Latest + " is available: auto-update installs it at a session start (at most once a day)"
 		case rel.Update:
 			return s + "; " + rel.Latest + " is available"
 		case rel.Latest != "":
-			return s + "; up to date"
+			s += "; up to date"
+		}
+		if a := rel.Auto; a != nil && a.On {
+			s += "; auto-update on"
 		}
 		return s
 	case "nodes":
@@ -280,4 +292,14 @@ func first(xs []string, n int) []string {
 		return xs
 	}
 	return append(xs[:n:n], fmt.Sprintf("and %d more", len(xs)-n))
+}
+
+// skips reports whether auto-update leaves release v out: the person rolled it (or a newer one) back here.
+func (a *Auto) skips(v string) bool { return a != nil && a.Skip != "" && !release.Newer(v, a.Skip) }
+
+func orDash(v string) string {
+	if v == "" {
+		return "-"
+	}
+	return v
 }

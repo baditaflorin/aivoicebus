@@ -615,7 +615,11 @@ wait for you, the person on this machine, not the agent", naming the first (a `[
 approval by its kind only, any other with a short quote of its first line) and the command the
 person runs, for the agent to relay without acting on it. They only look (`inbox?peek=1`, never an
 acknowledgement, and only at a node of 0.11.0 or later, which does not list the person as present);
-quiet hours hold the line back unless the task is urgent.
+quiet hours hold the line back unless the task is urgent. On macOS the hook that first names a task
+also raises a notification (from 0.14.0), once per task on the machine whichever session saw it:
+"N new task(s) wait for you, the person on this machine. In your own terminal: aivoicebus status".
+Its words are fixed, so nothing a sender wrote reaches it. A `fleet update` task (sent by 0.11.4 to
+0.13.x) for a release this machine already runs is done: the hooks, `status` and `queue` leave it out.
 
 **Held back from agents.** Before peer text reaches an agent (the hooks, the MCP tools, and the
 commands an agent runs in its session), each message passes a screen: one whose signature does not
@@ -914,7 +918,7 @@ aivoicebus status (air/claude.a1b2, 212ms)
   me       air/claude.a1b2 (tool claude, from AIVOICEBUS_AGENT=claude.a1b2 (exported by the session-start hook))
   token    a machine token, bound to air
   release  0.10.4 here; nodes run 0.10.4 on 4; 0.10.5 is available
-!          release 0.10.5 is available (this is 0.10.4) -> aivoicebus update
+!          release 0.10.5 is available (this is 0.10.4) -> the person, in a terminal: aivoicebus update (or once, to have it done by itself: aivoicebus update --auto on)
   nodes    4 of 5 up; peers 16/20 ok; clocks within 0.1s, this machine 0.0s off
 !          1 of 5 nodes do not answer: 0db.example:7777 -> aivoicebus mesh
 !          4 of 20 links between nodes are down -> aivoicebus mesh
@@ -1834,19 +1838,19 @@ checks each example's flags against the command's parser.
 ## The fleet: which machine runs which release
 
     aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token, facts
-    aivoicebus fleet update                # the plan: the machines that are behind the nodes, or unknown
-    aivoicebus fleet update --apply        # a task for the person on each: "aivoicebus update" there
+    aivoicebus fleet update                # the machines that are behind the nodes, or unknown (nothing is sent)
 
 Every client says its release with each request (the `X-Aivoicebus-Client` header, from 0.11.4), and
 each node keeps the last one it heard per machine, next to the token kind it saw (`/v1/token/seen`,
-kept across restarts). A machine whose client has not said since is "unknown". `fleet update --apply`
-sends each such machine a task for the person there (`task HOST --person`), which no agent takes:
-replacing the binary is the person's to approve, and `aivoicebus update` checks the signature first.
-`--only-behind` leaves the unknown ones out. A release-shaped value is all a node keeps from the header.
-A machine whose client is unknown or before 0.11.5 (whose hooks do not say what waits for the person)
-also gets an ordinary message to its sessions, `[for the person] ... run aivoicebus update in your own
-terminal`, which its agents relay to the user. Running it again sends nothing to a machine where the
-same task still waits for the person.
+kept across restarts). A machine whose client has not said since is "unknown"; `--only-behind` leaves
+those out. A release-shaped value is all a node keeps from the header.
+
+`fleet update` sends nothing. The nodes announce the release they hold on every answer, so each
+machine's own aivoicebus already tells its person (see [Updating](#updating)): one line at session
+start, at most once a day, and in `status`, which stops by itself once that machine runs it; and a
+machine whose person turned on `aivoicebus update --auto` installs it by itself. Until 0.13.x
+`fleet update --apply` sent the person on each machine a task, a new one with every release; none was
+read. The flag is still taken, so an old script or note that runs it is told why nothing goes out.
 
 The FACTS column is what each machine says it has (see [What a machine has](#what-a-machine-has-who---has)):
 `signing-key deploy-token fleet-guard:0.3.13 fleet-ctx:0.2.0 ssh:0mcp,0own`, `none`, or `-` when none of
@@ -1942,15 +1946,42 @@ the two sides used.
     aivoicebus update --check       # is a newer signed release available?
     aivoicebus update               # install it (ask the user first)
     aivoicebus update --rollback    # put back the previous binary
+    aivoicebus update --auto on     # the person, once, in their own terminal: install signed releases by itself
+    aivoicebus update --auto status # is it on, and what did its last run do?
+    aivoicebus update --auto off    # stop it (anyone may)
 
 `update` installs only a release whose manifest is signed by a trusted key (the project's, compiled
 into the binary; plus any you added with `aivoicebus trust-key add`, or a fork built in), whose binary
 matches the signed hash, and which proves it runs, then swaps it in atomically (keeping
 `aivoicebus.prev`) and runs the new binary's `setup`. With no node URL configured it reads the public
 GitHub release over HTTPS (no `gh`, no login); with a mesh it reads the nodes (`serve --release-dir`),
-which announce the number on every response, and the hook mentions a newer one to the user once a day.
-`--from github|mesh|dir:<path>` picks a source. How to cut a release, who holds the signing key,
-rotation, trusting your own keys: [releasing.md](releasing.md).
+which announce the number on every response. `--from github|mesh|dir:<path>` picks a source. How to
+cut a release, who holds the signing key, rotation, trusting your own keys: [releasing.md](releasing.md).
+
+A machine that is behind the release the nodes hold is told so by its own session-start hook, in one
+line for the person that the agent relays (no task on the mesh), at most once a day whatever the
+release, and in `status`; the line stops by itself once the machine runs that release:
+
+    [aivoicebus] For the person, not the agent: the nodes have release 0.14.0, this machine runs 0.13.1. In your own terminal: aivoicebus update (it checks the signature first), or once: aivoicebus update --auto on, to have this machine install signed releases by itself. Agent: tell the user this line; run neither yourself.
+
+**Automatic update** is off until the person on the machine turns it on, once, in their own terminal:
+`aivoicebus update --auto on` asks them to type `auto`. It refuses in an agent's session (the same rule
+as `held`, `unhold` and `answer`: `AIVOICEBUS_AGENT`, or an agent tool above the command or marking its
+environment) and without a terminal (a piped word does not count), and it is written to the audit log.
+`--auto off` works anywhere, as `pause` does: stopping is always safe. With it on, a session start that
+finds a newer release on the nodes starts `aivoicebus update --auto run` as a process of its own (it
+outlives the hook, and the session waits for none of it), at most once a day, one at a time (a lock,
+and the record checked again under it, so thirty sessions starting at once start one run). The run is
+the path above with nothing forced: a strictly newer release only, signed, its hash checked, test-run
+before it replaces anything, from the release the installed binary reports. When the new binary's
+setup fails it puts the previous one back by itself, and from then on leaves that release (and anything
+older) out; so does `update --rollback` by hand, for the release it leaves. A dev build is never
+replaced. The next session start says once what happened ("This machine installed release 0.14.0 by
+itself ...", or for the person: "auto-update did not install release 0.14.0 (why)"), and `status` and
+`update --auto status` show the setting and the last run. The setting is `~/.config/aivoicebus/auto-update`,
+the last run `auto-update-state.json` beside it. Like the other person-only commands this keeps agents
+from turning it on by mistake; an agent that writes that file by hand is not stopped by it, and still
+gets only what `update` would install.
 
 ## Removing it
 

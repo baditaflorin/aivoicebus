@@ -88,3 +88,32 @@ func PersonStep(m Message) string {
 	}
 	return "aivoicebus thread " + m.ID
 }
+
+// UpdateTaskRelease is the release a `fleet update` task (sent by clients 0.11.4 to 0.13.x to the
+// person on each machine that was behind) asked that person to install: its fixed text is
+// "[for the person] Update aivoicebus on HOST: the nodes run X. ...", sent to HOST/human. "" for
+// any other message. Clients from 0.14.0 send none (the release line at session start and in
+// status says the same, and stops by itself), and hide the ones still waiting once this machine
+// runs X or later: the machine reports the release the task asked for, so it waits for nobody.
+func UpdateTaskRelease(m Message) string {
+	if m.Kind != KindTask || !IsHuman(m.To) {
+		return ""
+	}
+	body, ok := strings.CutPrefix(strings.TrimSpace(m.Body), PersonTag)
+	if !ok {
+		return ""
+	}
+	rest, ok := strings.CutPrefix(strings.TrimSpace(body), "Update aivoicebus on ")
+	if !ok {
+		return ""
+	}
+	host, rest, ok := strings.Cut(rest, ": the nodes run ")
+	if !ok || !strings.EqualFold(host, HostOf(m.To)) {
+		return ""
+	}
+	v, _, _ := strings.Cut(rest, " ")
+	if v = strings.TrimSuffix(v, "."); !ValidRelease(v) {
+		return ""
+	}
+	return v
+}

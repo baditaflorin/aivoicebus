@@ -48,3 +48,29 @@ func TestPersonStepNamesWhatThePersonRuns(t *testing.T) {
 		}
 	}
 }
+
+// The task `fleet update` sent (0.11.4 to 0.13.x) is known by its fixed text, to the person on the
+// machine it names, and nothing else is taken for one.
+func TestUpdateTaskReleaseKnowsOnlyTheFleetUpdateTask(t *testing.T) {
+	fleet := PersonTag + " Update aivoicebus on air: the nodes run 0.13.1. In a terminal there: aivoicebus update (it checks the signature before installing), then aivoicebus version."
+	cases := []struct {
+		name string
+		m    Message
+		want string
+	}{
+		{"the fleet update task", Message{To: "air/human", Kind: KindTask, Body: fleet}, "0.13.1"},
+		{"a host in other case", Message{To: "AIR/human", Kind: KindTask, Body: fleet}, "0.13.1"},
+		{"another machine's", Message{To: "imac/human", Kind: KindTask, Body: fleet}, ""},
+		{"to the sessions, not the person", Message{To: "air", Kind: KindTask, Body: fleet}, ""},
+		{"not a task", Message{To: "air/human", Body: fleet}, ""},
+		{"untagged", Message{To: "air/human", Kind: KindTask, Body: strings.TrimPrefix(fleet, PersonTag+" ")}, ""},
+		{"another person task", Message{To: "air/human", Kind: KindTask, Body: PersonTag + " restart the router"}, ""},
+		{"no release in it", Message{To: "air/human", Kind: KindTask, Body: PersonTag + " Update aivoicebus on air: the nodes run soon. Thanks."}, ""},
+		{"a release at the very end", Message{To: "air/human", Kind: KindTask, Body: PersonTag + " Update aivoicebus on air: the nodes run 0.14.0."}, "0.14.0"},
+	}
+	for _, c := range cases {
+		if got := UpdateTaskRelease(c.m); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}

@@ -50,6 +50,8 @@ type Options struct {
 	// Deploy counts the machine tokens kept here: the machine you deploy from, which keeps the
 	// shared token (machine tokens cannot replicate or deploy). nil or 0: not the deploy machine.
 	Deploy func() int
+	// Auto is this machine's automatic update (`aivoicebus update --auto`): the setting and the last run.
+	Auto func() *Auto
 }
 
 // Report is the whole screen. A part that did not answer within the budget is nil, and named in Unknown.
@@ -93,7 +95,22 @@ type Release struct {
 	Nodes  map[string]int `json:"nodes"`  // release -> how many answering nodes run it
 	Latest string         `json:"latest"` // the newest release a node announced ("" if none did)
 	Update bool           `json:"update"` // Latest is newer than Here: `aivoicebus update` installs it
+	Auto   *Auto          `json:"auto,omitempty"`
 }
+
+// Auto is this machine's automatic update: whether the person turned it on and what its last run did.
+type Auto struct {
+	On     bool       `json:"on"`
+	Since  *time.Time `json:"since,omitempty"`
+	Tried  *time.Time `json:"tried,omitempty"`  // when the last run started
+	Result string     `json:"result,omitempty"` // installed, rolled back, failed, up to date, skipped; "" while a run is under way
+	To     string     `json:"to,omitempty"`     // the release it went for
+	Error  string     `json:"error,omitempty"`
+	Skip   string     `json:"skip,omitempty"` // the release rolled back from here: never installed by itself
+}
+
+// Failed reports whether the last run ended without the release it went for.
+func (a *Auto) Failed() bool { return a != nil && (a.Result == "failed" || a.Result == "rolled back") }
 
 // Nodes is the mesh in one line.
 type Nodes struct {
@@ -358,6 +375,9 @@ func Gather(o Options) Report {
 				case msg.IsStuck(m.Body):
 					p.Stuck = append(p.Stuck, m.ID)
 				case m.Kind == msg.KindTask && msg.PersonOnly(m):
+					if v := msg.UpdateTaskRelease(m); v != "" && release.ValidVersion(o.Here) && !release.Newer(v, o.Here) {
+						continue // a fleet update task for a release this machine runs: done
+					}
 					p.Tasks = append(p.Tasks, m.ID)
 				}
 			}
@@ -409,6 +429,9 @@ func Gather(o Options) Report {
 		}
 	}
 	rel.Update = release.Newer(rel.Latest, rel.Here)
+	if o.Auto != nil {
+		rel.Auto = o.Auto()
+	}
 	r.Release = rel
 	r.Unknown = []string{}
 	for _, s := range Sections {

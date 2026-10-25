@@ -31,7 +31,6 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
-	"github.com/baditaflorin/aivoicebus/internal/version"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -119,6 +118,7 @@ func Run(args []string, stdin io.Reader, out io.Writer) {
 		_, _ = out.Write(buf.Bytes())
 		note.flush()            // after the output: a slow disk never delays the session
 		pending.send(ackBudget) // after the output: only what was written is acknowledged
+		pending.startAuto()     // after the output: a process of its own, never waited for
 		refreshNodes()          // after the output: a session start never waits on it
 	case <-time.After(deadline):
 		if line := note.giveUp(); line != "" {
@@ -153,9 +153,17 @@ type ackSet struct {
 	me   string
 	jobs []ackJob
 	told []msg.Message // what waits for the person and the output named (see person.go)
+	auto bool          // start the automatic update (see release.go), after the output
 }
 
 func (a *ackSet) add(id, via string, chars int) { a.jobs = append(a.jobs, ackJob{id, via, chars}) }
+
+// startAuto starts the automatic update this run found due (see release.go).
+func (a *ackSet) startAuto() {
+	if a != nil && a.auto {
+		_ = startAuto()
+	}
+}
 
 // send acknowledges everything in parallel, giving up on whatever is not done within budget.
 func (a *ackSet) send(budget time.Duration) {
@@ -163,6 +171,7 @@ func (a *ackSet) send(budget time.Duration) {
 		return
 	}
 	noteTold(a.me, a.told) // only now that the output naming them was handed over
+	notifyNew(a.told)      // and to the person, who may be in no session at all (notify.go)
 	if len(a.jobs) == 0 {
 		return
 	}
@@ -255,13 +264,12 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	if err != nil {
 		return nil
 	}
-	// Asked first: updateNotice records that it spoke, and a notice held back must be said later.
-	if !quietNow() {
-		if notice := updateNotice(c.Latest, time.Now()); notice != "" {
-			fmt.Fprintln(out, notice)
-		}
+	// Asked first: releaseNotice records that it spoke, and a line held back must be said later.
+	notice, auto := releaseNotice(c.Latest, clock(), quietNow())
+	if notice != "" {
+		fmt.Fprintln(out, notice)
 	}
-	acks := &ackSet{c: c, me: me}
+	acks := &ackSet{c: c, me: me, auto: auto}
 	// What waits for the person on this machine: one line, every session start, since nothing else
 	// tells them (see person.go). It keeps clear of the deadline, which would cost all the output.
 	if ps := personWaiting(c, me, min(personPeekBudget, timeout-time.Since(start)-personPeekHeadroom), quietNow(), nil); len(ps) > 0 {
@@ -361,48 +369,6 @@ func shortSession(id string) string {
 		}
 	}
 	return b.String()
-}
-
-// noticeEvery is how often a machine that stays behind is reminded of a release.
-const noticeEvery = 24 * time.Hour
-
-type noticeRecord struct {
-	Version string    `json:"version"`
-	At      time.Time `json:"at"`
-}
-
-// shouldNotify reports whether to mention release latest now, given what was
-// last mentioned: a release is announced once, then again after noticeEvery.
-func shouldNotify(prev noticeRecord, latest string, now time.Time) bool {
-	return prev.Version != latest || now.Sub(prev.At) >= noticeEvery
-}
-
-// updateNotice is the one-line heads-up that a newer release exists ("" when
-// this machine is current, the node announced nothing, or it was mentioned
-// recently). The line is for the user: installing is `aivoicebus update`, which
-// verifies a signed manifest, and only with the user's OK.
-func updateNotice(latest string, now time.Time) string {
-	if !release.Newer(latest, version.Release) {
-		return ""
-	}
-	dir := config.Dir()
-	var prev noticeRecord
-	path := ""
-	if dir != "" {
-		path = dir + "/update-notice"
-		if b, err := os.ReadFile(path); err == nil {
-			_ = json.Unmarshal(b, &prev)
-		}
-	}
-	if !shouldNotify(prev, latest, now) {
-		return ""
-	}
-	if path != "" {
-		if b, err := json.Marshal(noticeRecord{Version: latest, At: now}); err == nil && os.MkdirAll(dir, 0o700) == nil {
-			_ = os.WriteFile(path, b, 0o644)
-		}
-	}
-	return fmt.Sprintf("[aivoicebus] Release %s is available (this machine runs %s). Mention it to the user; `aivoicebus update` installs it after verifying a signed manifest. Do not run it without their OK.", latest, version.Release)
 }
 
 // trustedKeys supplies the keys that sign the node list; a variable only so tests can use their own.

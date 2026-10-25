@@ -331,3 +331,94 @@ func TestGitHubSourceTakesTheSignatureAndBinaryFromTheManifestsRelease(t *testin
 		t.Error("oversize answer accepted")
 	}
 }
+
+// A manual update keeps the new binary when its setup fails (the person is there to run doctor),
+// and says so in the result.
+func TestUpdateReportsAFailedSetup(t *testing.T) {
+	h := newHarness(t, "0.2.0", "0.3.0")
+	h.setup = errors.New("exit status 1")
+	o, _ := h.options("0.2.0")
+	res, err := Update(o)
+	if err != nil || !res.Updated || res.SetupErr == nil || !strings.Contains(res.SetupErr.Error(), "`aivoicebus setup` of release 0.3.0 failed") {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if h.installed() != "aivoicebus 0.3.0" {
+		t.Errorf("installed: %q", h.installed())
+	}
+}
+
+// Auto installs a strictly newer signed release, whatever it is handed: never forced, never an older one.
+func TestAutoInstallsOnlyANewerRelease(t *testing.T) {
+	h := newHarness(t, "0.2.0", "0.3.0")
+	o, _ := h.options("")
+	o.Force, o.Check = true, true
+	res, err := Auto(o)
+	if err != nil || !res.Updated || res.RolledBack || res.Current != "0.2.0" || res.Latest != "0.3.0" || h.installed() != "aivoicebus 0.3.0" {
+		t.Fatalf("%+v %v, installed %q", res, err, h.installed())
+	}
+	h.publish("0.1.0", "aivoicebus 0.1.0")
+	if res, err = Auto(o); err != nil || res.Updated || h.installed() != "aivoicebus 0.3.0" {
+		t.Fatalf("an older release: %+v %v, installed %q", res, err, h.installed())
+	}
+}
+
+// Auto goes by the release the installed binary reports, not the one it is told: a run started
+// before another run's install may still be the older binary, and must not install over it again
+// (which would also make the new binary the one kept as .prev).
+func TestAutoGoesByTheInstalledBinary(t *testing.T) {
+	h := newHarness(t, "0.3.0", "0.3.0")
+	o, _ := h.options("0.2.0")
+	res, err := Auto(o)
+	if err != nil || res.Updated || res.Current != "0.3.0" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, err := os.Stat(h.bin + ".prev"); err == nil {
+		t.Error("nothing was replaced, so nothing is kept as .prev")
+	}
+}
+
+// Nobody is there to repair a failed setup, so Auto puts the previous binary back and says why.
+func TestAutoPutsThePreviousBinaryBackWhenSetupFails(t *testing.T) {
+	h := newHarness(t, "0.2.0", "0.3.0")
+	h.setup = errors.New("exit status 1")
+	o, _ := h.options("")
+	res, err := Auto(o)
+	if err == nil || !strings.Contains(err.Error(), "`aivoicebus setup` of release 0.3.0 failed") || !res.RolledBack || res.Latest != "0.3.0" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if h.installed() != "aivoicebus 0.2.0" {
+		t.Errorf("the previous binary is back: %q", h.installed())
+	}
+}
+
+// Auto leaves out the release rolled back here (Skip) and anything older, but takes a newer one.
+func TestAutoLeavesOutTheSkippedRelease(t *testing.T) {
+	h := newHarness(t, "0.2.0", "0.3.0")
+	o, _ := h.options("")
+	o.Skip = "0.3.0"
+	res, err := Auto(o)
+	if err != nil || !res.Skipped || res.Updated || h.installed() != "aivoicebus 0.2.0" {
+		t.Fatalf("%+v %v, installed %q", res, err, h.installed())
+	}
+	h.publish("0.3.1", "aivoicebus 0.3.1")
+	if res, err = Auto(o); err != nil || !res.Updated || h.installed() != "aivoicebus 0.3.1" {
+		t.Fatalf("a newer one: %+v %v, installed %q", res, err, h.installed())
+	}
+}
+
+// A build of its own (dev), or no installed binary at all, is left alone.
+func TestAutoLeavesADevBuildOrNoBinaryAlone(t *testing.T) {
+	h := newHarness(t, "dev", "0.3.0")
+	o, _ := h.options("")
+	if _, err := Auto(o); err == nil || !strings.Contains(err.Error(), "not a release") || h.installed() != "aivoicebus dev" {
+		t.Fatalf("dev: %v, installed %q", err, h.installed())
+	}
+	h = newHarness(t, "", "0.3.0")
+	o, _ = h.options("")
+	if _, err := Auto(o); err == nil || !strings.Contains(err.Error(), "does not run") {
+		t.Fatalf("no binary: %v", err)
+	}
+	if _, err := os.Stat(h.bin); err == nil {
+		t.Error("nothing is installed where there was nothing")
+	}
+}

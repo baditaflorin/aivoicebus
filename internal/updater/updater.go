@@ -45,6 +45,7 @@ type Options struct {
 	GOOS, GOARCH string // which build to install
 	Check        bool   // report only; change nothing
 	Force        bool   // also reinstall the same release, or an older signed one
+	Skip         string // install nothing at or below this release (see Auto), unless Force
 	Run          Runner // nil means ExecRunner
 	Out          io.Writer
 }
@@ -54,6 +55,9 @@ type Result struct {
 	Current, Latest string
 	Available       bool // a strictly newer release exists
 	Updated         bool
+	Skipped         bool  // the newest release is at or below Options.Skip: nothing was installed
+	SetupErr        error // the new binary is installed but its setup failed
+	RolledBack      bool  // Auto put the previous binary back after SetupErr
 }
 
 // Update fetches, verifies and installs the newest release from o.Source.
@@ -95,6 +99,11 @@ func Update(o Options) (Result, error) {
 		fmt.Fprintf(out, "release %s is available (you run %s; signature verified, from %s). Run `aivoicebus update` to install it.\n", m.Version, o.Current, where)
 		return res, nil
 	}
+	if o.Skip != "" && !o.Force && !release.Newer(m.Version, o.Skip) {
+		res.Skipped = true
+		fmt.Fprintf(out, "release %s was rolled back on this machine, so it is not installed by itself; `aivoicebus update` installs it\n", m.Version)
+		return res, nil
+	}
 	if !res.Available {
 		fmt.Fprintf(out, "--force: installing signed release %s over %s\n", m.Version, o.Current)
 	}
@@ -133,11 +142,53 @@ func Update(o Options) (Result, error) {
 
 	// Let the new binary bring the hook, snippet and config in line with itself.
 	if sout, err := run(o.Bin, "setup"); err != nil {
+		res.SetupErr = fmt.Errorf("`aivoicebus setup` of release %s failed: %s", m.Version, firstLine(sout, err))
 		fmt.Fprintf(out, "warning: the binary is updated but `aivoicebus setup` failed (%v); run `aivoicebus doctor --fix`\n%s", err, sout)
 	} else {
 		fmt.Fprint(out, sout)
 	}
 	return res, nil
+}
+
+// Auto is the update a machine whose person turned on `aivoicebus update --auto` runs by itself.
+// It is Update with nothing forced and nothing only checked, from the release the installed binary
+// reports (a run started before another one's install may still be the older binary), leaving out
+// o.Skip and anything older; and when the new binary's setup fails it puts the previous binary back,
+// since nobody is there to repair it. A dev build is left alone.
+func Auto(o Options) (Result, error) {
+	run := o.Run
+	if run == nil {
+		run = ExecRunner
+	}
+	cur, err := InstalledVersion(o.Bin, run)
+	if err != nil {
+		return Result{}, err
+	}
+	if !release.ValidVersion(cur) {
+		return Result{Current: cur}, fmt.Errorf("%s is a build of its own (%s), not a release: auto-update leaves it alone", o.Bin, cur)
+	}
+	o.Current, o.Check, o.Force, o.Run = cur, false, false, run
+	res, err := Update(o)
+	if err != nil || !res.Updated || res.SetupErr == nil {
+		return res, err
+	}
+	if rerr := Rollback(o.Bin, run, o.Out); rerr != nil {
+		return res, fmt.Errorf("%v, and putting %s back failed: %v", res.SetupErr, cur, rerr)
+	}
+	res.RolledBack = true
+	return res, res.SetupErr
+}
+
+// InstalledVersion is the release the binary at bin says it is (`aivoicebus version`).
+func InstalledVersion(bin string, run Runner) (string, error) {
+	if run == nil {
+		run = ExecRunner
+	}
+	out, err := run(bin, "version")
+	if f := strings.Fields(out); err == nil && len(f) >= 2 && f[0] == "aivoicebus" {
+		return f[1], nil
+	}
+	return "", fmt.Errorf("%s does not run or does not say its release (%s)", bin, firstLine(out, err))
 }
 
 // Rollback puts back the binary Update kept as <bin>.prev.

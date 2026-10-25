@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/agentcfg"
 	"github.com/baditaflorin/aivoicebus/internal/client"
+	"github.com/baditaflorin/aivoicebus/internal/config"
+	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/updater"
 	"github.com/baditaflorin/aivoicebus/internal/version"
@@ -41,8 +44,17 @@ func updateCmd(args []string, s Streams) error {
 	from := fs.String("from", "auto", "where to read the release: auto (the mesh when a node URL is configured, else GitHub) | mesh | github | dir:<path>")
 	bin := fs.String("bin", "", "the binary to replace (default ~/.local/bin/aivoicebus)")
 	rollback := fs.Bool("rollback", false, "restore the previous binary kept by the last update")
+	auto := fs.String("auto", "", "on | off | status | run: whether this machine installs newer signed releases by itself (on is the person's, typed in their own terminal; run is what the session-start hook starts)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["auto"] {
+		if len(set) > 1 || fs.NArg() > 0 {
+			return outbox.Usagef(autoUsage)
+		}
+		return autoUpdateCmd(*auto, s)
 	}
 	binPath := *bin
 	if binPath == "" {
@@ -52,7 +64,15 @@ func updateCmd(args []string, s Streams) error {
 		}
 	}
 	if *rollback {
-		return updater.Rollback(binPath, nil, s.Out)
+		// What it rolls back from is a release the person does not want: auto-update leaves it out.
+		from, _ := updater.InstalledVersion(binPath, nil)
+		if err := updater.Rollback(binPath, nil, s.Out); err != nil {
+			return err
+		}
+		if release.ValidVersion(from) {
+			_ = config.EditAutoState(func(st *config.AutoState) bool { st.Skip = from; return true })
+		}
+		return nil
 	}
 	src, err := releaseSource(*from)
 	if err != nil {
