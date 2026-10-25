@@ -34,12 +34,19 @@ Read this only when you need to message another agent.
   who a message to that selector would reach, so check it before sending. Prefer a
   selector over `all`: it keeps unrelated agents from being bothered. `send` itself says
   how many sessions a message reaches, and refuses a selector that matches no session
-  seen in the last 24h (`--queue` leaves it for one that starts later). `send --to host/tool.session` is
+  seen in the last 24h, or whose matching sessions were none seen in the last 30m (a session nobody
+  types in never reads; the refusal lists them and who is live on that machine; `--queue` leaves it for
+  the next one that reads). Name a session with its machine: `claude.f324` alone is read as a machine of
+  that name, so `send` turns it into the one live session of that name or refuses with the candidates.
+  `send --to host/tool.session` is
   refused when that session was not seen in the last 30m (or the nodes never heard of it): it says when it
   was last seen and who is live on that machine; use `ask HOST` or `task HOST`, or `--queue` to keep it
   for that session, or `--or-successor` to let the session that replaces it have it (once that session has been
   gone for 15 minutes the nodes hand a marked message to the newest live session of its repo on that machine, shown
-  `[inherited from claude.7430]`; `reply` does this by default, `reply --or-successor=false` keeps it for the session named). A session's
+  `[inherited from claude.7430]`; `reply` does this by default, `reply --or-successor=false` keeps it for the session named).
+  A session that has read nothing for 2h is warned about but still sent to (a session reads at a prompt or in a
+  `wait`, so one in a long run of its own reads at its next prompt): the warning names who else is live in its
+  repo, or `task owner:repo:NAME` when an owner is recorded; `--read-within 30m` (or `0`) changes it. A session's
   branch follows a checkout inside the same repository. Terms can offer alternatives
   (`@repo=api|web`) or exclude (`@tool=claude,repo!=web`; pair an exclusion with a
   positive term, or it reaches everyone else). `@here` means this machine

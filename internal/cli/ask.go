@@ -34,6 +34,7 @@ func askCmd(args []string, s Streams) error {
 	needs := fs.String("needs", "", "ask the session that has all of these capabilities (repo:owner/name, branch:, tool:, model:, role: or a declared word such as gpu; `aivoicebus who` lists them): listening now first, then the most recently seen. No TARGET needed")
 	pick := fs.Int("pick", 0, "of the sessions that look alike (as listed when ask refuses), ask the Nth")
 	within := fs.Duration("within", tasks.AskWithin, "a session seen this recently is live, when nobody is listening")
+	readWithin := fs.Duration("read-within", outbox.ReadWithin, "warn (it still asks) when the session picked has read nothing for longer than this; 0: never")
 	waitReply := fs.Duration("wait-reply", 0, "how long to wait for the answer (default: --deadline)")
 	claimWithin := fs.Duration("claim-within", tasks.AskClaimWithin, "nobody took it (claimed, or read by the session asked) in this long: take it back, go to the next --fallback, else exit 3")
 	fallback := fs.String("fallback", "", "the next machines, in order, for when nobody at TARGET takes it in --claim-within")
@@ -132,6 +133,16 @@ func askCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
+	if outbox.BareSession(target) { // claude.f324: the session of that name, wherever it runs
+		full, how, err := outbox.ResolveBare(roster, target, opts.Me, time.Now(), *within, false)
+		if err != nil {
+			return outbox.Usagef("%v", err)
+		}
+		if how != "" {
+			fmt.Fprintf(s.Err, "ask: %s\n", how)
+			target = full
+		}
+	}
 	var p tasks.Pick
 	if ns != nil {
 		np, err := tasks.PickNeeds(roster, target, ns, opts)
@@ -180,7 +191,7 @@ func askCmd(args []string, s Streams) error {
 	}
 	fmt.Fprintf(s.Err, "ask: %s: %s\n", view.Name(p.To, msg.MaxIdentity), p.Why)
 	send := []string{"--to", p.To, "--kind", msg.KindTask, "--wait-reply", waitReply.String(), "--max-turns", strconv.Itoa(*maxTurns),
-		"--deadline", deadline.String(), "--ttl", *ttl}
+		"--deadline", deadline.String(), "--ttl", *ttl, "--read-within", readWithin.String()}
 	if *prio != "" {
 		send = append(send, "--prio", *prio)
 	}

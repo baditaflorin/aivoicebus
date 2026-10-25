@@ -137,7 +137,7 @@ var sendTool = tool{
 		"prio":         map[string]any{"type": "string", "enum": msg.PrioNames(), "description": "fyi is only counted at session start; urgent is shown first and mid-session (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing)"},
 		"ttl":          str("how long the message stays relevant, such as 90m, 2h, 3d"),
 		"kind":         map[string]any{"type": "string", "enum": msg.KindNames(), "description": "question: stops being delivered to other sessions once someone answers; answer needs re"},
-		"queue":        flag("send anyway when no recently seen session matches a selector, or the one session named was not seen in the last 30m (it waits for that session)"),
+		"queue":        flag("send anyway when none of the sessions a selector matches was seen in the last 30m, or the one session named was not (it waits for that session); a session named without its machine (claude.f324) is then kept for the one session of that name"),
 		"or_successor": flag("if the one session named is gone for 15 minutes with this unread, the nodes hand it to the session that replaces it (the newest live one on its machine with the same tool and repo, or one that claims its role). Default true when re is set (a reply), false otherwise; set it false to keep a reply for the session named"),
 		"dry_run":      flag("check and report only; nothing is sent"),
 		"confirm_caps": flag("a target routed by capability (can=...) or by an owner record nobody pinned (owner:...) is only previewed until this is true: both are self-declared, so look at who it resolved to first"),
@@ -183,7 +183,7 @@ var sendTool = tool{
 			succ = *a.OrSuccessor
 		}
 		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, Re: a.Re, Thread: a.Thread,
-			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true, Successor: succ, SuccessorAsked: succ && a.OrSuccessor != nil}, &warn)
+			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true, ReadWithin: outbox.ReadWithin, Successor: succ, SuccessorAsked: succ && a.OrSuccessor != nil}, &warn)
 		if err != nil {
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}

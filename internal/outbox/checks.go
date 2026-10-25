@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -12,8 +13,10 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
-// Two checks on what a person or an agent writes by hand (Request.Authored). Both look only at what
-// the sender already has (the roster, the words), so nothing about them is on the wire.
+// Checks on what a person or an agent writes by hand (Request.Authored): a target that reaches nobody
+// (one exact session nobody has seen lately, a selector none of whose sessions is live, a session named
+// without its machine, one that has read nothing for hours) and a priority the words contradict. They
+// look only at what the sender already has (the roster, the words), so nothing about them is on the wire.
 
 // LiveWithin is how recently a session must have been seen to count as live: `ping --within`
 // and `ask --within` default to it, and `send` to one exact session refuses past it.
@@ -40,27 +43,36 @@ func StaleTarget(roster []msg.RosterEntry, to, me string, now time.Time, within 
 	if !msg.OneSession(to) || msg.IsProbe(to) || strings.EqualFold(to, me) {
 		return Stale{}, false
 	}
-	live := func(e msg.RosterEntry) bool { return e.Listening || now.Sub(e.Seen) <= within }
 	st := Stale{Target: to}
 	for _, e := range roster {
 		if strings.EqualFold(e.Me, to) {
 			st.Entry, st.Known = e, true
 		}
 	}
-	if st.Known && live(st.Entry) {
+	if st.Known && isLive(st.Entry, now, within) {
 		return Stale{}, false
 	}
 	st.Live = LiveOn(roster, msg.HostOf(to), me, st.Entry.Labels["repo"], now, within, to)
 	return st, true
 }
 
+// isLive is whether a session counts as live: in a wait that takes any message, or seen within `within`.
+func isLive(e msg.RosterEntry, now time.Time, within time.Duration) bool {
+	return e.Listening || now.Sub(e.Seen) <= within
+}
+
 // LiveOn lists the sessions live on the machine host: in a wait, or seen within `within`; never me, a
 // join probe or one of skip. Sessions working in repo come first (when repo is not ""), then the ones
 // in a wait, then the most recently seen.
 func LiveOn(roster []msg.RosterEntry, host, me, repo string, now time.Time, within time.Duration, skip ...string) []msg.RosterEntry {
+	return liveWhere(roster, func(e msg.RosterEntry) bool { return msg.HostOf(e.Me) == host }, me, repo, now, within, skip...)
+}
+
+// liveWhere is LiveOn for the sessions keep accepts, on any machine.
+func liveWhere(roster []msg.RosterEntry, keep func(msg.RosterEntry) bool, me, repo string, now time.Time, within time.Duration, skip ...string) []msg.RosterEntry {
 	var live []msg.RosterEntry
 	for _, e := range roster {
-		if msg.HostOf(e.Me) != host || strings.EqualFold(e.Me, me) || msg.IsProbe(e.Me) || !(e.Listening || now.Sub(e.Seen) <= within) {
+		if !keep(e) || strings.EqualFold(e.Me, me) || msg.IsProbe(e.Me) || !isLive(e, now, within) {
 			continue
 		}
 		if slices.ContainsFunc(skip, func(s string) bool { return strings.EqualFold(e.Me, s) }) {
@@ -138,6 +150,262 @@ func (s Stale) Refusal(now time.Time, within time.Duration) string {
 func (s Stale) Warning(now time.Time, within time.Duration) string {
 	return fmt.Sprintf("warning: the reply goes to %s, which %s (live means seen in the last %s), so it may sit unread; %s",
 		view.Name(s.Target, msg.MaxIdentity), s.Seen(now), ago(within), s.liveLine(now, within))
+}
+
+// Quiet is a selector whose sessions are none of them live: a message to it waits for one of them to
+// read, and a session nobody types in never does (nine holds sent to @repo=go-fleet-graph, read by
+// nobody, and a deploy restarted the service anyway).
+type Quiet struct {
+	Target string
+	// Matched are the sessions the selector matches that were seen within ReachWindow (never the sender or
+	// a join probe), the most recently seen first.
+	Matched []msg.RosterEntry
+	// Live is who is live on the machine of the newest of them, sessions in its repo first (LiveOn).
+	Live []msg.RosterEntry
+}
+
+// QuietSelector reports whether the selector to matches sessions seen within ReachWindow and none of them
+// is live (in a wait, or seen within `within`). A selector that matches nobody in ReachWindow is not quiet:
+// send refuses that on its own. Anything that is not a selector is never quiet.
+func QuietSelector(roster []msg.RosterEntry, to, me string, now time.Time, within time.Duration) (Quiet, bool) {
+	to = strings.ToLower(strings.TrimSpace(to))
+	if !msg.IsSelector(to) {
+		return Quiet{}, false
+	}
+	q := Quiet{Target: to}
+	for _, e := range roster {
+		if strings.EqualFold(e.Me, me) || msg.IsProbe(e.Me) || now.Sub(e.Seen) > ReachWindow || !msg.MatchesLabeled(to, e.Me, e.Labels) {
+			continue
+		}
+		if isLive(e, now, within) {
+			return Quiet{}, false
+		}
+		q.Matched = append(q.Matched, e)
+	}
+	if len(q.Matched) == 0 {
+		return Quiet{}, false
+	}
+	sort.SliceStable(q.Matched, func(i, j int) bool {
+		if a, b := q.Matched[i], q.Matched[j]; !a.Seen.Equal(b.Seen) {
+			return a.Seen.After(b.Seen)
+		}
+		return q.Matched[i].Me < q.Matched[j].Me
+	})
+	newest := q.Matched[0]
+	q.Live = LiveOn(roster, msg.HostOf(newest.Me), me, newest.Labels["repo"], now, within)
+	return q, true
+}
+
+// Refusal is what a send to a quiet selector says instead of sending: who it matched and when each was
+// last seen, who is live on the machine of the newest one, and the ways on.
+func (q Quiet) Refusal(now time.Time, within time.Duration) string {
+	shown := q.Matched[:min(len(q.Matched), maxLiveShown)]
+	names := make([]string, len(shown))
+	for i, e := range shown {
+		names[i] = view.Name(e.Me, msg.MaxIdentity) + view.TitleSuffix(e.Title) + " (seen " + since(now.Sub(e.Seen)) + ")"
+	}
+	list := strings.Join(names, ", ")
+	if more := len(q.Matched) - len(shown); more > 0 {
+		list += fmt.Sprintf(", +%d more", more)
+	}
+	there := Stale{Target: q.Matched[0].Me, Live: q.Live} // the newest one's machine, as a stale session's is shown
+	host := view.Name(msg.HostOf(there.Target), msg.MaxIdentity)
+	var b strings.Builder
+	fmt.Fprintf(&b, "refused: none of the sessions %s matches is live (seen in the last %s, or standing by), so this message may sit unread; matched in the last %s: %s\n",
+		view.Name(q.Target, 80), ago(within), ReachWindowText, list)
+	fmt.Fprintf(&b, "  %s\n", there.liveLine(now, within))
+	if len(q.Live) > 0 {
+		fmt.Fprintf(&b, "  one live session there answers:    ask %s \"...\"\n", host)
+	}
+	b.WriteString("  keep it for the next one to match: run it again with --queue (or --force)")
+	return b.String()
+}
+
+// BareSession reports whether to names one session without its machine (claude.f324, codex.build1): no
+// '/' or selector syntax, and an agent tool's name in front of a dot. The nodes read such a target as a
+// machine of that name, which does not exist, so the message would reach nobody.
+func BareSession(to string) bool {
+	to = strings.ToLower(strings.TrimSpace(to))
+	if strings.ContainsAny(to, "/@*,=: ") {
+		return false
+	}
+	tool, rest, ok := strings.Cut(to, ".")
+	return ok && rest != "" && msg.KnownTool(tool)
+}
+
+// ResolveBare finds the session a bare name means (BareSession): of the sessions on the roster whose part
+// after the machine is that name (on any machine; never me), the one that is live (in a
+// wait, or seen within `within`), or with queue the only one there is when none is live. It returns to
+// unchanged and "" when to is not a bare name, or when a machine of that name is on the roster (then the
+// target is that machine). Otherwise it returns the session and how it was found, or, when none or more
+// than one fits, an error that lists them and says how to name one.
+func ResolveBare(roster []msg.RosterEntry, to, me string, now time.Time, within time.Duration, queue bool) (string, string, error) {
+	to = strings.ToLower(strings.TrimSpace(to))
+	if !BareSession(to) {
+		return to, "", nil
+	}
+	var known, live []msg.RosterEntry
+	for _, e := range roster {
+		if msg.HostOf(e.Me) == to {
+			return to, "", nil // a machine really has that name
+		}
+		if _, agent, _ := strings.Cut(strings.ToLower(e.Me), "/"); agent != to || strings.EqualFold(e.Me, me) { // a join probe's name has no dot
+			continue
+		}
+		known = append(known, e)
+		if isLive(e, now, within) {
+			live = append(live, e)
+		}
+	}
+	name := view.Name(to, msg.MaxIdentity)
+	switch {
+	case len(live) == 1:
+		return strings.ToLower(live[0].Me), fmt.Sprintf("%s -> %s: the one live session of that name", name, view.Name(live[0].Me, msg.MaxIdentity)), nil
+	case len(live) == 0 && len(known) == 1 && queue:
+		return strings.ToLower(known[0].Me), fmt.Sprintf("%s -> %s: the one session of that name (not live: it waits for it)", name, view.Name(known[0].Me, msg.MaxIdentity)), nil
+	}
+	head := fmt.Sprintf("refused: %s names a session without its machine, so the nodes would take it for a machine of that name and it would reach nobody", name)
+	if len(known) == 0 {
+		return "", "", fmt.Errorf("%s; no session of that name has been seen by the nodes: name the session with its machine, as HOST/%s (`aivoicebus who` lists them)", head, name)
+	}
+	list, what := live, fmt.Sprintf("%d live sessions have that name", len(live))
+	if len(live) == 0 {
+		list, what = known, fmt.Sprintf("no session of that name is live (seen in the last %s, or standing by)", ago(within))
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		a, b := list[i], list[j]
+		switch {
+		case a.Listening != b.Listening:
+			return a.Listening
+		case !a.Seen.Equal(b.Seen):
+			return a.Seen.After(b.Seen)
+		}
+		return a.Me < b.Me
+	})
+	next := "name one with its machine: --to " + view.Name(list[0].Me, msg.MaxIdentity)
+	if len(live) == 0 {
+		next = "name it with its machine (--to " + view.Name(list[0].Me, msg.MaxIdentity) + "), and add --queue to keep it for a session that is not live"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s; %s:\n", head, what)
+	for i, e := range list[:min(len(list), maxLiveShown)] {
+		fmt.Fprintf(&b, "  %d  %s\n", i+1, view.Session(e, now))
+	}
+	if more := len(list) - maxLiveShown; more > 0 {
+		fmt.Fprintf(&b, "  +%d more (`aivoicebus who` lists them)\n", more)
+	}
+	b.WriteString("  " + next)
+	return "", "", errors.New(b.String()) // nextstep: the last line says how to name the session
+}
+
+// ReadWithin is how long the one session a message names may have read nothing before a send says so
+// (send --read-within changes it, 0 turns it off). A session reads at a prompt (the hooks) or in a wait,
+// so one busy with a long task of its own reads only when it next stops: it can still count as seen,
+// since every message it sends moves its last-seen, and not have read anything for hours.
+const ReadWithin = 2 * time.Hour
+
+// LastRead is when a session last read its mail, as far as the roster knows: when it last declared its
+// labels, which every read does; for a session that never declared any (or a node too old to say), when it
+// was last seen, sends included.
+func LastRead(e msg.RosterEntry) time.Time {
+	if !e.LabelsAt.IsZero() {
+		return e.LabelsAt
+	}
+	return e.Seen
+}
+
+// Unread is the one session a message names that has read nothing for a while.
+type Unread struct {
+	Target string
+	Entry  msg.RosterEntry
+	// Repo is the repository it declared. Live are the sessions live in that repo on any machine, or, when
+	// it declared none, the ones live on its machine (LiveOn); never the sender, it, or a join probe.
+	Repo string
+	Live []msg.RosterEntry
+	// Owner is the subject of the owner record found for its repository (repo:OWNER/NAME) when nobody in the
+	// repo is live; NoOwner says none is recorded (FindOwner).
+	Owner   string
+	NoOwner bool
+}
+
+// UnreadTarget reports whether to names one exact session the roster knows that is not in a wait and has
+// read nothing (LastRead) for longer than readWithin. A session the roster does not know is StaleTarget's to
+// judge, and readWithin 0 or less turns the check off.
+func UnreadTarget(roster []msg.RosterEntry, to, me string, now time.Time, readWithin time.Duration) (Unread, bool) {
+	to = strings.ToLower(strings.TrimSpace(to))
+	if readWithin <= 0 || !msg.OneSession(to) || msg.IsProbe(to) || strings.EqualFold(to, me) {
+		return Unread{}, false
+	}
+	i := slices.IndexFunc(roster, func(e msg.RosterEntry) bool { return strings.EqualFold(e.Me, to) })
+	if i < 0 || roster[i].Listening || now.Sub(LastRead(roster[i])) <= readWithin {
+		return Unread{}, false
+	}
+	u := Unread{Target: to, Entry: roster[i], Repo: roster[i].Labels["repo"]}
+	if u.Repo == "" {
+		u.Live = LiveOn(roster, msg.HostOf(to), me, "", now, LiveWithin, to)
+	} else {
+		u.Live = liveWhere(roster, func(e msg.RosterEntry) bool { return strings.EqualFold(e.Labels["repo"], u.Repo) }, me, u.Repo, now, LiveWithin, to)
+	}
+	return u, true
+}
+
+// FindOwner looks up the owner record of the session's repository (subject repo:OWNER/NAME) when nobody
+// else in the repo is live, with resolve (ResolveOwner on the nodes). A lookup that fails for another reason
+// than "none is recorded" (two owners, nodes unreachable) leaves both fields unset: the warning then says
+// nothing about an owner.
+func (u *Unread) FindOwner(resolve func(subject string) (msg.OwnerResolution, error)) {
+	if u.Repo == "" || len(u.Live) > 0 {
+		return
+	}
+	subject := "repo:" + strings.ToLower(u.Repo)
+	if msg.ValidOwnerLookup(subject) != nil {
+		return
+	}
+	switch _, err := resolve(subject); {
+	case err == nil:
+		u.Owner = subject
+	case errors.Is(err, msg.ErrNoOwner):
+		u.NoOwner = true
+	}
+}
+
+// Warning is what a send to a session that reads nothing says: how long since it last read, and who to try
+// instead (the live sessions in its repo, or the repo's owner record, or who is live on its machine).
+func (u Unread) Warning(now time.Time) string {
+	read := LastRead(u.Entry)
+	head := fmt.Sprintf("warning: %s has read nothing for %s (last read %s), so it may not see this until its next prompt",
+		view.Name(u.Target, msg.MaxIdentity), ago(now.Sub(read)), view.When(read, now))
+	if u.Repo == "" {
+		return head + "; " + Stale{Target: u.Target, Live: u.Live}.liveLine(now, LiveWithin)
+	}
+	repo := view.Name(u.Repo, 40)
+	switch {
+	case len(u.Live) > 0:
+		return head + "; live in repo " + repo + " now: " + liveNames(u.Live, now)
+	case u.Owner != "":
+		return fmt.Sprintf("%s; nobody else in repo %s is live, and its owner is recorded: `aivoicebus task owner:%s \"...\"`", head, repo, view.Name(u.Owner, 80))
+	case u.NoOwner:
+		return fmt.Sprintf("%s; nobody else in repo %s is live, and no owner is recorded for it (`aivoicebus owner set repo:%s` records one)", head, repo, view.Name(strings.ToLower(u.Repo), 80))
+	}
+	return fmt.Sprintf("%s; nobody else in repo %s was seen in the last %s", head, repo, ago(LiveWithin))
+}
+
+// liveNames lists live sessions as the stale-target notice does: name, title and state, at most maxLiveShown.
+func liveNames(live []msg.RosterEntry, now time.Time) string {
+	shown := live[:min(len(live), maxLiveShown)]
+	names := make([]string, len(shown))
+	for i, e := range shown {
+		state := since(now.Sub(e.Seen))
+		if e.Listening {
+			state = "listening"
+		}
+		names[i] = view.Name(e.Me, msg.MaxIdentity) + view.TitleSuffix(e.Title) + " (" + state + ")"
+	}
+	line := strings.Join(names, ", ")
+	if more := len(live) - len(shown); more > 0 {
+		line += fmt.Sprintf(", +%d more", more)
+	}
+	return line
 }
 
 // HasSuccessor reports whether the nodes can say which session replaces the stale one: they know it

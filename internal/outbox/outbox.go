@@ -50,10 +50,15 @@ type Request struct {
 	Attach                                bool // the body carries a log link (a file sets File)
 	TrustRole                             bool // use an unpinned role alias with a single claimant (--trust-role, AIVOICEBUS_TRUST_ROLES=1)
 	// Authored: the sender wrote this message by hand (send, reply, task, the MCP send tool), so it is
-	// also checked for an exact-session target nobody has seen lately and for a priority its own words
-	// contradict (checks.go). The tool's own messages (claims, progress, worker results) leave it off.
+	// also checked for a target that reaches nobody (an exact session nobody has seen lately, a selector
+	// none of whose sessions is live) and for a priority its own words contradict (checks.go). The tool's
+	// own messages (claims, progress, worker results) leave it off.
 	Authored   bool
 	TargetSaid bool // the caller already told the sender whom a reply with no --to goes to
+	// ReadWithin warns when the one session the message names has read nothing for longer than this
+	// (UnreadTarget); 0 never does. send, reply, task, ask and the MCP send and ask tools set it
+	// (ReadWithin, or --read-within); the tool's own messages leave it 0.
+	ReadWithin time.Duration
 	// MaxTurns starts the thread with a turn limit (msg.Message.MaxTurns); 0 is none.
 	MaxTurns int
 	// Deadline starts the thread with a deadline (msg.Message.Deadline); 0 is none.
@@ -86,7 +91,7 @@ type Plan struct {
 	Readers int  // = Reach for bulletins, 1 for a message to one session
 	Context int  // characters each reader's context receives at session start
 	Notes   []string
-	Alias   string              // how a role alias (@build) was resolved, "" when the target was not one
+	Alias   string              // how a role alias (@build) or a session named without its machine (claude.f324) was resolved, "" when the target was neither
 	Role    *msg.RoleResolution // the same, for output that is read by programs
 	Expiry  time.Duration       // default lifetime that will apply; 0 when none
 	Lowered bool                // the message said it needs nothing and no priority was chosen, so it goes as fyi (Authored)
@@ -209,6 +214,32 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		p.Alias, p.Role = res.Describe(), &res
 		p.Notes = append(p.Notes, p.Alias)
 		to = res.Target
+	}
+	var roster []msg.RosterEntry // who is around, read once when a check first needs it: a decision, not a display, so probes are counted
+	var rosterErr error
+	rosterRead := false
+	readRoster := func() ([]msg.RosterEntry, error) {
+		if !rosterRead {
+			roster, rosterErr = c.RosterAll()
+			rosterRead = true
+		}
+		return roster, rosterErr
+	}
+	// claude.f324 with no machine is read by the nodes as a machine of that name, which nobody reads as. An
+	// amendment keeps the audience of what it corrects; a reply that answers a message sent that way goes to
+	// the one session of that name even when it is not live, as a reply to a gone session does (below).
+	if !r.Amending && BareSession(to) {
+		if _, err := readRoster(); err != nil {
+			return p, fmt.Errorf("refused: %s names a session without its machine, and the nodes could not say who is around to find it (%v): name it with its machine, as HOST/%s (`aivoicebus who` lists them)", view.Name(to, msg.MaxIdentity), err, view.Name(to, msg.MaxIdentity))
+		}
+		full, how, err := ResolveBare(roster, to, me, time.Now(), LiveWithin, r.Queue || !named)
+		if err != nil {
+			return p, err
+		}
+		if how != "" {
+			p.Alias, to = how, full
+			p.Notes = append(p.Notes, how)
+		}
 	}
 	var sel msg.Selector
 	if msg.IsSelector(to) {
@@ -377,13 +408,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 			fmt.Fprintf(warn, "warning: %s does not hand mail to the session that replaces an ended one: a session reading from it is not given this message if %s is gone (update the nodes: `aivoicebus nodes`)\n", old, view.Name(to, msg.MaxIdentity))
 		}
 	}
-	said := false                                                   // a note about whom the message goes to has been made
-	roster, rosterErr := c.RosterAll()                              // a decision, not a display: probes are counted
+	said := false   // a note about whom the message goes to has been made
+	warned := false // the sender was told the session it names has not been seen lately
+	roster, rosterErr = readRoster()
 	if now := time.Now(); r.Authored && !test && rosterErr == nil { // a test message has its own, stricter check below
 		if st, stale := StaleTarget(roster, to, me, now, LiveWithin); stale {
 			switch {
 			case !named: // the answer goes where its asker is, whatever happened since: say so and send it
 				fmt.Fprintln(warn, st.Warning(now, LiveWithin))
+				warned = true
 				if p.Successor {
 					p.Notes, said = append(p.Notes, successorLine(st, roster, me, now)), true
 				}
@@ -396,6 +429,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 				}
 				return p, errors.New(text)
 			}
+		}
+		if q, quiet := QuietSelector(roster, to, me, now, LiveWithin); quiet && !r.Queue && !r.Force {
+			return p, errors.New(q.Refusal(now, LiveWithin))
+		}
+	}
+	if now := time.Now(); !test && rosterErr == nil && !said && !warned { // UnreadTarget is off when r.ReadWithin is 0
+		if u, unread := UnreadTarget(roster, to, me, now, r.ReadWithin); unread {
+			u.FindOwner(func(subject string) (msg.OwnerResolution, error) { return ResolveOwner(c, subject) })
+			fmt.Fprintln(warn, u.Warning(now))
 		}
 	}
 	if test { // only a session that declared the opt-in, and is around for the ten minutes the message lives, can be reached
