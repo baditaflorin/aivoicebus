@@ -32,7 +32,7 @@ var allowed = map[string][]string{
 	"share":      {"attach", "client", "config", "msg", "outbox"},
 	"client":     {"config", "msg", "view"}, // view: a node's words reach callers only as safe lines
 	"server":     {"client", "config", "msg", "release", "secrets", "sharestore", "store", "version"},
-	"hook":       {"client", "config", "discovery", "identity", "msg", "outbox", "release", "version", "view"},
+	"hook":       {"client", "config", "discovery", "identity", "msg", "outbox", "release", "tasks", "version", "view"}, // tasks: telling the person about a task nobody took
 	"agentcfg":   {"assets", "config", "version"},
 	"discovery":  {"client", "config", "release"},
 	"updater":    {"client", "release"},

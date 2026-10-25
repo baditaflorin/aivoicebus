@@ -257,3 +257,35 @@ func TestAnAnswerUnderAnotherIdIsNotACollision(t *testing.T) {
 		t.Fatalf("%+v %v after %d requests", out, err, posts)
 	}
 }
+
+// SendOnce is for a message whose id says what it is (what tells the person nobody took a task): a
+// node holding another message under the id means it was said, so the id is never redrawn, and the
+// answer is told apart, from a node of this release and from an older one that answers with what it holds.
+func TestSendOnceNeverRedrawsAndSaysTheIdIsTaken(t *testing.T) {
+	c, s := seeded(t, "00aa11bb22", nil)
+	_, err := c.SendOnce(msg.Message{ID: "00aa11bb22", From: "mac/claude.a", To: "mac/human", Body: "told already?"})
+	if !client.IDTaken(err) {
+		t.Fatalf("a held id: %v", err)
+	}
+	if got := s.Thread("00aa11bb22"); len(got) != 1 || got[0].Body != "somebody else's words" || len(s.Messages()) != 1 {
+		t.Errorf("SendOnce sent something else: %+v", s.Messages())
+	}
+	out, err := c.SendOnce(msg.Message{ID: "11bb22cc33", From: "mac/claude.a", To: "mac/human", Body: "first to tell"})
+	if err != nil || out.ID != "11bb22cc33" || client.IDTaken(err) {
+		t.Fatalf("a free id: %+v %v", out, err)
+	}
+	if _, err := c.SendOnce(msg.Message{ID: "11bb22cc33", From: "mac/claude.a", To: "mac/human", Body: "first to tell"}); err != nil {
+		t.Errorf("the same message again is not a taken id: %v", err)
+	}
+	held := msg.Message{ID: "22cc33dd44", From: "desk/claude.c", To: "air/codex.d", Thread: "22cc33dd44", Body: "somebody else's words"}
+	var requests []msg.Message
+	var mu sync.Mutex
+	srv, _ := node(t, "old", oldNodeSaysOK(held, &requests, &mu))
+	old := &client.Client{URLs: []string{srv.URL}, Token: "t", NoSign: true}
+	if _, err := old.SendOnce(msg.Message{ID: held.ID, From: "mac/claude.a", To: "mac/human", Body: "mine"}); !client.IDTaken(err) || len(requests) != 1 {
+		t.Errorf("an older node's answer with the message it holds: %v", err)
+	}
+	if client.IDTaken(errors.New("409")) || client.IDTaken(nil) {
+		t.Error("IDTaken of an error that is no refusal")
+	}
+}

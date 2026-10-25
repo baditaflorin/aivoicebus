@@ -117,8 +117,12 @@ func TestEverySection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A session on this machine in a wait, one on another machine too (not ours to list).
+	// This session reads first, so the machine's task is offered to it (msg/offer.go: one session at a
+	// time); then a session on this machine in a wait, and one on another machine (not ours to list).
 	c := &client.Client{URLs: []string{a.URL}, Token: "tok", NoSign: true}
+	if _, err := c.Inbox(me, false); err != nil {
+		t.Fatal(err)
+	}
 	for _, who := range []string{"here/codex.w", "far/claude.w"} {
 		if _, err := c.Inbox(who, false); err != nil {
 			t.Fatal(err)

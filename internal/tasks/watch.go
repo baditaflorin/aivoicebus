@@ -11,10 +11,14 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 )
 
-// Stuck is a task this machine sent that nobody took or answered in time.
+// Stuck is a task this machine sent that nobody took or answered in time. Offered and Declined count
+// the sessions the nodes offered it to one at a time (msg/offer.go) and those that passed it on, Told
+// says the person was told.
 type Stuck struct {
-	ID, From, To string
-	At           time.Time
+	ID, From, To      string
+	At                time.Time
+	Offered, Declined int
+	Told              bool
 }
 
 // Unanswered lists the tasks the machine host sent (from what this machine remembers sending:
@@ -39,15 +43,29 @@ func Unanswered(c *client.Client, host string, after time.Duration, now time.Tim
 		if ms, err := c.Thread(s.ID); err == nil && len(ms) > 0 && ms[0].ID == s.ID && ms[0].Retracted != nil {
 			continue // taken back (task --fallback moved it on)
 		}
-		out = append(out, Stuck{ID: s.ID, From: s.From, To: r.To, At: s.At})
+		st := Stuck{ID: s.ID, From: s.From, To: r.To, At: s.At, Offered: len(r.Offers), Told: r.Escalated != nil}
+		for _, o := range r.Offers {
+			if o.Outcome == msg.OfferDeclined {
+				st.Declined++
+			}
+		}
+		out = append(out, st)
 	}
 	return out, nil
 }
 
-// AlertText is one stuck task as a line for a person (a phone notification, a log).
+// AlertText is one stuck task as a line for a person (a phone notification, a log): ids, machines and
+// counts, never what the task or a decline says.
 func AlertText(s Stuck, now time.Time) string {
-	return fmt.Sprintf("aivoicebus: task %s to %s has not been taken after %s (sent by %s). aivoicebus status %s",
-		s.ID, msg.SafeName(s.To), outbox.SpanText(now.Sub(s.At).Round(time.Minute)), msg.SafeName(s.From), s.ID)
+	offers := ""
+	if s.Offered > 0 {
+		offers = fmt.Sprintf("; offered to %d session(s) one at a time, %d declined", s.Offered, s.Declined)
+	}
+	if s.Told {
+		offers += "; the person there was told"
+	}
+	return fmt.Sprintf("aivoicebus: task %s to %s has not been taken after %s (sent by %s%s). aivoicebus status %s",
+		s.ID, msg.SafeName(s.To), outbox.SpanText(now.Sub(s.At).Round(time.Minute)), msg.SafeName(s.From), offers, s.ID)
 }
 
 // Notify posts text as a plain-text body to url, the way ntfy and most webhook relays take it.

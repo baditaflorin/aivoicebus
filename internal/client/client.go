@@ -507,6 +507,23 @@ func (c *Client) Send(m msg.Message) (msg.Message, error) {
 	return out, err
 }
 
+// SendOnce posts m under its own id and never redraws it: for a message whose id says what it is (the
+// one that tells the person nobody took a task, msg.EscalationID), where another message already
+// holding the id means it was said. IDTaken tells that answer apart.
+func (c *Client) SendOnce(m msg.Message) (msg.Message, error) {
+	out, err := c.send(m)
+	if err == nil && idTaken(m, out, nil) { // an older node answers a held id with the message it holds
+		return out, &StatusError{Code: http.StatusConflict, Status: "409 Conflict", Text: "another message holds this id", Reason: msg.RefusedIDTaken}
+	}
+	return out, err
+}
+
+// IDTaken reports whether err is a node saying another message holds the id that was sent.
+func IDTaken(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Refused() == msg.RefusedIDTaken
+}
+
 // SendRedrawing is Send that also returns the message as it went out: m, or m under a fresh id of
 // the same shape (msg.NewIDLike). Ids are random, so two senders can draw one. A node of this release
 // refuses the second (msg.RefusedIDTaken); a node of an older release answers a held id with the message it holds

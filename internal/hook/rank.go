@@ -58,6 +58,15 @@ func tier(to, me string) int {
 // (host/tool) is directed.
 func broadcast(to, me string) bool { return tier(to, me) >= tierSlice }
 
+// tierOf is tier for message m: a task the nodes offer to this session alone (msg/offer.go) is as
+// narrow as a message to it by name, whatever audience it was sent to.
+func tierOf(m msg.Message, me string) int {
+	if m.Offer != nil {
+		return tierSession
+	}
+	return tier(m.To, me)
+}
+
 // rank orders the messages of one priority class for a session start: the narrowest
 // audience first, so a message to this session comes before one to everybody.
 // Directed messages keep their arrival order (the oldest ask is the longest
@@ -66,7 +75,7 @@ func broadcast(to, me string) bool { return tier(to, me) >= tierSlice }
 func rank(ms []msg.Message, me string) []msg.Message {
 	out := slices.Clone(ms)
 	slices.SortStableFunc(out, func(a, b msg.Message) int {
-		ta, tb := tier(a.To, me), tier(b.To, me)
+		ta, tb := tierOf(a, me), tierOf(b, me)
 		if c := cmp.Compare(ta, tb); c != 0 {
 			return c
 		}
@@ -87,7 +96,7 @@ func rank(ms []msg.Message, me string) []msg.Message {
 func choose(ranked []msg.Message, me string) (shown []msg.Message, more, waiting int) {
 	slots := 0
 	for _, m := range ranked {
-		bc := broadcast(m.To, me)
+		bc := tierOf(m, me) >= tierSlice
 		switch {
 		case len(shown) == maxShown || (bc && slots == maxBroadcasts):
 			if bc {

@@ -470,6 +470,11 @@ func (rn *deadlineRun) waitTaken() error {
 		fmt.Fprintln(rn.s.Out, view.StateLine(r.View))
 		return exitError{exitFailure}
 	}
+	if rc, rerr := rn.c.Receipts(rn.d.ID); rerr == nil && !rn.json { // who it was offered to, one at a time, and what each did
+		if line := view.OfferDigest(rc, time.Now()); line != "" {
+			fmt.Fprintln(rn.s.Err, "  "+line)
+		}
+	}
 	return rn.finish(j, nil, nil)
 }
 

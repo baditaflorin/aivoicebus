@@ -31,6 +31,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
+	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -154,6 +155,22 @@ type ackSet struct {
 	jobs []ackJob
 	told []msg.Message // what waits for the person and the output named (see person.go)
 	auto bool          // start the automatic update (see release.go), after the output
+	// escalate holds the tasks shown as offered to this session that nobody took in msg.EscalateAfter:
+	// the person is told (tasks.Escalate), after the acknowledgements and within their budget.
+	escalate []msg.Message
+}
+
+// offered prints the offer line under each task in shown that the nodes offer to this session alone,
+// and notes the ones whose person is due to be told.
+func (a *ackSet) offered(out io.Writer, shown []msg.Message) {
+	for _, m := range shown {
+		if line := view.OfferLine(m); line != "" {
+			fmt.Fprintln(out, line)
+			if m.Offer.Escalate {
+				a.escalate = append(a.escalate, m)
+			}
+		}
+	}
 }
 
 func (a *ackSet) add(id, via string, chars int) { a.jobs = append(a.jobs, ackJob{id, via, chars}) }
@@ -172,7 +189,7 @@ func (a *ackSet) send(budget time.Duration) {
 	}
 	noteTold(a.me, a.told) // only now that the output naming them was handed over
 	notifyNew(a.told)      // and to the person, who may be in no session at all (notify.go)
-	if len(a.jobs) == 0 {
+	if len(a.jobs) == 0 && len(a.escalate) == 0 {
 		return
 	}
 	jobs := a.jobs
@@ -195,6 +212,9 @@ func (a *ackSet) send(budget time.Duration) {
 			}(j)
 		}
 		wg.Wait()
+		for _, m := range a.escalate { // one message per task whoever sends it (msg.EscalationID); a run cut off here is redone by the next reader
+			_, _, _ = tasks.Escalate(a.c, a.me, m, m.Offer.Before+1, time.Now())
+		}
 	}()
 	select {
 	case <-done:
@@ -311,6 +331,7 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 		}
 		fmt.Fprintf(out, "[aivoicebus] You are %s. %d unread message(s) from other agents. %s\n", me, len(listed), advice)
 		view.ForAgentWith(out, shown, maxBody, headline)
+		acks.offered(out, shown)
 		if more > 0 {
 			fmt.Fprintf(out, "[aivoicebus] +%d more unread; `aivoicebus inbox` shows them when the user asks.\n", more)
 		}

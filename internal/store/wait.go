@@ -147,6 +147,12 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 			r.Owner = &msg.Receipt{By: o.From, At: o.At}
 		}
 	}
+	if msg.Offered(m) {
+		r.Offers = s.offerStepsLocked(m, s.now().UTC())
+		if e, told := s.escalationLocked(m.ID); told {
+			r.Escalated = &msg.Receipt{By: e.From, At: e.At}
+		}
+	}
 	for _, i := range s.threads[m.Thread] {
 		t := s.msgs[i]
 		if t.Re != id || t.ID == id {
@@ -155,7 +161,12 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 		if _, replaces := s.validAmendLocked(t); replaces { // the sender's own correction is no answer, and its writer no reader
 			continue
 		}
-		r.Replies++
+		if msg.IsEscalation(t) { // what told the person nobody took it: no answer, and its writer was counted where it read it
+			continue
+		}
+		if !msg.IsDecline(t) { // "not this session" passes a task on; it answers nothing (watch would take it for an answer)
+			r.Replies++
+		}
 		// Answering a message means it got through, even when the reader never acknowledged it
 		// (`reply --re` without --ack): count the first answer as that session's read.
 		if t.From != m.From && !s.acks[id][t.From] && !hasReader(r.Reads, t.From) {

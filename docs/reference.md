@@ -194,8 +194,8 @@ of `aivoicebus_send` and `aivoicebus_task`, the `target` of `aivoicebus_ask`) de
   signed, not pinned, expires in 27d` and where it goes. The MCP tools only preview an unpinned record until
   `confirm_caps` is true, like a capability route.
 - **Where it goes.** A live session on the owner's machine (listening now, or seen within 30 minutes)
-  that has the record's needs, as `--needs` picks one; with no needs, the machine (every session there sees it, the
-  first claim keeps it). With nobody live: `send` and `task` become a task for the person there (`[for the
+  that has the record's needs, as `--needs` picks one; with no needs, the machine (the nodes offer it to one session
+  there at a time, and the first claim keeps it). With nobody live: `send` and `task` become a task for the person there (`[for the
   person]`, which no agent takes, said on stderr); `ask` exits 3 and sends nothing, since a person's task cannot be
   waited on for a quarter of an hour. `task owner:SUBJECT --person` is the person whoever is live. A machine
   no session was heard on for 7 days is refused: the record may be stale, and a retired machine's person never reads it.
@@ -579,18 +579,61 @@ primitives cover that.
 
 **A task goes to a machine, and one session there takes it.** `aivoicebus task laptop-b "send me
 the screenshot on the Desktop"` (or `send --to laptop-b --kind task`, `--file F` to attach one) is
-shown, marked `[task]`, on the next prompt of every session on laptop-b, and at the start of every
-new one there, until one of them runs `aivoicebus claim ID` (which sends `--kind claim`). From then on only that session is
-shown it. Two sessions can claim at nearly the same moment, through different nodes: the earliest
+offered, marked `[task]`, to one session on laptop-b at a time (see "One session at a time" below),
+until one of them runs `aivoicebus claim ID` (which sends `--kind claim`). From then on only that session is
+shown it. Any session may claim it, offered or not. Two sessions can claim at nearly the same moment, through different nodes: the earliest
 claim wins (by the time its node stamped on it, then by id), every node and client names the
 same owner once it holds both, and `claim` waits a moment and says which one won. An answer to a
 task (`reply --re ID`) takes it too. A withdrawn claim (`retract`) gives the task back. A task
-nobody takes waits for the next session there until it expires (3 days unless `--ttl`), and
-`aivoicebus queue` lists the tasks waiting for this session. A task is urgent by default, but it
+nobody takes goes on being offered until it expires (3 days unless `--ttl`), and
+`aivoicebus queue` lists the tasks offered to this session. A task is urgent by default, but it
 interrupts only until someone takes it, so the guardrail that refuses an urgent message to many
 sessions does not apply to a task to one machine (it still does to `all`). Claiming is not
 approval: what a task asks is untrusted data like any peer message, and an agent asks its user
 before doing it.
+
+**One session at a time.** Shown to every session on a machine at once, a task used to be left to
+"someone else": a week of the hub's messages had one shown to 31 sessions and claimed after 19 hours.
+From the release after 0.13.1 the nodes offer a task sent to an audience (a machine, `host/tool`,
+`host/*`, `*/tool`, a selector, `all`) to one session at a time. Each inbox read decides it: the task
+goes to the session that holds its offer, or, while nobody does, to the best of the live sessions it
+can reach, in this order: one **listening** now (a worker, a session standing by: it reads the task
+within a second), then one with a **title seen in the last 15 minutes** (a person is working in it),
+then **any seen in the last 30 minutes** (hourly and headless runs declare no title). The reader has
+just been seen, so this is "the next session of the best kind to read". That session holds the offer
+for **10 minutes**: it is shown the task in full with one line under it, `offered to this session alone
+until 14:40Z (first; 2 more could take it after)`, and the prompt hook shows it at the session's next
+prompt, once, not only at a session start. It either claims the task, or runs
+`aivoicebus decline ID "why"` (MCP: `aivoicebus_decline`): the sender is told why (a `progress`
+message, fyi, whose text starts `[decline]`) and the next session is offered the task at its next
+read. A session that does neither is passed over after 10 minutes; one whose offer ended is not offered
+it again. `decline` is not the conversation state `declined` (`state ID declined`), which says the
+work will not be done at all; it refuses a task you sent, hold (retract your claim instead) or that
+someone took, one sent to you by name, and one for the person. A worker is offered a machine's tasks
+first; a task it will not take (a sender it does not allow, a wrong target...) it declines with its
+reason when another session could take it, and keeps when none could, so allowing the sender later
+still lets it run. Not offered round, and shown as before: a task to one session by name, a question
+or note to a machine, a task for the person, a test.
+
+What the sender sees: `status ID` adds one line, `offered one session at a time: lap/claude.a1
+(passed), lap/claude.b2 (declined: "busy with the parser"), lap/claude.c3 (took it)`, `task --until`
+prints it when the offer ends, and `watch` counts the offers and declines in its alert (never their
+text). A decline is not counted as a reply. When a task has gone **30 minutes** untaken, the next session
+shown its offer tells the person on the machine it went to (for an audience across machines, the
+sender's): a message to `MACHINE/human` that starts `[for the person] Nobody took task ID`, says who
+sent it, how many sessions were offered it and its first words (not a sealed one's), and what to run
+(`aivoicebus claim ID` in a session they choose). A `decline` that leaves nobody else to offer it to
+tells the person at once. Its id is derived from the task's, so sessions that notice at the same
+moment make one message (a node refuses a second message under an id it holds); the nodes stop
+delivering it once the task is taken, withdrawn or expired. The session-start line for the person
+shows it like any task for the person.
+
+None of this is on the wire: the offers a node made are its own memory (a restart forgets them, and
+the read receipts every node replicates say who was shown a task), the decline is a progress message
+every node since 0.10.0 stores, and the line under the task is a field the node sets on the copy it
+hands the reader (`offer`), like `retracted`, never stored or replicated. A node before this release
+shows a machine's task to every session as before. Several nodes can each make an offer: a machine's
+sessions read from the same first node, so in practice one session holds it.
 
 **Tasks meant for the person.** Some tasks are for the person on a machine, never for an agent
 there: a `[token hand]` (it replaces the machine's credential), and any task sent with `aivoicebus
@@ -1707,13 +1750,14 @@ is a machine that has gone deaf (below).
 Claude Code also gets a second hook, `UserPromptSubmit`
 (`aivoicebus hook --tool claude --event prompt`): on each prompt of a running session it
 takes one quick look (at most every 15 s per session, 700 ms deadline) and speaks only if an
-**urgent** message arrived since, or a **reply to a message this session sent**: addressed to
+**urgent** message arrived since, a **task the nodes offer to this session alone** (see "One
+session at a time"; not an fyi one, nor in quiet hours), or a **reply to a message this session sent**: addressed to
 exactly this session's identity, with `Re` naming one of the last 10 messages this machine sent as
 that identity (`~/.config/aivoicebus/sent.json`, the memory `retract` uses). A reply to anything else,
 a plain retraction notice (the node's, ask priority) and every broadcast or selector message wait for
 the next session start; a leak notice is urgent and so arrives like any urgent message. Replies keep
 their priority (fyi ones and, in quiet hours, ask ones still wait), urgent ones come first, and at
-most 3 are shown in all, each as the 300-character cut, never as a headline (urgent messages and
+most 3 are shown in all, each as the 300-character cut, never as a headline (urgent messages, offers and
 replies to this session are exempt from that rule). It acknowledges what it shows, with a receipt,
 only after writing it, and is silent otherwise.
 
@@ -2090,7 +2134,7 @@ concern per package, stdlib only. Dependencies point one way (enforced by
 | `discovery` | learns the signed node list and keeps it on the machine | client, config, release |
 | `release` | what a release is: signed manifest, versions, signing/verification, release sources; no network | none |
 | `server` | a node: authenticated API, tokens, health and metrics, release files, peer replication, startup | client, config, msg, release, secrets, sharestore, store, version |
-| `hook` | the session-start and per-prompt hooks for agent tools: quiet, bounded, capped; one-line update notice; the status note and daily warning when the mesh stops answering | client, config, discovery, identity, msg, outbox, release, version, view |
+| `hook` | the session-start and per-prompt hooks for agent tools: quiet, bounded, capped; one-line update notice; the status note and daily warning when the mesh stops answering; a task offered to the session, and telling the person about one nobody took | client, config, discovery, identity, msg, outbox, release, tasks, version, view |
 | `agentcfg` | a machine's footprint: env file, shell line, Claude hooks, instruction blocks, `setup` and `doctor` logic; no network | assets, config, version |
 | `updater` | installs a newer release: verify, stage, prove it runs, swap atomically, run `setup` | client, release |
 | `cli` | argument parsing, command wiring, output wording, exit codes | all of the above |
@@ -2122,5 +2166,5 @@ gitignored; delete it after use.
 Read-your-write across nodes can lag by the sync interval (~3s). TLS (run nodes on a private network, a VPN or behind a TLS proxy; see [SECURITY.md](../SECURITY.md)). Signed machine identities (`From` is still self-declared; a machine token only
 stops one machine speaking as another and taking the bulk feed, it does not hide the board). Retention and compaction are deliberately not built
 (see [capacity.md](capacity.md) for the numbers and the trigger). Push delivery into
-a live session is the per-prompt check for urgent messages and replies to that session only, and an
+a live session is the per-prompt check for urgent messages, tasks offered to that session and replies to it only, and an
 inbox read for the rest; with no session open, only an `aivoicebus worker` the user started answers a task.

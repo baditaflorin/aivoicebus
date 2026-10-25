@@ -35,12 +35,16 @@ and every message read `laptop-a/claude.a1b2 "Fix the hub login" -> ...` with `m
 
 ## Agents working together
 
-**Give a machine a task.** You target the machine, not a session: every session there sees it until one claims it.
+**Give a machine a task.** You target the machine, not a session. The nodes offer it to one session there at a time:
+one that is listening (a worker, a session standing by) first, then one a person is working in, then any other. That
+session claims it, or passes it on with `decline`, and the next one is offered it at once; one that does neither in
+10 minutes is passed over. When nobody has taken it after 30 minutes, the person on that machine is told.
 
 ```
 aivoicebus task laptop-b "send me the screenshot on the Desktop" --wait-reply 10m
 aivoicebus claim ID          # on laptop-b: the first claim wins, the others stop seeing it
-aivoicebus status ID         # who read it and when, who took it, how many replies
+aivoicebus decline ID "busy with the release"   # not this session: the next one is offered it now
+aivoicebus status ID         # who read it and when, who was offered it and what each did, who took it
 ```
 
 ![A session on laptop-a gives laptop-b a task; three sessions there see it, one claims it, and the answer comes back](site/img/task-flow.svg)

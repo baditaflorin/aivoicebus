@@ -669,6 +669,7 @@ func inbox(args []string, s Streams) error {
 		if len(ms) > 0 {
 			if !*asJSON {
 				view.ForAgent(s.Out, ms, 0)
+				view.OfferLines(s.Out, ms)
 			}
 			if *ack {
 				for _, m := range ms {

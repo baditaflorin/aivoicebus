@@ -109,6 +109,11 @@ type Message struct {
 	// never stored or replicated, and cleared on a message that arrives with it set.
 	Amends    *Amends  `json:"amends,omitempty"`
 	AmendedBy *Amended `json:"amended_by,omitempty"`
+
+	// Offer is set by a node on the copy of a task it offers to the reader alone (see offer.go).
+	// Response only, like Retracted: never stored or replicated, and cleared on a message that arrives
+	// with it set.
+	Offer *Offer `json:"offer,omitempty"`
 }
 
 // Message kinds.

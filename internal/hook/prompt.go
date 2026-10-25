@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/client"
@@ -93,14 +94,18 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 	if err != nil {
 		return nil
 	}
-	// Urgent first, as before; then the replies to this session, in arrival order.
-	var urgent, replies []msg.Message
+	// Urgent first, as before; then a task the nodes offer to this session alone (msg/offer.go: the
+	// session a person is working in is the one to ask now, not at its next start); then the replies
+	// to this session, in arrival order.
+	var urgent, offers, replies []msg.Message
 	quiet := quietNow()
 	var sent map[string]bool // read lazily: most prompts have no candidate
 	for _, m := range ms {
 		switch {
 		case m.Priority() == msg.PrioUrgent:
 			urgent = append(urgent, m)
+		case m.Offer != nil && m.Priority() != msg.PrioFYI && !quiet:
+			offers = append(offers, m)
 		case isReplyCandidate(m, me) && m.Priority() != msg.PrioFYI && !quiet:
 			if sent == nil {
 				sent = outbox.SentBy(me)
@@ -112,7 +117,7 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 			replies = append(replies, m)
 		}
 	}
-	listed := append(urgent, replies...)
+	listed := append(append(urgent, offers...), replies...)
 	told := func(id string) bool { return config.Told(me, id) }
 	ps := personWaiting(c, me, deadline-time.Since(start)-150*time.Millisecond, quiet, told)
 	if len(listed) == 0 && len(ps) == 0 {
@@ -130,6 +135,8 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 		shown = shown[:maxPromptShown]
 	}
 	switch {
+	case len(offers) > 0:
+		fmt.Fprintln(out, promptHeader(len(urgent), len(offers), len(replies)))
 	case len(replies) == 0:
 		fmt.Fprintf(out, "[aivoicebus] %d URGENT message(s) arrived while you were working. Tell the user now, then carry on with your task.\n", len(urgent))
 	case len(urgent) == 0:
@@ -138,17 +145,36 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 		fmt.Fprintf(out, "[aivoicebus] %d URGENT message(s) and %d reply message(s) to this session arrived while you were working. Tell the user now, then carry on with your task.\n", len(urgent), len(replies))
 	}
 	view.ForAgent(out, shown, maxBody)
+	acks.offered(out, shown)
 	if more := len(listed) - len(shown); more > 0 {
 		what := "urgent"
-		if len(replies) > 0 {
+		if len(replies) > 0 || len(offers) > 0 {
 			what = "unread"
 		}
 		fmt.Fprintf(out, "[aivoicebus] +%d more %s; `aivoicebus inbox` shows them when the user asks.\n", more, what)
 	}
 	for _, m := range shown {
-		acks.add(m.ID, msg.ViaHook, injectedChars(m, nil)) // urgent and replies to this session are never shown as a headline
+		acks.add(m.ID, msg.ViaHook, injectedChars(m, nil)) // urgent, offers and replies to this session are never shown as a headline
 	}
 	return acks
+}
+
+// promptHeader is the prompt hook's first line when a task offered to this session is among what it
+// shows (the lines for urgent messages and replies alone are written where they are used).
+func promptHeader(urgent, offers, replies int) string {
+	parts := []string{}
+	if urgent > 0 {
+		parts = append(parts, fmt.Sprintf("%d URGENT message(s)", urgent))
+	}
+	parts = append(parts, fmt.Sprintf("%d task(s) offered to this session alone", offers))
+	if replies > 0 {
+		parts = append(parts, fmt.Sprintf("%d reply message(s) to this session", replies))
+	}
+	advice := "Tell the user in one line, then carry on with your task."
+	if urgent > 0 {
+		advice = "Tell the user now, then carry on with your task."
+	}
+	return "[aivoicebus] " + strings.Join(parts, " and ") + " arrived while you were working. " + advice
 }
 
 // noticeFrom is the sender of the notices a node writes when a message was retracted (the

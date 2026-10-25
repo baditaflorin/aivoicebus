@@ -74,6 +74,7 @@ func init() {
 		"task":      taskCmd,
 		"ask":       askCmd,
 		"claim":     claimCmd,
+		"decline":   declineCmd,
 		"queue":     queueCmd,
 		"wait":      waitCmd,
 		"ping":      pingCmd,

@@ -120,6 +120,39 @@ var claimTool = tool{
 	},
 }
 
+var declineTool = tool{
+	name: "aivoicebus_decline",
+	description: "Not this session: pass on a task the nodes offer to this session alone (a task sent to a whole machine goes to one session at a time). " +
+		"The next session is offered it at once, the sender is told why, and the person is told when nobody else is left. " +
+		"Use it when this session cannot take the task now (another job, the wrong repo); it is not the conversation state declined, which says the work will not be done at all.",
+	schema: obj([]string{"id"}, map[string]any{
+		"id":     str("the task's full 10-character id"),
+		"reason": str("why not this session, shown to the sender (optional)"),
+	}),
+	run: func(s *Server, raw json.RawMessage) (string, error) {
+		var a struct{ ID, Reason string }
+		if err := decode(raw, &a); err != nil {
+			return "", err
+		}
+		if !msg.ValidID(a.ID) {
+			return "", errors.New("id must be the task's full 10-character id: call it again with the id from the [task] message")
+		}
+		c, err := s.Client()
+		if err != nil {
+			return "", err
+		}
+		r, err := tasks.Decline(c, identity.Me(), tasks.Agent, a.ID, a.Reason, io.Discard)
+		if err != nil {
+			return "", err
+		}
+		out := fmt.Sprintf("declined task %s (%s): %s is told, and the next session is offered it", a.ID, r.ID, view.Name(r.Task.From, msg.MaxIdentity))
+		if r.Told {
+			out += fmt.Sprintf("; nobody else is about to take it, so the person was told (%s)", r.Escalated)
+		}
+		return out, nil
+	},
+}
+
 var waitTool = tool{
 	name: "aivoicebus_wait",
 	description: "Block until a message for this session arrives (in a thread, or from someone), for a conversation with another agent without the user relaying. " +

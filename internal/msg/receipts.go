@@ -21,8 +21,12 @@ type Receipts struct {
 	Reach   *int      `json:"reach,omitempty"`   // the sender's count of recipients when it sent it
 	Reads   []Receipt `json:"reads"`             // the sender excluded, earliest first
 	Owner   *Receipt  `json:"owner,omitempty"`   // a task: the session that took it, and when
-	Replies int       `json:"replies"`           // messages that answer it (re = its id)
+	Replies int       `json:"replies"`           // messages that answer it (re = its id), not a decline or what told the person (offer.go)
 	Expired bool      `json:"expired,omitempty"` // no longer delivered
+	// Offers is, for a task the nodes offer one session at a time (Offered), who was offered it, when,
+	// and what came of it, earliest first. Escalated is the message that told the person nobody took it.
+	Offers    []OfferStep `json:"offers,omitempty"`
+	Escalated *Receipt    `json:"escalated,omitempty"`
 }
 
 // ViaReply marks, in receipts only, a session that answered a message without acknowledging it:
