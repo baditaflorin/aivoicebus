@@ -1121,3 +1121,36 @@ sent <ID> thread <ID>
   reaches 1 session(s) seen in the last 24h
 undo: aivoicebus retract <ID>
 [exit 0]
+# what a machine has: each client works out a few facts about its own machine (yes/no, alias names, versions, never a file's contents) and declares them with its labels, so who --has answers without a task to every machine; a machine that said nothing is unknown, never a no
+$ aivoicebus who --has signing-key @team=facts
+  MACHINE  HEARD     SIGNING-KEY  
+  keymac   just now  yes          
+  plain    just now  no           
+  old      just now  unknown      
+signing-key: keymac
+unknown: old: no session there says what it has (an older client, AIVOICEBUS_FACTS=off, or its labels are full): not a no; ask there
+facts are what each machine says of itself, worked out at most every 5 minutes; `aivoicebus whoami --labels` shows this machine's (has=, ssh=)
+[exit 0]
+$ aivoicebus who --has fleet-guard:0.3.* @team=facts
+  MACHINE  HEARD     FLEET-GUARD:0.3.*  
+  keymac   just now  yes (0.3.13)       
+  plain    just now  no                 
+  old      just now  unknown            
+fleet-guard:0.3.*: keymac
+unknown: old: no session there says what it has (an older client, AIVOICEBUS_FACTS=off, or its labels are full): not a no; ask there
+facts are what each machine says of itself, worked out at most every 5 minutes; `aivoicebus whoami --labels` shows this machine's (has=, ssh=)
+[exit 0]
+$ aivoicebus who --has ssh:0own_bastion @team=facts
+  MACHINE  HEARD     SSH:0OWN_BASTION  
+  keymac   just now  no                
+  plain    just now  no                
+  old      just now  unknown           
+no machine heard from in the last 24h says it has ssh:0own_bastion
+unknown: old: no session there says what it has (an older client, AIVOICEBUS_FACTS=off, or its labels are full): not a no; ask there
+facts are what each machine says of itself, worked out at most every 5 minutes; `aivoicebus whoami --labels` shows this machine's (has=, ssh=)
+[exit 0]
+$ aivoicebus who --has token
+error: --has "token": not a fact this client knows; the facts are signing-key, deploy-token, fleet-guard[:VERSION], fleet-ctx[:VERSION], ssh:ALIAS (`aivoicebus who -h` lists its flags)
+[exit 2]
+$ GET /v1/roster | grep -c not-for-anyone   # the key file was looked at, never read: its contents reached no node
+0

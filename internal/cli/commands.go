@@ -860,8 +860,19 @@ func who(args []string, s Streams) error {
 	all := fs.Bool("all", false, "include sessions not seen within --within")
 	asJSON := fs.Bool("json", false, "print the sessions as JSON (with --tools: the same list; the capabilities are in the labels)")
 	tools := fs.Bool("tools", false, "group the sessions by tool and repo instead of listing them")
+	has := fs.String("has", "", "which machines have a fact: "+strings.Join(msg.FactNames, ", "))
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
+	}
+	var fact msg.FactQuery
+	if *has != "" {
+		if *tools {
+			return outbox.Usagef("--has and --tools do not go together: run aivoicebus who --has %s", *has)
+		}
+		var err error
+		if fact, err = msg.ParseFactQuery(*has); err != nil {
+			return outbox.Usagef("%v", err)
+		}
 	}
 	var span time.Duration
 	if !*all {
@@ -902,8 +913,8 @@ func who(args []string, s Streams) error {
 			return
 		}
 		shown++
-		e = msg.RosterEntry{Me: e.Me, Seen: e.Seen, Labels: e.Labels, Title: e.Title, Listening: e.Listening, Waits: e.Waits}
-		if *asJSON || *tools {
+		e = msg.RosterEntry{Me: e.Me, Seen: e.Seen, Labels: e.Labels, Title: e.Title, Listening: e.Listening, Waits: e.Waits, LabelsAt: e.LabelsAt}
+		if *asJSON || *tools || *has != "" {
 			rows = append(rows, e)
 			return
 		}
@@ -927,8 +938,8 @@ func who(args []string, s Streams) error {
 		}
 	case client.IsNotFound(err):
 		// A node without a roster: list identities without labels.
-		if sel != nil {
-			return errors.New("this node does not report labels, so a selector cannot be previewed: ask the user to update the nodes")
+		if sel != nil || *has != "" {
+			return errors.New("this node does not report labels, so a selector cannot be previewed and facts cannot be read: ask the user to update the nodes")
 		}
 		w, err := c.Who()
 		if err != nil {
@@ -941,6 +952,22 @@ func who(args []string, s Streams) error {
 		return err
 	}
 
+	if *has != "" { // one answer per machine, not one line per session
+		answers := factAnswers(rows, fact)
+		if *asJSON {
+			return writeJSON(s.Out, struct {
+				Fact     string       `json:"fact"`
+				Machines []factAnswer `json:"machines"`
+				Hidden   int          `json:"hidden"` // sessions seen, but not within --within
+			}{fact.String(), answers, hidden})
+		}
+		recent := "in the last " + *within
+		if *all {
+			recent = "ever"
+		}
+		printFactAnswers(s.Out, fact, answers, now, recent)
+		return nil
+	}
 	switch {
 	case *asJSON:
 		type withCaps struct {

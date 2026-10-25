@@ -71,6 +71,11 @@ Read this only when you need to message another agent.
   names them, never a guess. `send` prints `resolved @build -> host/agent.sess (matches your pin pattern; identities are self-declared)` before
   the message goes (on stderr with `--json`, which keeps stdout one document); a reply or `--re`
   with no `--to` says on stderr whom it answers; `aivoicebus who @build` shows the holders.
+- What a machine has: `aivoicebus who --has signing-key` names the machine that holds the release signing
+  key, without a task to every Mac. Also `deploy-token`, `ssh:ALIAS` (an ssh alias that resolves there),
+  `fleet-guard[:VERSION]` and `fleet-ctx[:VERSION]`; `aivoicebus fleet` shows them all in its FACTS column.
+  Each machine works them out itself every 5 minutes and says yes, no or nothing: `unknown` (a client
+  too old to say, `AIVOICEBUS_FACTS=off`) is not a no, so ask that machine. Facts are self-declared hints.
 - Who owns it: `aivoicebus owner get 0mcp:vm701` says who answers for a VM, service or database, and
   `send --to owner:0mcp:vm701 "..."` (also `ask owner:...` and `task owner:...`, and the MCP `to`/`target`) reaches
   that session on the owner's machine instead of "all": the live one that has the record's needs (a role,

@@ -373,3 +373,20 @@ step send --to lap/claude.q1 --read-within 3h "pause before the deploy, please"
 kill "$PID2" 2>/dev/null || true; wait "$PID2" 2>/dev/null || true
 trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
 export AIVOICEBUS_URL=$MAIN_URL
+echo "# what a machine has: each client works out a few facts about its own machine (yes/no, alias names, versions, never a file's contents) and declares them with its labels, so who --has answers without a task to every machine; a machine that said nothing is unknown, never a no"
+mkdir -p "$T/keyhome/.config/aivoicebus" "$T/keyhome/.fleet-guard"
+printf 'not-for-anyone\n' >"$T/keyhome/.config/aivoicebus/release-signing.key"
+printf '0.3.13\n' >"$T/keyhome/.fleet-guard/VERSION"
+( unset AIVOICEBUS_ME; export HOME="$T/keyhome" AIVOICEBUS_HOST=keymac AIVOICEBUS_AGENT=claude.k1 AIVOICEBUS_FACT_SSH=off AIVOICEBUS_LABELS="host=keymac,team=facts"
+  "$BIN" inbox >/dev/null 2>&1 ) # keymac works its facts out (the host is pinned so the transcript does not name this machine)
+as plain/codex.p1
+AIVOICEBUS_LABELS="has=none,team=facts" "$BIN" inbox >/dev/null 2>&1 # says it has nothing
+as old/claude.o1
+AIVOICEBUS_LABELS="team=facts" "$BIN" inbox >/dev/null 2>&1 # a client that says nothing
+as asker/claude.q1
+step who --has signing-key @team=facts
+step who --has 'fleet-guard:0.3.*' @team=facts
+step who --has ssh:0own_bastion @team=facts
+step who --has token
+echo "\$ GET /v1/roster | grep -c not-for-anyone   # the key file was looked at, never read: its contents reached no node"
+curl -sS -H "Authorization: Bearer $TOKEN" "$AIVOICEBUS_URL/v1/roster?all=1" | grep -c not-for-anyone || true
