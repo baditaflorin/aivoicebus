@@ -209,7 +209,9 @@ not used and why, and where a message would go now.
 would put into their contexts, without sending. `send` refuses an urgent message to five or
 more sessions and a long body to three or more (`--force` overrides, for people; the MCP
 tools cannot force). It also refuses a message to one exact session (`host/tool.session`)
-that the nodes have not seen for 30 minutes, or never: see *A session that is not there*
+that the nodes have not seen for 30 minutes, or never, and one to a selector none of whose
+sessions was; it resolves a session named without its machine (`claude.f324`), and warns
+when the session named has read nothing for 2 hours: see *A session that is not there*
 below. A reply (`--re ID`) goes back to whoever wrote that message, and
 `--kind question` / `--kind answer` make an ask with a lifecycle: the first answer stops the
 question being handed to sessions that have not read it yet.
@@ -230,6 +232,47 @@ answers (no `--to`) is never refused: it prints a warning with the same facts an
 answer belongs in the thread where its asker will look. `ask` has its own `--within` and is not checked
 a second time. The check reads the roster `who` and `ping` read, so it adds no request, and a roster
 that cannot be read skips it.
+
+**A selector nobody live matches.** A selector (`@repo=go-fleet-graph`, `@here`, `can=...`, any `@key=value`)
+reaches the sessions that match it when they next read, and a session nobody types in never reads: in the week
+of 19 October nine holds announced to `@repo=go-fleet-graph` were read by nobody, and a deploy restarted the
+service in the middle of a checkpoint. So `send`, `reply --to`, `task` and the MCP `aivoicebus_send` refuse a
+selector whose matching sessions (seen in the last 24 hours, never the sender) were none of them seen in the
+last 30 minutes or standing by in a `wait`. The refusal lists them with when each was last seen, names who is
+live on the machine of the most recent one (sessions in its repo first) with `ask HOST "..."`, and `--queue`
+(or `--force`) sends it anyway, for the next of them that reads. A selector that matches nobody in 24 hours
+keeps its older refusal, which only `--queue` passes.
+
+**A session named without its machine.** `claude.f324` alone, with no `HOST/`, is read by the nodes as a
+machine called `claude.f324`, which nobody reads as: such a message was "sent" and never seen. Any name that
+starts with an agent tool and a dot (`claude.`, `codex.`, `mcp.`, ...) and has no `/` is therefore looked up
+on the roster first. The one live session whose name after the machine is exactly that gets the message,
+and the send says so (`claude.f324 -> lap/claude.f324: the one live session of that name`, also on the
+`resolved` line of `--dry-run`). Two live sessions of that name, or none, are refused with the candidates
+listed (when each was seen) and the `--to HOST/claude.f324` to use; with `--queue` the one session of that
+name that is not live is kept for it. A machine on the roster that really has the name stays that
+machine; an `amend` keeps the audience of the message it corrects. `send`, `reply`, `task`, `ask` and the
+MCP `aivoicebus_send`, `aivoicebus_task` and `aivoicebus_ask` all do this.
+
+**A session that reads nothing.** A session reads its mail at a session start, at each prompt (the hooks)
+and in a `wait`; its last-seen also moves every time it sends. So an agent in a long run of its own looks
+live to the check above while it reads nothing until its next prompt (the median first read in that week
+was 85 minutes after the send, the slowest tenth 22 hours). When the one session a message names has read
+nothing for longer than 2 hours (when it last declared its labels, which every read does; for a session
+that never declared any, when it was last seen), `send`, `reply` (an inferred target too), `task`, `ask`
+and the MCP `aivoicebus_send` and `aivoicebus_ask` still send it, and print
+
+    warning: lap/claude.f324 has read nothing for 6h (last read 13:02), so it may not see this until its next prompt; live in repo graph now: air/codex.peer (10m ago)
+
+naming the sessions live in the same repo on any machine. When nobody else in the repo is live it looks up
+the owner record of `repo:REPO` (`aivoicebus owner set repo:baditaflorin/go-fleet-graph` declares one) and
+names `aivoicebus task owner:repo:REPO "..."`, or says none is recorded; a session with no repo gets who is
+live on its machine; looking the owner up is the one request these checks add, and only then.
+`--read-within 30m` changes the limit, `--read-within 0` turns the warning off. A
+session standing by in a `wait` is reading, and a session the nodes do not know is the stale check's to
+refuse. A reply already warned about a gone asker is not warned twice, and neither is a message the
+nodes will hand to a successor. What the tool sends on its own account (claims, progress, pause, room,
+the worker's answers) is never checked.
 
 ### When a session ends: its mail goes to the session that replaces it
 

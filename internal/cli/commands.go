@@ -121,9 +121,10 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	prio := fs.String("prio", "", strings.Join(msg.PrioNames(), " | ")+" (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing): fyi is only counted at session start, urgent is shown first")
 	kind := fs.String("kind", "", strings.Join(msg.KindNames(), " | ")+": a question to several sessions stops being delivered once someone answers it (an answer needs --re)")
 	ttl := fs.String("ttl", "", "how long the message stays relevant, e.g. 90m, 2h, 3d; expired messages are not delivered. Default: 1d for fyi and 3d otherwise when it can reach several sessions, never for one session")
-	queue := fs.Bool("queue", false, "send a selector message even if no session seen in the last 24h matches it, or one to a session not seen for 30m (it waits for one that starts later)")
+	queue := fs.Bool("queue", false, "send a selector message even if none of the sessions it matches was seen in the last 30m (none in 24h: it waits for one that starts later), or one to a session not seen for 30m; with a session named without its machine (claude.f324), keep it for the one session of that name when it is not live")
+	readWithin := fs.Duration("read-within", outbox.ReadWithin, "warn (it still sends) when the one session named has read nothing for longer than this, naming who else is live in its repo or the repo's owner; 0: never")
 	dry := fs.Bool("dry-run", false, "check the message and say who it would reach and what it would cost, without sending")
-	force := fs.Bool("force", false, "send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m)")
+	force := fs.Bool("force", false, "send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m, a selector none of whose sessions was)")
 	file := fs.String("file", "", "send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID")
 	via := fs.String("via", "", "with --file: pipe (the pipe server, default) or node (this mesh's own nodes hold it); default $AIVOICEBUS_FILE_VIA, else pipe")
 	tail := fs.String("tail", "", "point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME")
@@ -189,6 +190,12 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	if *quietAfter < 0 || (*quietAfter > 0 && *quietAfter < time.Second) {
 		return outbox.Usagef("--quiet-after is at least 1s, or 0 for never")
 	}
+	if *readWithin < 0 {
+		return outbox.Usagef("--read-within is a duration such as 2h, or 0 for never")
+	}
+	if !authored && (len(moves) == 0 || !moves[0].ask) { // the tool's own messages; ask chose its target as a person would
+		*readWithin = 0
+	}
 	dl, err := parseDeadline(df, *kind, time.Now())
 	if err != nil {
 		return err
@@ -247,7 +254,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 			return err
 		}
 		return sendAttachment(c, outbox.Request{To: *to, Re: *re, Thread: *thread, Prio: *prio, TTL: *ttl, Kind: *kind,
-			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole, Authored: authored, Test: *test}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
+			Queue: *queue, Force: *force, Body: body, TrustRole: *trustRole, Authored: authored, ReadWithin: *readWithin, Test: *test}, sendOpts{file: *file, tail: *tail, via: *via, openLink: *openLink, meta: metas.m, keep: *keep, wait: *wait, dry: *dry, waitReply: *waitReply}, s)
 	}
 	if body == "" || body == "-" {
 		b, _ := io.ReadAll(s.In)
@@ -267,7 +274,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
 		TTL: ttlText, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
-		Authored: authored, Test: *test, Successor: *orSuccessor && authored, SuccessorAsked: succSaid && *orSuccessor}, s.Err)
+		Authored: authored, ReadWithin: *readWithin, Test: *test, Successor: *orSuccessor && authored, SuccessorAsked: succSaid && *orSuccessor}, s.Err)
 	if err != nil {
 		return err
 	}

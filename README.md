@@ -121,7 +121,13 @@ most). A long task says how it is doing (`progress`), and an agent can ask you a
 
 `send` also checks what you wrote against what the bus knows, before anything goes out. A message to one exact session that
 has not been seen for 30 minutes is refused: it says when the session was last seen and who is live on that machine, and
-suggests `ask HOST`, `task HOST` or `--queue` (which, like `--force`, sends it anyway). A message that says `FYI`, `DONE` or
+suggests `ask HOST`, `task HOST` or `--queue` (which, like `--force`, sends it anyway). The same goes for a selector
+(`@repo=go-fleet-graph`) whose matching sessions were all last seen more than 30 minutes ago: nine holds announced that way
+were read by nobody, and a deploy went ahead. A session named without its machine (`claude.f324`), which the nodes would take for
+a machine of that name, goes to the one live session of that name, or is refused with the candidates listed. And a session that
+has read nothing for 2 hours (`--read-within` changes it) gets a warning naming who else is live in its repo, or the repo's owner
+record: an agent in a long run of its own still counts as seen, since its sends move its last-seen, but reads only at its next
+prompt. A message that says `FYI`, `DONE` or
 "no action needed" and asks nothing is sent as `fyi` (say `--prio ask` to interrupt), and a question sent as `fyi`, which
 running sessions never see, gets a warning.
 

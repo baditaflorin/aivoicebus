@@ -94,6 +94,16 @@ var askTool = tool{
 			return "", err
 		}
 		me := identity.Me()
+		if outbox.BareSession(target) { // claude.f324: the session of that name, wherever it runs
+			full, how, err := outbox.ResolveBare(roster, target, me, time.Now(), tasks.AskWithin, false)
+			if err != nil {
+				return "", err
+			}
+			if how != "" {
+				ownerText += how + "\n"
+				target = full
+			}
+		}
 		p, err := pickFor(roster, target, needs, tasks.PickOpts{Me: me, Any: a.Any, Pick: a.Pick, Rand: rand.IntN})
 		switch {
 		case errors.Is(err, tasks.ErrNoMatch):
@@ -112,7 +122,7 @@ var askTool = tool{
 		}
 		var warn strings.Builder
 		plan, err := outbox.Prepare(c, outbox.Request{To: p.To, Body: a.Body, Kind: msg.KindTask, TTL: tasks.AskDeadline.String(),
-			MaxTurns: tasks.AskMaxTurns, Deadline: tasks.AskDeadline}, &warn)
+			MaxTurns: tasks.AskMaxTurns, Deadline: tasks.AskDeadline, ReadWithin: outbox.ReadWithin}, &warn)
 		if err != nil {
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}
@@ -121,6 +131,9 @@ var askTool = tool{
 			return "", err
 		}
 		head := ownerText + fmt.Sprintf("asked %s (%s): task %s, thread %s\n", view.Name(p.To, msg.MaxIdentity), p.Why, out.ID, out.Thread)
+		if w := strings.TrimSpace(warn.String()); w != "" { // such as the session picked having read nothing for hours
+			head += w + "\n"
+		}
 		var progress strings.Builder
 		claimed := false
 		f := tasks.Filter{Thread: out.Thread, Progress: func(m msg.Message) {

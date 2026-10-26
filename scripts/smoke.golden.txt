@@ -23,7 +23,7 @@ Usage of send:
   -file string
     	send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID
   -force
-    	send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m)
+    	send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m, a selector none of whose sessions was)
   -json
     	print the result as JSON
   -keep
@@ -45,11 +45,13 @@ Usage of send:
   -private
     	seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)
   -queue
-    	send a selector message even if no session seen in the last 24h matches it, or one to a session not seen for 30m (it waits for one that starts later)
+    	send a selector message even if none of the sessions it matches was seen in the last 30m (none in 24h: it waits for one that starts later), or one to a session not seen for 30m; with a session named without its machine (claude.f324), keep it for the one session of that name when it is not live
   -quiet-after duration
     	with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never (default 10m0s)
   -re string
     	reply to message id (or its first characters, if they name one message)
+  -read-within duration
+    	warn (it still sends) when the one session named has read nothing for longer than this, naming who else is live in its repo or the repo's owner; 0: never (default 2h0m0s)
   -reply-by duration
     	wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply
   -tail string
@@ -92,7 +94,7 @@ Usage of send:
   -file string
     	send a file: it is encrypted here, held for 5 minutes (read once) by the pipe or by a node (--via), and the message carries the link; the reader runs: aivoicebus get ID
   -force
-    	send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m)
+    	send despite the guardrails (urgent to many sessions, a long body to many sessions, one session not seen for 30m, a selector none of whose sessions was)
   -json
     	print the result as JSON
   -keep
@@ -114,11 +116,13 @@ Usage of send:
   -private
     	seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)
   -queue
-    	send a selector message even if no session seen in the last 24h matches it, or one to a session not seen for 30m (it waits for one that starts later)
+    	send a selector message even if none of the sessions it matches was seen in the last 30m (none in 24h: it waits for one that starts later), or one to a session not seen for 30m; with a session named without its machine (claude.f324), keep it for the one session of that name when it is not live
   -quiet-after duration
     	with a task and --wait-reply: say so once when the session that took it says nothing (no progress, answer or end) this long, and with --fallback give it to the next machine; 0: never (default 10m0s)
   -re string
     	reply to message id (or its first characters, if they name one message)
+  -read-within duration
+    	warn (it still sends) when the one session named has read nothing for longer than this, naming who else is live in its repo or the repo's owner; 0: never (default 2h0m0s)
   -reply-by duration
     	wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply
   -tail string
@@ -1053,4 +1057,67 @@ $ aivoicebus thread <ID>
 --- <ID>  idt/claude.a1 -> idt/claude.b2  thread=<ID>  <TIME>
 first words
 [aivoicebus] Thread size so far: 1 message(s), 11 characters (about 2 tokens to read)
+[exit 0]
+# targets that reach nobody: a selector none of whose sessions is live is refused like a stale session; claude.q4 with no machine goes to the one live session of that name; a session that has read nothing for 2h is warned about (a second node whose roster was saved hours ago)
+$ aivoicebus send --to @repo=quiet hold the deploy: a checkpoint is running
+error: refused: none of the sessions @repo=quiet matches is live (seen in the last 30m, or standing by), so this message may sit unread; matched in the last 24h: lap/claude.q1 (seen 2h ago), air/codex.q2 (seen 5h ago)
+  live on lap now: lap/claude.q3 (repo other, just now), lap/claude.q4 (just now)
+  one live session there answers:    ask lap "..."
+  keep it for the next one to match: run it again with --queue (or --force)
+[exit 1]
+$ aivoicebus send --to @repo=quiet --queue hold the deploy: a checkpoint is running
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  reaches 2 session(s) seen in the last 24h; expires in 3d unless --ttl says otherwise
+undo: aivoicebus retract <ID>
+[exit 0]
+$ aivoicebus send --to claude.q4 --dry-run is the gateway up?
+dry run: nothing was sent
+  from      imac/claude.qx
+  to        lap/claude.q4
+  resolved  claude.q4 -> lap/claude.q4: the one live session of that name
+  priority  ask
+  expires   never
+  reaches   1 session(s) seen in the last 24h
+  context   about 83 characters in each reader's session start (83 in all)
+  body      18 characters
+[exit 0]
+$ aivoicebus send --to claude.q4 is the gateway up?
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  claude.q4 -> lap/claude.q4: the one live session of that name; reaches 1 session(s) seen in the last 24h
+undo: aivoicebus retract <ID>
+[exit 0]
+$ aivoicebus send --to claude.q3 x
+error: refused: claude.q3 names a session without its machine, so the nodes would take it for a machine of that name and it would reach nobody; 2 live sessions have that name:
+  1  air/claude.q3 (seen <TIME>)
+  2  lap/claude.q3 (seen <TIME>)
+  name one with its machine: --to air/claude.q3
+[exit 1]
+$ aivoicebus send --to codex.q2 x
+error: refused: codex.q2 names a session without its machine, so the nodes would take it for a machine of that name and it would reach nobody; no session of that name is live (seen in the last 30m, or standing by):
+  1  air/codex.q2 (seen <TIME>)
+  name it with its machine (--to air/codex.q2), and add --queue to keep it for a session that is not live
+[exit 1]
+$ aivoicebus send --to claude.zz99 x
+error: refused: claude.zz99 names a session without its machine, so the nodes would take it for a machine of that name and it would reach nobody; no session of that name has been seen by the nodes: name the session with its machine, as HOST/claude.zz99 (`aivoicebus who` lists them)
+[exit 1]
+$ aivoicebus send --to lap/claude.q3 step 4 of 9 done
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  reaches 1 session(s) seen in the last 24h
+undo: aivoicebus retract <ID>
+[exit 0]
+$ aivoicebus send --to lap/claude.q1 pause before the deploy
+warning: lap/claude.q1 has read nothing for 2h (last read <TIME>), so it may not see this until its next prompt; nobody else in repo quiet is live, and no owner is recorded for it (`aivoicebus owner set repo:quiet` records one)
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  reaches 1 session(s) seen in the last 24h
+undo: aivoicebus retract <ID>
+[exit 0]
+$ aivoicebus send --to lap/claude.q1 --read-within 3h pause before the deploy, please
+warning: only 1 node(s) took the write
+sent <ID> thread <ID>
+  reaches 1 session(s) seen in the last 24h
+undo: aivoicebus retract <ID>
 [exit 0]

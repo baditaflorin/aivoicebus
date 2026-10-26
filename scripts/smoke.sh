@@ -341,3 +341,35 @@ post_id idt/claude.a1 "first words"
 post_id idt/claude.c3 "other words"
 post_id idt/claude.a1 "first words"
 step thread 00aa11bb22
+echo "# targets that reach nobody: a selector none of whose sessions is live is refused like a stale session; claude.q4 with no machine goes to the one live session of that name; a session that has read nothing for 2h is warned about (a second node whose roster was saved hours ago)"
+ago_iso() { # SECONDS: that long ago in UTC, by GNU date or BSD date
+  local now s
+  now=$(date +%s); s=$((now - $1))
+  date -u -d "@$s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$s" +%Y-%m-%dT%H:%M:%SZ
+}
+mkdir -p "$T/quiet"
+printf '{"lap/claude.q1":{"at":"%s","labels":{"repo":"quiet"},"labels_at":"%s"},"air/codex.q2":{"at":"%s","labels":{"repo":"quiet"}},"lap/claude.q3":{"at":"%s","labels":{"repo":"other"}},"air/claude.q3":{"at":"%s"},"lap/claude.q4":{"at":"%s"}}' \
+  "$(ago_iso 7200)" "$(ago_iso 7200)" "$(ago_iso 18000)" "$(ago_iso 1)" "$(ago_iso 1)" "$(ago_iso 1)" >"$T/quiet/presence.json"
+PORT2=$((PORT + 1))
+"$BIN" serve --addr "127.0.0.1:$PORT2" --data "$T/quiet" --token-file "$T/token" --node quiet >"$T/serve2.log" 2>&1 &
+PID2=$!
+trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; kill "$PID2" 2>/dev/null || true; rm -rf "$T"' EXIT
+for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$PORT2/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
+MAIN_URL=$AIVOICEBUS_URL
+export AIVOICEBUS_URL="http://127.0.0.1:$PORT2"
+as imac/claude.qx
+step send --to @repo=quiet "hold the deploy: a checkpoint is running"
+step send --to @repo=quiet --queue "hold the deploy: a checkpoint is running"
+step send --to claude.q4 --dry-run "is the gateway up?"
+step send --to claude.q4 "is the gateway up?"
+step send --to claude.q3 "x"
+step send --to codex.q2 "x"
+step send --to claude.zz99 "x"
+as lap/claude.q1
+step send --to lap/claude.q3 "step 4 of 9 done" # its sends move its last-seen, not its last read
+as imac/claude.qx
+step send --to lap/claude.q1 "pause before the deploy"
+step send --to lap/claude.q1 --read-within 3h "pause before the deploy, please"
+kill "$PID2" 2>/dev/null || true; wait "$PID2" 2>/dev/null || true
+trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
+export AIVOICEBUS_URL=$MAIN_URL
