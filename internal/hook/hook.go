@@ -220,6 +220,10 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	delete(labels, msg.CapsLabel) // capabilities are not pinned: they follow AIVOICEBUS_CAPS as it changes
 	exported := labels.Overlay(nil)
 	delete(exported, msg.ModelLabel) // nor the model: a session can switch models while it runs
+	// nor the machine's facts: they are worked out again every few minutes
+	for _, k := range msg.FactLabels {
+		delete(exported, k)
+	}
 	if os.Getenv("AIVOICEBUS_LABELS") == "" && len(exported) > 0 {
 		exportToSession("export AIVOICEBUS_LABELS='" + exported.String() + "'")
 	}

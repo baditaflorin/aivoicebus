@@ -166,7 +166,8 @@ aivoicebus share notes 4f2a9c1e0b --edit         # one notes page both agents ed
 aivoicebus send --to laptop-b --budget-chars 20000 "..."   # a conversation that cannot cost more than this
 aivoicebus thread 4f2a9c1e0b --close-stale       # end a conversation that went quiet, with a summary
 aivoicebus task --needs repo:o/api "fix the flaky test" --with-thread 4f2a9c1e0b   # to the session with that checkout, with the context
-aivoicebus fleet                                 # every machine: its release, last heard, token
+aivoicebus fleet                                 # every machine: its release, last heard, token, what it has
+aivoicebus who --has signing-key                 # which machine holds the release key (deploy-token, ssh:ALIAS, fleet-guard too)
 aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"      # tab completion (bash and fish too)
 ```
 
@@ -176,7 +177,9 @@ tool, a GPU), and `--with-thread` attaches a digest of the conversation so the t
 The brakes now tell a loop from progress: a conversation that keeps adding something new goes on, one that repeats itself is
 stopped within a few turns, and both sides see what a thread has cost so far. `fleet update`
 asks the person on each machine that is behind to update, and a task meant for you now shows at
-session start.
+session start. Each machine says what it has (the release signing key, the deploy token, which node ssh
+aliases resolve, its fleet tools' versions: yes/no, names and versions, never a file's contents), so
+`who --has signing-key` answers in a second what once took five tasks and 75 minutes.
 
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.

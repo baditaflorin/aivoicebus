@@ -522,6 +522,35 @@ func TestHookDoesNotPinCapabilitiesIntoTheSessionLabels(t *testing.T) {
 	}
 }
 
+// The session start declares the machine's facts with its labels, so `who --has` sees them at
+// once, and does not pin them: they are worked out again every few minutes.
+func TestHookAdvertisesTheMachinesFactsWithoutPinningThem(t *testing.T) {
+	s, _ := mesh(t)
+	t.Setenv("AIVOICEBUS_ME", "")
+	t.Setenv("AIVOICEBUS_AGENT", "")
+	t.Setenv("AIVOICEBUS_LABELS", "")
+	t.Setenv("AIVOICEBUS_FACTS", "")
+	t.Setenv("AIVOICEBUS_FACT_SSH", "off")
+	home, _ := os.UserHomeDir()
+	os.MkdirAll(filepath.Join(home, ".config", "aivoicebus"), 0o700)
+	os.WriteFile(filepath.Join(home, ".config", "aivoicebus", "release-signing.key"), []byte("seed"), 0o600)
+	envFile := filepath.Join(t.TempDir(), "env")
+	t.Setenv("CLAUDE_ENV_FILE", envFile)
+	Run([]string{"--tool", "claude"}, strings.NewReader(`{"session_id":"A1B2-zzz"}`), io.Discard)
+	b, _ := os.ReadFile(envFile)
+	if !strings.Contains(string(b), "export AIVOICEBUS_LABELS='") || strings.Contains(string(b), msg.HasLabel+"=") {
+		t.Errorf("the facts are not frozen at session start:\n%s", b)
+	}
+	var said string
+	for _, e := range s.Roster() {
+		said += e.Me + " " + e.Labels[msg.HasLabel] + "\n"
+		if e.Labels[msg.HasLabel] == msg.FactSigningKey {
+			return
+		}
+	}
+	t.Errorf("no session declared has=signing-key:\n%s", said)
+}
+
 // Gemini CLI reads a hook's stdout as JSON only: the text goes in additionalContext, and a hook
 // with nothing to say prints nothing. Codex passes the session's model, which becomes its label.
 func TestGeminiGetsJSONAndCodexSaysItsModel(t *testing.T) {

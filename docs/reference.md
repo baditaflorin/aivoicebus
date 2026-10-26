@@ -364,6 +364,50 @@ time: the clock alone when it is today, else with the date and the zone (`Oct 17
 JSON output and the nodes' API stay in UTC (RFC 3339). Text a node writes into a message for every
 reader (a withdrawn message's placeholder) says `UTC`, since the readers' zones differ.
 
+### What a machine has: `who --has`
+
+    aivoicebus who --has signing-key        # which machine holds the release signing key
+    aivoicebus who --has deploy-token       # which holds the deploy token
+    aivoicebus who --has ssh:0own_bastion   # where that ssh alias resolves (ssh:* any)
+    aivoicebus who --has fleet-guard:0.3.*  # where fleet-guard 0.3.x is installed (fleet-ctx too)
+
+Questions like "does this Mac have the release key?" used to go out as tasks to every machine and
+wait for whoever answered. Each client now works out a short allowlist of facts about its own machine
+and declares them with its labels, so the answer is in the roster:
+
+| fact | how it is found | label word |
+|---|---|---|
+| `signing-key` | `~/.config/aivoicebus/release-signing.key` is a regular file: looked at (stat), never opened | `signing-key` |
+| `deploy-token` | `~/.config/aivoicebus/deploy-token` is a regular file: looked at, never opened | `deploy-token` |
+| `fleet-guard` | the first line of `~/.fleet-guard/VERSION`, kept only if it is a version | `fleet-guard-0.3.13` |
+| `fleet-ctx` | what `fleet-ctx --version` prints (PATH, else `~/.local/bin`), kept only if it is a version | `fleet-ctx-0.2.0` |
+| `ssh:ALIAS` | `ssh -G ALIAS` names another host. The aliases checked are the `Host` names ending in `_bastion` (the deploy scripts' convention) in `~/.ssh/config` and the files it includes, at most 8, or those `AIVOICEBUS_FACT_SSH` lists (`off`: none) | `ssh=0mcp+0own` (`NAME_bastion` written as `NAME`) |
+
+Facts are booleans, alias names and versions: no file's contents and no path ever leaves the machine.
+aivoicebus's own release is not repeated here: every client already reports it (`fleet`'s RELEASE).
+The probes start processes, so the answer is kept in `~/.config/aivoicebus/facts.json` (mode 600) and
+worked out again at most every 5 minutes (sooner when `AIVOICEBUS_FACT_SSH` changes).
+
+The facts travel in two labels, `has=signing-key+fleet-guard-0.3.13` (`has=none` for nothing) and
+`ssh=0mcp+0own`, added last and only into the room left of a session's 12 labels, both or neither: they
+never push out a label routing depends on. `has` is the marker. A session that declares it has said
+everything, so a fact it does not list (no `ssh` label at all included) is a no; a session without it
+said nothing. `who --has` answers per machine, from the newest facts its sessions declared:
+
+      MACHINE                      HEARD   SIGNING-KEY
+      pentests-macbook-air-m1-mba  2m ago  yes
+      mac14-m1pro-mbp              1m ago  no
+      imac-m1-imac                 3m ago  unknown
+    signing-key: pentests-macbook-air-m1-mba
+    unknown: imac-m1-imac: no session there says what it has (an older client, ...): not a no; ask there
+
+`unknown` is never a no: the client there is too old to say, `AIVOICEBUS_FACTS=off` is set, its labels
+are full, or its sessions run under an `AIVOICEBUS_ME` identity (which says nothing about the machine; a
+`has` pinned in `AIVOICEBUS_LABELS` then stands, as any pinned label does). `--json` gives
+`{"fact", "machines": [{"machine", "answer", "value", "seen", "from"}], "hidden"}`; `--within`, `--all`
+and a selector (`who --has signing-key @repo=x`) narrow the sessions asked as for a plain `who`. Like
+every label, facts are self-declared hints, not proof: check before acting on one.
+
 ### The viewer: who is talking to whom
 
     aivoicebus view --demo                                   # an invented board, no mesh needed
@@ -1789,7 +1833,7 @@ checks each example's flags against the command's parser.
 
 ## The fleet: which machine runs which release
 
-    aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token
+    aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token, facts
     aivoicebus fleet update                # the plan: the machines that are behind the nodes, or unknown
     aivoicebus fleet update --apply        # a task for the person on each: "aivoicebus update" there
 
@@ -1803,6 +1847,10 @@ A machine whose client is unknown or before 0.11.5 (whose hooks do not say what 
 also gets an ordinary message to its sessions, `[for the person] ... run aivoicebus update in your own
 terminal`, which its agents relay to the user. Running it again sends nothing to a machine where the
 same task still waits for the person.
+
+The FACTS column is what each machine says it has (see [What a machine has](#what-a-machine-has-who---has)):
+`signing-key deploy-token fleet-guard:0.3.13 fleet-ctx:0.2.0 ssh:0mcp,0own`, `none`, or `-` when none of
+its sessions said (`unknown` to `who --has`). `fleet --json` has them per machine under `facts`.
 
 ## Machine tokens: handing a machine its own
 

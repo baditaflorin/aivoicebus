@@ -39,25 +39,34 @@ func fleetCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	caps := fleetCaps(time.Duration(*days) * 24 * time.Hour)
+	roster := fleetRoster(time.Duration(*days) * 24 * time.Hour)
+	caps := fleetCaps(roster)
+	facts := factsByMachine(roster)
 	if *asJSON {
+		known := map[string]msg.Facts{}
+		for h, f := range facts {
+			if f.From != "" {
+				known[h] = f.Facts
+			}
+		}
 		return writeJSON(s.Out, struct {
-			Target   string              `json:"nodes_release"`
-			Nodes    []reportNode        `json:"nodes"`
-			Machines []reportMachine     `json:"machines"`
-			Caps     map[string][]string `json:"caps"` // per machine, what its sessions can do (task --needs)
-		}{target, v.Nodes, v.Machines, caps})
+			Target   string               `json:"nodes_release"`
+			Nodes    []reportNode         `json:"nodes"`
+			Machines []reportMachine      `json:"machines"`
+			Caps     map[string][]string  `json:"caps"`  // per machine, what its sessions can do (task --needs)
+			Facts    map[string]msg.Facts `json:"facts"` // per machine, what it says it has (who --has)
+		}{target, v.Nodes, v.Machines, caps, known})
 	}
 	fmt.Fprintf(s.Out, "machines heard from in the last %dd; the nodes run %s:\n", *days, orDash(target))
 	tw := tabwriter.NewWriter(s.Out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "  MACHINE\tROLE\tHEARD\tRELEASE\tTOKEN\t")
+	fmt.Fprintln(tw, "  MACHINE\tROLE\tHEARD\tRELEASE\tTOKEN\tFACTS\t")
 	behind := 0
 	for _, m := range v.Machines {
 		rel, note := fleetRelease(m, target)
 		if note != "" && m.Role == "client" {
 			behind++
 		}
-		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n", m.Host, m.Role, agoText(time.Now(), m.LastHeard), rel, orDash(m.Kind), note)
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Host, m.Role, agoText(time.Now(), m.LastHeard), rel, orDash(m.Kind), view.Name(factsText(facts[m.Host]), 160), note)
 	}
 	tw.Flush()
 	for _, n := range v.Nodes {
@@ -100,10 +109,9 @@ func fleetView(days int) (tokenReportView, string, error) {
 	return v, target, nil
 }
 
-// fleetCaps is, per machine, every capability (msg.CapsOf) of the sessions seen there within span:
-// the declared words first, then the repositories, branches, tools, models and roles, each once.
-// Nothing when the roster cannot be read: the table above does not depend on it.
-func fleetCaps(span time.Duration) map[string][]string {
+// fleetRoster is the sessions seen within span, made safe to show. Nothing when the roster cannot
+// be read: the table does not depend on it.
+func fleetRoster(span time.Duration) []msg.RosterEntry {
 	c, err := sessionClient()
 	if err != nil {
 		return nil
@@ -112,11 +120,20 @@ func fleetCaps(span time.Duration) map[string][]string {
 	if err != nil {
 		return nil
 	}
-	out := map[string][]string{}
+	var out []msg.RosterEntry
 	for _, e := range view.SanitiseRoster(roster) {
-		if time.Since(e.Seen) > span {
-			continue
+		if time.Since(e.Seen) <= span {
+			out = append(out, e)
 		}
+	}
+	return out
+}
+
+// fleetCaps is, per machine, every capability (msg.CapsOf) of the sessions in roster: the declared
+// words first, then the repositories, branches, tools, models and roles, each once.
+func fleetCaps(roster []msg.RosterEntry) map[string][]string {
+	out := map[string][]string{}
+	for _, e := range roster {
 		h := msg.HostOf(e.Me)
 		for _, c := range msg.CapsOf(e.Me, e.Labels) {
 			if !slices.Contains(out[h], c) {

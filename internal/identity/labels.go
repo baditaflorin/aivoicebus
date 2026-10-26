@@ -31,6 +31,8 @@ import (
 //	branch   its checked-out branch               feature/x
 //	role     the roles it claims (AIVOICEBUS_ROLE) build+review  (a send to @build finds it)
 //	test     on when AIVOICEBUS_TEST=1: opted in to the test lane (read on every call, never pinned)
+//	has      what the machine has: signing-key, deploy-token, fleet-guard-0.3.13, fleet-ctx-0.2.0, or none
+//	ssh      the node ssh aliases that resolve on it     0mcp+0own   (both from facts.go, never pinned)
 //
 // cwd is the directory the session works in ("" means the current one). A
 // AIVOICEBUS_LABELS="key=value,..." in the environment is laid over everything
@@ -76,6 +78,15 @@ func Labels(cwd string) msg.Labels {
 		}
 	}
 	pinned := msg.ParseLabels(os.Getenv("AIVOICEBUS_LABELS"))
+	// The machine's facts are worked out below and replace pinned ones, which are stale: dropped
+	// before anything else is laid on, so a stale one never takes a place another label needs.
+	// Under an AIVOICEBUS_ME identity nothing is said about this machine and a pinned value stands.
+	ownMachine := os.Getenv("AIVOICEBUS_ME") == ""
+	if ownMachine || FactsOff() {
+		for _, k := range msg.FactLabels {
+			delete(pinned, k)
+		}
+	}
 	l = l.Overlay(pinned)
 	if repo != "" && branch != "" && pinned["repo"] == repo {
 		l = l.Overlay(msg.Labels{"branch": branch}) // a detached HEAD (mid-rebase, say) keeps the pinned branch
@@ -109,6 +120,22 @@ func Labels(cwd string) msg.Labels {
 		l = l.Overlay(msg.Labels{msg.TestLabel: msg.TestOn})
 	} else {
 		delete(l, msg.TestLabel) // a pinned test=on of an earlier shell is not an opt-in
+	}
+	// The machine's facts come last and only into the room that is left, so they never push out a
+	// label routing depends on; both or neither, so a session that says has= has said everything
+	// (msg/facts.go).
+	if ownMachine && !FactsOff() {
+		has, ssh := MachineFacts()
+		need := 1
+		if ssh != "" {
+			need = 2
+		}
+		if has != "" && len(l)+need <= msg.MaxLabels {
+			l[msg.HasLabel] = has
+			if ssh != "" {
+				l[msg.SSHLabel] = ssh
+			}
+		}
 	}
 	return l
 }
