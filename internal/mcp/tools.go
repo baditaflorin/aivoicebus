@@ -35,7 +35,7 @@ type tool struct {
 var tools = map[string]tool{}
 
 func init() {
-	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, amendTool, claimTool, waitTool, stuckTool, taskTool, askTool, queueTool, statusTool, pingTool, getTool, stateTool, shareLsTool, shareGetTool, sharePutTool, shareNotesTool} {
+	for _, t := range []tool{inboxTool, sendTool, whoTool, threadTool, ackTool, retractTool, amendTool, claimTool, declineTool, waitTool, stuckTool, taskTool, askTool, queueTool, statusTool, pingTool, getTool, stateTool, shareLsTool, shareGetTool, sharePutTool, shareNotesTool} {
 		tools[t.name] = t
 	}
 }
@@ -109,6 +109,7 @@ var inboxTool = tool{
 		var b strings.Builder
 		fmt.Fprintf(&b, "You are %s. %d message(s).\n", me, len(ms))
 		view.ForAgent(&b, shown, bodyRunes)
+		view.OfferLines(&b, shown)
 		if more := len(ms) - len(shown); more > 0 {
 			fmt.Fprintf(&b, "[+%d more; call again after acknowledging these]\n", more)
 		}

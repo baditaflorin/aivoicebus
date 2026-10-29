@@ -53,6 +53,9 @@ func Receipts(w io.Writer, r msg.Receipts) {
 	case r.Kind == msg.KindTask:
 		fmt.Fprintf(w, "  not taken yet: `aivoicebus ping %s` shows who is there\n", Name(r.To, msg.MaxIdentity))
 	}
+	if d := OfferDigest(r, time.Now()); d != "" {
+		fmt.Fprintln(w, "  "+d)
+	}
 	if r.Replies > 0 {
 		fmt.Fprintf(w, "  %d repl%s: aivoicebus thread %s\n", r.Replies, map[bool]string{true: "y", false: "ies"}[r.Replies == 1], r.ID)
 	}

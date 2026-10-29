@@ -34,7 +34,8 @@ type Headliner func(m msg.Message, body string) bool
 // the read returned, shown or not, so a thread that one message of the batch closes counts as
 // closed for the others), at time now. A message is shown as its headline when it is a
 // broadcast (msg.IsBroadcast: a message to one session, or to one tool on one machine, is
-// never shortened), is not urgent (its sender asked that it be seen), and is
+// never shortened), is not urgent (its sender asked that it be seen), is not a task the nodes offer to
+// this reader alone (Message.Offer: it is this session's to take or pass on), and is
 //   - longer than HeadlineOver runes, or
 //   - a replay: older than ReplayAge, or
 //   - in a thread that batch shows to be over: ended by one of its messages, or moved to done or
@@ -46,7 +47,7 @@ func Headlines(batch []msg.Message, now time.Time) Headliner {
 	over := overThreads(batch)
 	return func(m msg.Message, body string) bool {
 		switch {
-		case !msg.IsBroadcast(m.To), m.Priority() == msg.PrioUrgent, m.Retracted != nil:
+		case !msg.IsBroadcast(m.To), m.Priority() == msg.PrioUrgent, m.Retracted != nil, m.Offer != nil:
 			return false
 		case over[m.Thread]:
 			return true

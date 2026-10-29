@@ -415,3 +415,28 @@ step fleet update --apply
 kill "$PID3" 2>/dev/null || true; wait "$PID3" 2>/dev/null || true
 trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
 export AIVOICEBUS_URL=$MAIN_URL
+echo "# a task to a machine is offered to one session there at a time; decline passes it on at once and tells the sender why; the last decline tells the person, and a new session is offered it"
+for s in ofr/claude.a1 ofr/claude.b2; do as "$s"; "$BIN" inbox >/dev/null 2>&1; done # two sessions are about on ofr
+stepo() { step "$@" | sed -E 's/\([0-9hms.]+ ago\)/(<AGO>)/'; } # how long ago a read was depends on how fast the host is
+as imac/claude.of
+out=$("$BIN" task ofr "rotate the staging certificate" 2>&1); echo "\$ aivoicebus task ofr rotate the staging certificate"; echo "$out" | norm
+OT=$(echo "$out" | awk '$1=="sent"{print $2}')
+as ofr/claude.a1
+step queue
+as ofr/claude.b2
+step queue
+as ofr/claude.a1
+step decline "$OT" "busy with the parser"
+step decline "$OT" "again"
+as ofr/claude.b2
+step queue
+step decline "$OT" "no access to staging"
+as imac/claude.of
+step decline "$OT"
+stepo status "$OT"
+as ofr/claude.c3
+step hook --tool claude
+step claim "$OT" --settle 0s
+as imac/claude.of
+stepo status "$OT"
+kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; PID="" # the node is stopped before the EXIT trap removes its data: one still flushing on SIGTERM made that rm fail ("Directory not empty") and the script exit 1

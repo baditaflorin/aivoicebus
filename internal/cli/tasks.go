@@ -426,6 +426,7 @@ func queueCmd(args []string, s Streams) error {
 	}
 	fmt.Fprintln(s.Out, view.UntrustedBanner)
 	view.Messages(s.Out, waiting)
+	view.OfferLines(s.Out, waiting)
 	for _, m := range waiting {
 		if msg.PersonOnly(m) {
 			fmt.Fprintf(s.Out, "[aivoicebus] %s is for the person, not an agent; in your own terminal: %s\n", m.ID, msg.PersonStep(m))

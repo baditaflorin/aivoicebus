@@ -228,6 +228,7 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 				w.say("skipped task %s from %s: %s", m.ID, view.Name(m.From, msg.MaxIdentity), why)
 				base.Outcome, base.Why = "skipped", why
 				w.log(base)
+				w.passOn(m, why)
 			}
 			continue
 		}
@@ -251,6 +252,21 @@ func (w *Worker) Pass(ctx context.Context) (int, error) {
 		}
 	}
 	return ran, nil
+}
+
+// passOn declines task m, which this worker will not take, when the nodes offer it to the worker alone
+// and another session could take it (msg/offer.go): a worker listens, so it is offered a machine's tasks
+// first, and one it skips would otherwise wait out msg.OfferWindow before anyone else sees it. With
+// nobody else about it keeps the task, so allowing the sender later still lets it run.
+func (w *Worker) passOn(m msg.Message, why string) {
+	if m.Offer == nil || m.Offer.Left == 0 {
+		return
+	}
+	if _, err := tasks.Decline(w.C, w.Me, tasks.Agent, m.ID, "the worker does not take it: "+why, io.Discard); err != nil {
+		w.say("  could not pass task %s on to the next session: %v", m.ID, err)
+		return
+	}
+	w.say("  passed task %s on: the next session is offered it", m.ID)
 }
 
 // handle claims m and, when it is this worker's, runs the command and answers. It reports whether

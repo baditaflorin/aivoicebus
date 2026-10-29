@@ -246,6 +246,25 @@ unchanged and `internal/msg/testdata/*-vectors.json` did not change. What a cons
   in its place, for a day). A dashboard can compute it from the records and the roster with `msg.Gone` and `msg.Successor`.
 - `/v1/health` advertises the feature `successor` when a node hands marked mail on.
 
+## Offers in the feed
+
+From the release after 0.13.1 a node offers a task sent to an audience (a machine, a tool on it, a selector, `all`) to one
+session at a time ([reference.md](reference.md#tasks-for-a-machine-and-conversations-between-agents)). Nothing new is in
+`/v1/sync`, and the vectors are unchanged; a consumer that shows threads should know two kinds of message by their shape:
+
+- A **decline** ("not this session") is a `progress` message whose `re` is the task and whose `body` starts `[decline]`,
+  then a space or a line break and the reason, or nothing. It is not an answer and does not take the task: leave it out of
+  reply counts (a node's receipts do). It is not the conversation state `[state declined]`, which ends the thread.
+- The message that **tells the person** nobody took a task is sent to `MACHINE/human` with `re` the task, a body that
+  starts `[for the person] Nobody took task`, and an id derived from the task's: the first ten hex digits of
+  `sha256("aivoicebus escalation " + task id + " " + n)` for the smallest `n` (from 0) that is not a test id or a
+  successor mark (`msg.EscalationID`). A node stops delivering it once the task is taken, withdrawn or expired.
+
+Who was offered a task is in a node's answers only: `/v1/receipts` has `offers` (`by`, `at`, `until`, `outcome`: `open`,
+`passed`, `declined` or `claimed`, and the decline's `note`) and `escalated` (`by`, `at`), and the copy of a task an inbox
+read hands the session it is offered to carries a response-only `offer` (`since`, `until`, `before`, `left`, `escalate`),
+never stored and cleared from anything that arrives from outside. `/v1/health` advertises the feature `offers`.
+
 ## Reaching the nodes
 
 Run nodes on a private network (a VPN, a LAN, or loopback) and let your firewall or VPN policy decide

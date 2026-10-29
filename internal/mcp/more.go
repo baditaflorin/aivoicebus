@@ -154,6 +154,7 @@ var queueTool = tool{
 		}
 		var b strings.Builder
 		view.ForAgent(&b, ts, bodyRunes)
+		view.OfferLines(&b, ts)
 		return framed("", b.String()), nil
 	},
 }

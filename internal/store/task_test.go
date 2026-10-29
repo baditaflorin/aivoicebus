@@ -7,15 +7,17 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
 
-// A task to a machine is shown to every session there until one takes it, then only to that one.
-func TestATaskGoesToEverySessionOnTheMachineUntilOneTakesIt(t *testing.T) {
+// A task to a machine is offered to one session there at a time (offer_test.go) until one takes it,
+// then shown only to that one. Any session may claim it, offered or not.
+func TestATaskGoesToOneSessionOnTheMachineAtATimeUntilOneTakesIt(t *testing.T) {
 	s, clock := retractStore(t)
 	const a, b, boss = "lap/claude.a1", "lap/codex.b2", "desk/claude.z9"
 	task, _ := s.Send(msg.Message{From: boss, To: "lap", Body: "send me the screenshot", Kind: msg.KindTask})
-	for _, me := range []string{a, b} {
-		if !containsID(s.InboxFor(me, false, nil), task.ID) {
-			t.Fatalf("%s does not see the task", me)
-		}
+	if !containsID(s.InboxFor(a, false, nil), task.ID) {
+		t.Fatalf("%s, the first to read, is not offered the task", a)
+	}
+	if containsID(s.InboxFor(b, false, nil), task.ID) {
+		t.Fatalf("%s sees the task while %s holds its offer", b, a)
 	}
 	// The sender's own claim takes nothing.
 	s.Send(msg.Message{From: boss, To: "lap", Body: "still mine", Kind: msg.KindClaim, Re: task.ID})

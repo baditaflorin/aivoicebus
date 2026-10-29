@@ -136,6 +136,12 @@ type Store struct {
 	nTestAck    int
 	lastSweep   time.Time // when expired test messages were last looked for
 	lastRewrite time.Time // when log.jsonl was last rewritten for the purge
+
+	// Offers (see msg/offer.go and offer.go here): the sessions this node delivered each offered task
+	// to, and when (this node's memory only: a restart forgets it, and the acknowledgements every node
+	// shares say the rest), and the declines the log carries, by the task they decline.
+	offered  map[string][]offerRec
+	declined map[string][]declineRef
 }
 
 // testRef is the place of a record in the log: where the purge finds a test message to replace.
@@ -315,7 +321,8 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, held: map[string]map[uint64]heldRead{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
-		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, purgedRefs: map[testRef]bool{}}
+		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, purgedRefs: map[testRef]bool{},
+		offered: map[string][]offerRec{}, declined: map[string][]declineRef{}}
 	for _, o := range opts {
 		o(s)
 	}
@@ -559,10 +566,11 @@ func (s *Store) vetLocked(r msg.Record) (msg.Record, bool) {
 	err := r.ValidateReplicated()
 	switch {
 	case err == nil:
-		if r.Msg != nil && (r.Msg.Retracted != nil || r.Msg.Verified != "" || r.Msg.Private || r.Msg.Amends != nil || r.Msg.AmendedBy != nil) { // response only: what a release that predates retraction does when it decodes and writes the record again; and what only a reading client may say
+		if r.Msg != nil && (r.Msg.Retracted != nil || r.Msg.Verified != "" || r.Msg.Private || r.Msg.Amends != nil || r.Msg.AmendedBy != nil || r.Msg.Offer != nil) { // response only: what a release that predates retraction does when it decodes and writes the record again; and what only a reading client may say
 			m := *r.Msg
 			m.Retracted = nil
 			m.Amends, m.AmendedBy = nil, nil
+			m.Offer = nil
 			m.Verified, m.Private = "", false
 			r.Msg = &m
 		}
@@ -622,6 +630,9 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	}
 	if !forged && msg.Takes(m) { // a forged answer or claim closes nothing
 		s.answers[m.Re] = append(s.answers[m.Re], answerRef{id: m.ID, from: m.From, at: m.At, claim: m.Kind == msg.KindClaim})
+	}
+	if !forged && msg.IsDecline(m) {
+		s.declined[m.Re] = append(s.declined[m.Re], declineRef{id: m.ID, from: m.From, at: m.At, note: msg.DeclineNote(m)})
 	}
 	if m.At.After(s.lastSent[m.From]) {
 		s.lastSent[m.From] = m.At
@@ -1023,6 +1034,7 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 	defer s.mu.Unlock()
 	m.Retracted = nil                 // what a node says about a message, not something a sender sets
 	m.Amends, m.AmendedBy = nil, nil  // likewise
+	m.Offer = nil                     // likewise
 	m.Verified, m.Private = "", false // what a reading client finds, never stored
 	if !msg.ValidID(m.ID) {
 		m.ID = msg.NewID()
@@ -1524,7 +1536,7 @@ func (s *Store) InboxLane(me string, all bool, labels msg.Labels, lane bool) []m
 	s.pruneSeenLocked(now)
 	s.presenceDirty = true
 	s.flushPresenceLocked(now, false)
-	out := s.inboxLocked(me, all, labels, lane, now)
+	out := s.inboxLocked(me, all, labels, lane, true, now)
 	if !all { // first: a reader that lists only the first few must not miss them
 		out = append(s.noticesLocked(me, now), out...)
 	}
@@ -1537,11 +1549,12 @@ func (s *Store) InboxLane(me string, all bool, labels msg.Labels, lane bool) []m
 func (s *Store) Peek(me string) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inboxLocked(me, false, nil, false, s.now().UTC())
+	return s.inboxLocked(me, false, nil, false, false, s.now().UTC())
 }
 
-// inboxLocked is what reaches me: unread unless all, never what I sent.
-func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane bool, now time.Time) []msg.Message {
+// inboxLocked is what reaches me: unread unless all, never what I sent. read is me's own read, which
+// may start an offer of a task (offer.go); a look on someone's behalf never does.
+func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane, read bool, now time.Time) []msg.Message {
 	var out []msg.Message
 	idxs := s.candidatesLocked(me, labels)
 	var handed map[int]bool // mail of a session that is gone, handed to me as its successor (successor.go)
@@ -1585,10 +1598,24 @@ func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane bool, n
 		if !all && s.supersededLocked(m) { // replaced by its sender: this reader is given the new text instead
 			continue
 		}
+		var offer *msg.Offer
+		if !all && msg.Offered(m) {
+			if _, taken := s.taskOwnerLocked(m); !taken { // taken by me: mine, as before (closedForLocked hid it from the rest)
+				var ok bool
+				if offer, ok = s.offerForLocked(m, me, read, now); !ok { // offered to another session now, or over for me
+					continue
+				}
+			}
+		}
+		if !all && msg.IsEscalation(m) && s.escalationSettledLocked(m, now) { // the task it told the person about is settled
+			continue
+		}
 		if retracted {
 			m = tombstone(m, ret)
 		}
-		out = append(out, s.amendViewLocked(m, me))
+		m = s.amendViewLocked(m, me)
+		m.Offer = offer
+		out = append(out, m)
 	}
 	return out
 }
@@ -1633,6 +1660,7 @@ func (s *Store) pruneSeenLocked(now time.Time) {
 	if now.Sub(s.lastDuePrune) >= time.Hour { // the roster over its cap makes every read come here: the due lists are not looked at each time
 		s.lastDuePrune = now
 		s.pruneDueLocked(now)
+		s.pruneOffersLocked(now)
 	}
 	for k, v := range s.seen {
 		if now.Sub(v.at) > seenKeep {

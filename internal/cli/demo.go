@@ -409,7 +409,7 @@ func (d *demo) script(ctx context.Context) error {
 		return fmt.Errorf("alice's task: %w", err)
 	}
 	d.task = task.ID
-	d.say("alice (on demo-a) gives the machine buildbox a task %s: every session there sees it until one claims it", task.ID)
+	d.say("alice (on demo-a) gives the machine buildbox a task %s: the nodes offer it to one session there at a time, a listening one first, until one claims it", task.ID)
 	var w woke
 	select {
 	case w = <-got:

@@ -230,6 +230,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 		m.Retracted = nil                 // what a node says about a message, never something a sender sets
 		m.Amends, m.AmendedBy = nil, nil  // likewise
+		m.Offer = nil                     // likewise
 		m.Verified, m.Private = "", false // what a reading client finds, never something a sender sets
 		m.FromTitle = msg.CleanTitle(m.FromTitle)
 		m.FromModel = msg.CleanModel(m.FromModel)
@@ -340,6 +341,11 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 		}
 		all := r.URL.Query().Get("all") == "1"
 		lane := r.URL.Query().Get(msg.ParamLane) == msg.LaneTest // msg.FeatureTestLane: test messages are in a read only when it asks, and its reader opted in
+		if t := msg.CleanTitle(r.URL.Query().Get(msg.ParamTitle)); t != "" {
+			if _, bad := secrets.Strong(t); !bad {
+				s.NoteTitle(me, t) // before the read, which keeps the last title when none is declared: a titled session is offered a task first (offer.go)
+			}
+		}
 		// A long poll (wait=S&gen=G, see msg.FeatureInboxWait): when nothing has changed on this node
 		// since the reader's last look (gen), hold the read until something does, at most S seconds.
 		// The session counts as listening meanwhile when its wait accepts anything, or as busy when it
@@ -372,11 +378,6 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			done(!gone && !slices.ContainsFunc(inbox, takes))
 		}
 		w.Header().Set(msg.HeaderGen, strconv.FormatUint(g, 10))
-		if t := msg.CleanTitle(r.URL.Query().Get(msg.ParamTitle)); t != "" {
-			if _, bad := secrets.Strong(t); !bad {
-				s.NoteTitle(me, t) // after the read, which keeps the last title when none is declared
-			}
-		}
 		js(w, inbox)
 	}))
 	mux.HandleFunc("/v1/ack", wrap(func(w http.ResponseWriter, r *http.Request, who Principal) {
