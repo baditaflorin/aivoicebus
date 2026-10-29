@@ -22,7 +22,7 @@ func TestAMetDoneWhenShowsNothingToANewSessionAndIsSettledOnce(t *testing.T) {
 	s, _ := personMesh(t, "0.15.0")
 	installedRelease(t, "0.14.1")
 	body := msg.AppendWants("Update aivoicebus on air to 0.15.0.", msg.Wants{DoneWhen: "release>=0.15.0"})
-	m, _ := s.Send(msg.Message{From: "deploy/claude.s1", To: "air", Kind: msg.KindTask, Body: body})
+	m, _ := s.Send(msg.Message{From: "deploy/claude.s1", To: "air", Body: body})
 	p, _ := s.Send(msg.Message{From: "deploy/claude.s1", To: "air/human", Kind: msg.KindTask, Body: msg.PersonTag + " update by hand\n[done-when: release>=0.15.0]"})
 
 	t.Setenv("AIVOICEBUS_ME", "air/codex.first")
@@ -73,7 +73,7 @@ func waitFor(t *testing.T, ok func() bool) {
 func TestAMetDoneWhenOnAnOldNodeIsHiddenButNotWritten(t *testing.T) {
 	s, _ := personMesh(t, "0.14.0")
 	installedRelease(t, "0.15.0")
-	m, _ := s.Send(msg.Message{From: "deploy/claude.s1", To: "air", Kind: msg.KindTask, Body: msg.AppendWants("update", msg.Wants{DoneWhen: "release>=0.15.0"})})
+	m, _ := s.Send(msg.Message{From: "deploy/claude.s1", To: "air", Body: msg.AppendWants("update", msg.Wants{DoneWhen: "release>=0.15.0"})})
 	t.Setenv("AIVOICEBUS_ME", "air/codex.first")
 	if got := runHook(t, ""); strings.TrimSpace(got) != "" {
 		t.Errorf("shown:\n%s", got)
