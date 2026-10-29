@@ -657,13 +657,13 @@ func (c *Client) Retract(id, by string, leak, dryRun bool) (msg.RetractResult, e
 // one is asked, and the whole is repeated a few times over about a second and a half for a message
 // still replicating, as for a retraction. A node that predates amendments stores the ack as a read
 // receipt for nothing and says nothing: whether a node applies them is in its health (msg.FeatureAmend).
-func (c *Client) Amend(aid, by string) error { return c.claimAck(msg.AmendPrefix + aid, by) }
+func (c *Client) Amend(aid, by string) error { return c.claimAck(msg.AmendPrefix+aid, by) }
 
 // Settle writes the settle of message id by the person by on their machine (msg/settle.go): an ack
 // with id "settle:<id>". It goes to the nodes like Amend's claim, with the same retries for a
 // message still replicating. A node that predates settles stores it as a read receipt for nothing
 // and says nothing: whether a node applies them is in its health (msg.FeatureSettle).
-func (c *Client) Settle(id, by string) error { return c.claimAck(msg.SettlePrefix + id, by) }
+func (c *Client) Settle(id, by string) error { return c.claimAck(msg.SettlePrefix+id, by) }
 
 // claimAck writes an ack that is a claim about a message (an amendment, a settle) to the nodes.
 func (c *Client) claimAck(ackID, by string) error {
