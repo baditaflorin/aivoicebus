@@ -9,7 +9,7 @@ import (
 
 func sendAt(t *testing.T, s *Store, from, to, body string) msg.Message {
 	t.Helper()
-	m, err := s.Send(msg.Message{From: from, To: to, Kind: msg.KindTask, Body: body})
+	m, err := s.Send(msg.Message{From: from, To: to, Body: body})
 	if err != nil {
 		t.Fatal(err)
 	}
