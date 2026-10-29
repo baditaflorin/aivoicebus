@@ -582,8 +582,8 @@ scenario "a settle by the machine's person"
 # (the client asks the node's features first, so it never relies on one that cannot).
 for k in "${!NAME[@]}"; do
   n=${NAME[$k]}; host=st-$n
-  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","kind":"task","body":"settle me MARK-ST-'"$n"'"}' >/dev/null
-  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'/human","kind":"task","body":"[approval needed] run it MARK-AP-'"$n"'"}' >/dev/null
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"settle me MARK-ST-'"$n"'"}' >/dev/null
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'/human","body":"[approval needed] run it MARK-AP-'"$n"'"}' >/dev/null
 done
 check_converged "version vectors equal"
 for k in "${!NAME[@]}"; do
