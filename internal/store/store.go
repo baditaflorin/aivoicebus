@@ -130,6 +130,12 @@ type Store struct {
 	// person settled it. Whether one hides a message is decided when mail is read.
 	settles map[string]map[string]time.Time
 
+	// Messages that replace messages (see msg/wants.go and wants.go here): by the id a message names
+	// in [supersedes: ID], and by key (sender's machine, target, key); keyOf is a held message's key.
+	supers map[string][]string
+	keyed  map[string][]string
+	keyOf  map[string]string
+
 	// The test lane (see msg/testlane.go). tests lists the log records that hold a test message
 	// that is not purged yet, in arrival order. nTest counts the test messages held, nTestAck the
 	// receipts (id, by) for them: Stats leaves both out. purgedRefs are records the purge replaced
@@ -325,7 +331,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, held: map[string]map[uint64]heldRead{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
-		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, settles: map[string]map[string]time.Time{}, purgedRefs: map[testRef]bool{},
+		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, settles: map[string]map[string]time.Time{}, supers: map[string][]string{}, keyed: map[string][]string{}, keyOf: map[string]string{}, purgedRefs: map[testRef]bool{},
 		offered: map[string][]offerRec{}, declined: map[string][]declineRef{}}
 	for _, o := range opts {
 		o(s)
@@ -649,6 +655,7 @@ func (s *Store) addMsgLocked(m msg.Message) {
 	if len(s.amendClaims[m.ID]) > 0 { // an amendment claim that arrived first
 		s.indexAmendLocked(m)
 	}
+	s.indexWantsLocked(m)
 }
 
 // closedForLocked reports whether m need not be put in front of me: a question to several
@@ -1602,6 +1609,9 @@ func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane, read b
 			continue
 		}
 		if !all && s.supersededLocked(m) { // replaced by its sender: this reader is given the new text instead
+			continue
+		}
+		if !all && s.replacedLocked(m) { // its sender said a later message replaces it: this reader is not shown it
 			continue
 		}
 		if !all && s.settledForLocked(m, me) { // settled by the person on this reader's machine: shown to no session there

@@ -3,7 +3,9 @@ package wants
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 )
@@ -110,5 +112,24 @@ func TestSplitSettlesOnlyWhatMayBeSettled(t *testing.T) {
 	}
 	if len(left) != 4 {
 		t.Errorf("left: %+v", left)
+	}
+}
+
+// A hook that reads both an earlier message and the one that replaces it shows only the latter, whatever
+// the node does: an older node delivers both.
+func TestSplitLeavesOutAMessageAnotherInTheReadReplaces(t *testing.T) {
+	old := msg.Message{ID: "00000000aa", From: "desk/claude.s1", To: "air", Body: "update", At: time.Unix(100, 0)}
+	neu := msg.Message{ID: "00000000bb", From: "desk/claude.s2", To: "air", Body: msg.AppendWants("update 2", msg.Wants{Supersedes: old.ID}), At: time.Unix(200, 0)}
+	keyedA := msg.Message{ID: "00000000cc", From: "desk/claude.s1", To: "air", Body: msg.AppendWants("k1", msg.Wants{Key: "k"}), At: time.Unix(100, 0)}
+	keyedB := msg.Message{ID: "00000000dd", From: "desk/claude.s1", To: "air", Body: msg.AppendWants("k2", msg.Wants{Key: "k"}), At: time.Unix(300, 0)}
+	foreign := msg.Message{ID: "00000000ee", From: "evil/claude", To: "air", Body: msg.AppendWants("nope", msg.Wants{Supersedes: "00000000ff"}), At: time.Unix(400, 0)}
+	victim := msg.Message{ID: "00000000ff", From: "desk/claude.s1", To: "air", Body: "mine", At: time.Unix(100, 0)}
+	left, _ := Split(Env{}, []msg.Message{old, neu, keyedA, keyedB, foreign, victim})
+	var ids []string
+	for _, m := range left {
+		ids = append(ids, m.ID)
+	}
+	if got := strings.Join(ids, " "); got != "00000000bb 00000000dd 00000000ee 00000000ff" {
+		t.Errorf("left: %s", got)
 	}
 }

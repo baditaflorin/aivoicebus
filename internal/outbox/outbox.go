@@ -264,6 +264,25 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		if r.File || r.Attach {
 			return p, Usagef("--done-when, --key and --supersedes go on a text message, not on a file or a log link: run it again without them")
 		}
+		if r.Wants.Supersedes != "" {
+			if ms, err := c.Thread(r.Wants.Supersedes); err == nil {
+				found := false
+				for _, x := range ms {
+					if x.ID == r.Wants.Supersedes {
+						found = true
+						if msg.HostOf(x.From) != msg.HostOf(me) {
+							return p, Usagef("--supersedes %s names a message %s sent: only a message this machine sent can be replaced (`aivoicebus inbox --all` lists them)", x.ID, view.Name(x.From, msg.MaxIdentity))
+						}
+					}
+				}
+				if !found {
+					fmt.Fprintf(warn, "warning: --supersedes %s: the nodes do not hold that message yet, so nothing is replaced until they do\n", view.OneLine(r.Wants.Supersedes, msg.MaxRef))
+				}
+			}
+		}
+		if old := nodeTooOldFor(c, msg.WantsSince); (r.Wants.Key != "" || r.Wants.Supersedes != "") && old != "" {
+			fmt.Fprintf(warn, "warning: %s runs a release older than %s, which does not apply --key or --supersedes: sessions it serves are still shown the earlier message (a hook of %s on leaves it out when it reads both)\n", old, msg.WantsSince, msg.WantsSince)
+		}
 		body = msg.AppendWants(body, r.Wants)
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,

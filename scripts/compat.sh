@@ -66,6 +66,7 @@ feature_since() {
     signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
     budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
     inboxwait) echo 0.4.0 ;;  # holds an inbox read open (wait=S&gen=G) and calls the session listening meanwhile
+    wants) echo 0.15.0 ;;     # a message with [key: K] or [supersedes: ID] last in its body replaces an earlier one of the same sender machine (and target) for every reader that has not read it
     settle) echo 0.15.0 ;;    # a settle ack by <machine>/human hides a message from every session on that machine (a message that must be answered is refused)
     waitscope) echo 0.13.1 ;; # a held read says what its wait takes (wscope=1&wthread=T): a wait for one thread is busy, not listening
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
@@ -609,6 +610,34 @@ for k in "${!NAME[@]}"; do
   done
 done
 for i in "${!NAME[@]}"; do check "$(hfield "${PORT[$i]}" quarantined)" "${QN0[$i]}" "${NAME[$i]} quarantined nothing in this scenario (a settle is an ordinary ack to every release)"; done
+
+scenario "a message that replaces another"
+# From one machine to one target: two messages with the same [key: K] last in the body, a third, and a fourth that
+# names the third in [supersedes: ID]; then a stranger's message that names the fourth. A node that knows
+# (wants) delivers to a session it never saw: the latest of the key, not the replaced one, not the superseded one,
+# the superseder and the stranger's (another machine cannot replace). An older one delivers them all (the lines
+# are plain body text to it).
+declare -A WK
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; host=wk-$n
+  for v in 1 2; do
+    post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"update MARK-WK'"$v"'-'"$n"'\n[key: update-'"$n"']"}' >/dev/null; WK[$k,$v]=$(sent_id)
+  done
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"other MARK-WK3-'"$n"'"}' >/dev/null; WK[$k,3]=$(sent_id)
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"newest MARK-WK4-'"$n"'\n[supersedes: '"${WK[$k,3]}"']"}' >/dev/null; WK[$k,4]=$(sent_id)
+  post "${PORT[$k]}" /v1/send '{"from":"evil-'"$n"'/compat.s1","to":"'"$host"'","body":"hostile MARK-WK5-'"$n"'\n[supersedes: '"${WK[$k,4]}"']"}' >/dev/null; WK[$k,5]=$(sent_id)
+done
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; host=wk-$n
+  for j in "${!NAME[@]}"; do
+    want="no yes no yes yes"; has "$j" wants || want="yes yes yes yes yes"
+    got=""; me=$host/agent.new$j
+    for v in 1 2 3 4 5; do got="$got $(inbox_has "${PORT[$j]}" "$me" "${WK[$k,$v]}")"; done
+    check "${got# }" "$want" "${NAME[$j]} (${VER[$j]}) delivers the messages sent through ${NAME[$k]} (key replaced, key latest, superseded, superseder, a stranger's): $want"
+  done
+done
+check_quarantined 0 "no node quarantined a trailer line"
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done

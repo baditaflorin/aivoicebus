@@ -184,3 +184,32 @@ func AppendWants(body string, w Wants) string {
 // FeatureWants is what a node advertises in Health.Features when it applies keys and supersedes
 // (a done-when is applied by the machine that reads the message, not by a node).
 const FeatureWants = "wants"
+
+// WantsSince is the release whose nodes apply keys and supersedes (and whose hooks apply a done-when).
+const WantsSince = "0.15.0"
+
+// KeyIdent names the purpose a keyed message serves: the machine that sent it, the target and the key.
+// A later message with the same KeyIdent replaces an earlier one. The sender's machine, not its exact
+// session, so a restarted session can take over what an earlier one asked.
+func KeyIdent(m Message, key string) string { return HostOf(m.From) + "|" + m.To + "|" + key }
+
+// Replaces reports whether the later message b replaces m by what b says of itself: b names m in
+// [supersedes: ID], or both carry the same [key: K] to the same target; they come from the same
+// machine, and m is not one that must be answered. Replaced means no session that has not read m is
+// shown it; m stays in the log, in `inbox --all` and in `thread`. It says nothing of retractions: a
+// node takes b back out of it (a retracted b replaces nothing).
+func Replaces(b, m Message) bool {
+	if b.ID == m.ID || !Settleable(m) || HostOf(b.From) != HostOf(m.From) || !later(b, m) {
+		return false
+	}
+	wb := WantsOf(b)
+	if wb.Supersedes == m.ID {
+		return true
+	}
+	return wb.Key != "" && b.To == m.To && WantsOf(m).Key == wb.Key
+}
+
+// later reports whether b came after m: by time, then by id.
+func later(b, m Message) bool {
+	return b.At.After(m.At) || (b.At.Equal(m.At) && b.ID > m.ID)
+}

@@ -1531,6 +1531,52 @@ answered: an approval request, a `[token hand]` task or an `[ask-human]` questio
 Against nodes that predate it, a task is claimed and ended instead (the claim hides it from the other sessions, the end tells
 its sender) and a plain message cannot be settled until the nodes are updated; `done` says which.
 
+### A message that settles itself (--done-when)
+
+A message can say when it stops mattering, in words a program reads and nobody has to:
+
+    aivoicebus task 0own "update aivoicebus" --done-when 'release>=0.15.0'
+    aivoicebus send --to imac "install the collector" --done-when 'file:~/.local/bin/agent-tail'
+
+The condition is one of a **fixed list**, checked on the **receiving machine** by its session-start and prompt hooks and by
+`status`, with no network and no model, from local state only. When it is true the hook leaves the message out of what it
+prints (a settled message costs its readers nothing), writes the machine-wide settle (as `done` does, so sessions that start
+later are not shown it) and tells the sender once with `[done: condition met]`.
+
+| condition | true when |
+|---|---|
+| `release>=X.Y.Z` | the installed aivoicebus release is X.Y.Z or later (a build from source is never) |
+| `has:FACT` | the machine publishes the fact (`signing-key`, `deploy-token`, `fleet-guard[:VERSION]`, `ssh:ALIAS`: the `who --has` words) |
+| `file:~/PATH` | the path exists under the home directory (never opened or read; not through `..` or a symlink out of it; never in `.ssh`, `.gnupg`, `.aws`, `.config/aivoicebus` and similar) |
+| `service:LABEL` | a launchd (macOS) or systemd (Linux) unit of that label is loaded, by one bounded local probe |
+
+Anything else is refused when the message is sent, and the text of a message is never executed or put in a command: the
+condition is parsed into one of the four above, or it is not a condition. It is the last line of the body
+(`[done-when: release>=0.15.0]`, plus `[key: K]` and `[supersedes: ID]`, see below), so every node of every release carries it;
+a client that predates it shows the line and settles nothing. A sender learns only "condition met", never which path or fact;
+a `file:` condition still tells a sender that a path under the home directory exists, so give the person's machine nothing you
+would not tell the sender. The hook writes the settle only to nodes that apply it (0.15.0 on); against older ones it hides the
+message locally and writes nothing. `--done-when` does not combine with `--private` or `--file`. MCP: `done_when` on
+`aivoicebus_send` and `aivoicebus_task`.
+
+### A message that replaces another (--key, --supersedes)
+
+"This supersedes the earlier task" used to be a sentence nodes could not read, so the earlier one stayed live beside it.
+Now it is two last lines of the body (like `--done-when`'s), which every node and client carries:
+
+    aivoicebus task 0own "update to 0.15.1" --key update-0own          # a later task with this key to 0own replaces this one
+    aivoicebus send --to imac "ignore the note" --supersedes 3f2a9c01de  # names the one it replaces
+
+A node that applies them (feature `wants`, 0.15.0 on) stops delivering the replaced message to any session that has not read
+it, the ones that start later too. A key means the same **machine** (not session), the same target and the same key; the latest
+by time then id wins; chains work (C replaces B replaces A). Only a message the same machine sent can be replaced, never one
+that must be answered (an approval request, a `[token hand]`, a question), a retracted replacement replaces nothing (the
+earlier one is delivered again), and the replaced one stays in the log, in `inbox --all` and in `thread`. The hooks also leave
+out an earlier message when they read it together with its replacement, which covers a node that predates the feature; a
+`send` to such a node warns that its sessions are still shown the earlier one. `fleet update` sends nothing since 0.14.0 (a
+task per release went unread), so it has no key to set; both flags are there for anything that is really a desired state. MCP:
+`key` and `supersedes` on `aivoicebus_send` and `aivoicebus_task`.
+
 ### Correcting a message (amend)
 
 A correction sent as a new message leaves the wrong one live: the sessions that had not read it are handed both,
