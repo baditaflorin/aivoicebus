@@ -94,3 +94,15 @@ func TestWantsValidateInTheWordsOfTheFlags(t *testing.T) {
 		}
 	}
 }
+
+// A task with a done-when is not offered to one session at a time: every session's hook has to check it.
+func TestATaskWithADoneWhenIsNotOfferedToOneSession(t *testing.T) {
+	plain := Message{ID: "0000000001", From: "desk/claude.s1", To: "air", Kind: KindTask, Body: "update"}
+	withWhen := plain
+	withWhen.Body = AppendWants("update", Wants{DoneWhen: "release>=0.15.0"})
+	keyed := plain
+	keyed.Body = AppendWants("update", Wants{Key: "k"})
+	if !Offered(plain) || Offered(withWhen) || !Offered(keyed) {
+		t.Errorf("plain %v, done-when %v, key %v", Offered(plain), Offered(withWhen), Offered(keyed))
+	}
+}

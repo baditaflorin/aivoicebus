@@ -49,9 +49,11 @@ const (
 )
 
 // Offered reports whether the nodes offer task m one session at a time: a task to an audience,
-// not to one session by name, not one for the person, not a test.
+// not to one session by name, not one for the person, not a test, and not one with a done-when: the
+// condition is checked by whichever session starts on the machine (msg/wants.go), so every session has to
+// be shown it, and once the condition holds it costs none of them anything.
 func Offered(m Message) bool {
-	return m.Kind == KindTask && IsBulletin(m.To) && !OneSession(m.To) && !PersonOnly(m) && !m.IsTest() // PersonOnly: <machine>/human too
+	return m.Kind == KindTask && IsBulletin(m.To) && !OneSession(m.To) && !PersonOnly(m) && !m.IsTest() && WantsOf(m).DoneWhen == "" // PersonOnly: <machine>/human too
 }
 
 // Offer is what a node tells the session it offers a task to. Response only, like Retracted: never
