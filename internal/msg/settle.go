@@ -26,7 +26,7 @@ const SettlePrefix = "settle:"
 const FeatureSettle = "settle"
 
 // SettleSince is the release whose nodes apply settles.
-const SettleSince = "0.14.0"
+const SettleSince = "0.15.0"
 
 // DoneByPersonTag starts the progress message that tells a sender its message was settled by the
 // person; DoneMetTag the one written when a condition the sender gave was met (msg.DoneWhen).

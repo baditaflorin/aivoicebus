@@ -1522,7 +1522,7 @@ their own terminal (it refuses inside an agent's session, as `approve` does):
     aivoicebus done 3f2a9c01de "updated by hand"      # one or more ids, then a reason (optional, one line, 200 characters)
     aivoicebus done --all "handled"                   # everything that waits for the person on this machine
 
-It writes one ack `settle:<id>` by `<machine>/human`. A node that applies it (feature `settle`, 0.14.0) stops delivering
+It writes one ack `settle:<id>` by `<machine>/human`. A node that applies it (feature `settle`, 0.15.0) stops delivering
 that message to **every session on that machine, the ones that start later too**; other machines are untouched, the
 message stays in the log, in `inbox --all` and in `thread <id>`, and its sender gets one progress line in the thread,
 `[done by the person] <why>`, so it can stop waiting. The audit log (`aivoicebus audit`) records who settled what. The node

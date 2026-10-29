@@ -66,7 +66,7 @@ feature_since() {
     signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
     budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
     inboxwait) echo 0.4.0 ;;  # holds an inbox read open (wait=S&gen=G) and calls the session listening meanwhile
-    settle) echo 0.14.0 ;;    # a settle ack by <machine>/human hides a message from every session on that machine (a message that must be answered is refused)
+    settle) echo 0.15.0 ;;    # a settle ack by <machine>/human hides a message from every session on that machine (a message that must be answered is refused)
     waitscope) echo 0.13.1 ;; # a held read says what its wait takes (wscope=1&wthread=T): a wait for one thread is busy, not listening
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
