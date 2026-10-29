@@ -60,7 +60,7 @@ func TestATaskForThePersonIsRefusedToAnAgentAndTakenAtATerminal(t *testing.T) {
 	// the person, in their own terminal on lap
 	t.Setenv("AIVOICEBUS_AGENT", "")
 	t.Setenv("AIVOICEBUS_ME", "lap/agent")
-	if _, q, _ := run(t, "", "queue"); !strings.Contains(q, id) || !strings.Contains(q, "restart the router") || !strings.Contains(q, "in your own terminal: aivoicebus claim "+id) {
+	if _, q, _ := run(t, "", "queue"); !strings.Contains(q, id) || !strings.Contains(q, "restart the router") || !strings.Contains(q, "in your own terminal: already done or not needed: aivoicebus done "+id+" | to do it: aivoicebus claim "+id) {
 		t.Errorf("the person's queue does not list their task:\n%s", q)
 	}
 	if code, out, e := run(t, "", "claim", id, "--settle", "0s"); code != 0 || !strings.Contains(out, "is yours") {

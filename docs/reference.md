@@ -1512,6 +1512,25 @@ it, and may then go unremembered). If the file is missing or unreadable, `retrac
 Operating it (mixed versions, the allowance, a leaked secret, a session that is gone):
 [operations.md](operations.md#retracting-a-message-undo-send).
 
+### Settling a message for the machine (done)
+
+A message to a machine is shown to every session that starts there for as long as it lives, and an
+acknowledgement is one session's. When the person did the work by hand (`aivoicebus update`, an install) or does not
+want it, nothing recorded that, so every new session said "do this" again. `done` is the person's answer, typed in
+their own terminal (it refuses inside an agent's session, as `approve` does):
+
+    aivoicebus done 3f2a9c01de "updated by hand"      # one or more ids, then a reason (optional, one line, 200 characters)
+    aivoicebus done --all "handled"                   # everything that waits for the person on this machine
+
+It writes one ack `settle:<id>` by `<machine>/human`. A node that applies it (feature `settle`, 0.14.0) stops delivering
+that message to **every session on that machine, the ones that start later too**; other machines are untouched, the
+message stays in the log, in `inbox --all` and in `thread <id>`, and its sender gets one progress line in the thread,
+`[done by the person] <why>`, so it can stop waiting. The audit log (`aivoicebus audit`) records who settled what. The node
+cannot tell the person from an agent (both act with the machine's token), so a settle never reaches a message that must be
+answered: an approval request, a `[token hand]` task or an `[ask-human]` question (`done` refuses and says the real command).
+Against nodes that predate it, a task is claimed and ended instead (the claim hides it from the other sessions, the end tells
+its sender) and a plain message cannot be settled until the nodes are updated; `done` says which.
+
 ### Correcting a message (amend)
 
 A correction sent as a new message leaves the wrong one live: the sessions that had not read it are handed both,

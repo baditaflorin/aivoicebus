@@ -426,6 +426,22 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			}
 			return
 		}
+		if msg.HasSettlePrefix(a.ID) { // the person on a machine says a message needs no one there any more (msg/settle.go): checked here, never taken for a read receipt
+			sid, ok := msg.SettledID(a.ID)
+			if !ok {
+				http.Error(w, "bad request: a settle names a message by its id (ten lowercase hex digits)", http.StatusBadRequest)
+				return
+			}
+			switch err := s.Settle(sid, a.By); {
+			case err == nil:
+				js(w, map[string]bool{"ok": true})
+			case errors.Is(err, store.ErrUnknown): // another node may hold the message
+				refuse(w, msg.RefusedUnknown, err.Error(), http.StatusUnprocessableEntity)
+			default:
+				refuse(w, msg.RefusedBadRequest, err.Error(), http.StatusBadRequest)
+			}
+			return
+		}
 		a.Chars = min(max(a.Chars, 0), msg.MaxBody)
 		if err := s.AckWith(msg.Ack{ID: a.ID, By: a.By, Via: a.Via, Chars: a.Chars}); err != nil {
 			http.Error(w, err.Error(), 500)

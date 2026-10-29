@@ -84,9 +84,9 @@ func PersonStep(m Message) string {
 	case strings.HasPrefix(line, strings.TrimSpace(AskPrefix)):
 		return "aivoicebus answer " + m.ID
 	case m.Kind == KindTask:
-		return "aivoicebus claim " + m.ID + "  (then do it, and answer with: aivoicebus reply --re " + m.ID + " ...)"
+		return "already done or not needed: aivoicebus done " + m.ID + " | to do it: aivoicebus claim " + m.ID
 	}
-	return "aivoicebus thread " + m.ID
+	return "read it: aivoicebus thread " + m.ID + " | not needed: aivoicebus done " + m.ID
 }
 
 // UpdateTaskRelease is the release a `fleet update` task (sent by clients 0.11.4 to 0.13.x to the

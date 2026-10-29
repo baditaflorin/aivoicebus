@@ -416,7 +416,7 @@ func TestAPeersLookalikeNameIsWrittenOutLoud(t *testing.T) {
 func TestPersonWaitingQuotesOnlyWhatAnAgentMayRead(t *testing.T) {
 	task := msg.Message{ID: "00aa11bb22", From: "deploy/claude", To: "air/human", Kind: msg.KindTask, Body: msg.PersonTag + ` Update "aivoicebus" on air` + "\n\nmore"}
 	got := PersonWaiting([]msg.Message{task, {ID: "x"}})
-	if want := `[aivoicebus] 2 task(s) wait for you, the person on this machine, not the agent: a task "Update 'aivoicebus' on air", from deploy/claude. In your own terminal: aivoicebus claim 00aa11bb22`; !strings.HasPrefix(got, want) {
+	if want := `[aivoicebus] 2 task(s) wait for you, the person on this machine, not the agent: a task "Update 'aivoicebus' on air", from deploy/claude. In your own terminal: already done or not needed: aivoicebus done 00aa11bb22 | to do it: aivoicebus claim 00aa11bb22`; !strings.HasPrefix(got, want) {
 		t.Errorf("got  %s\nwant %s…", got, want)
 	}
 	if PersonWaiting(nil) != "" {

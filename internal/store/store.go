@@ -126,6 +126,10 @@ type Store struct {
 	amendClaims map[string][]amendClaim
 	amendsOf    map[string][]string
 
+	// Settles (see msg/settle.go and settle.go here): message id -> machine -> when that machine's
+	// person settled it. Whether one hides a message is decided when mail is read.
+	settles map[string]map[string]time.Time
+
 	// The test lane (see msg/testlane.go). tests lists the log records that hold a test message
 	// that is not purged yet, in arrival order. nTest counts the test messages held, nTestAck the
 	// receipts (id, by) for them: Stats leaves both out. purgedRefs are records the purge replaced
@@ -321,7 +325,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, held: map[string]map[uint64]heldRead{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
-		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, purgedRefs: map[testRef]bool{},
+		retracts: map[string][]time.Time{}, retractLimit: defaultRetractLimit, amendClaims: map[string][]amendClaim{}, amendsOf: map[string][]string{}, settles: map[string]map[string]time.Time{}, purgedRefs: map[testRef]bool{},
 		offered: map[string][]offerRec{}, declined: map[string][]declineRef{}}
 	for _, o := range opts {
 		o(s)
@@ -530,6 +534,8 @@ func (s *Store) applyLocked(r msg.Record) bool {
 			s.addRetractionLocked(mid, r.Ack.By, r.Ack.At, leak, r.Origin+"/"+strconv.FormatUint(r.Seq, 10)) // its Via and Chars are not read
 		} else if aid, ok := msg.AmendedID(r.Ack.ID); ok {
 			s.addAmendClaimLocked(aid, r.Ack.By, r.Ack.At) // a claim, not a read receipt
+		} else if sid, ok := msg.SettledID(r.Ack.ID); ok {
+			s.addSettleLocked(sid, r.Ack.By, r.Ack.At) // a settle, not a read receipt
 		} else {
 			s.addAck(*r.Ack)
 		}
@@ -1596,6 +1602,9 @@ func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane, read b
 			continue
 		}
 		if !all && s.supersededLocked(m) { // replaced by its sender: this reader is given the new text instead
+			continue
+		}
+		if !all && s.settledForLocked(m, me) { // settled by the person on this reader's machine: shown to no session there
 			continue
 		}
 		var offer *msg.Offer
