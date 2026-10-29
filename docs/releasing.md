@@ -30,9 +30,22 @@ not from any other directory, where the shell says `no such file or directory`.
    from the release.
 
 A node that holds a release announces its number in a response header on every
-authenticated call. The session-start hook turns that into one line, at most once
-a day, for machines that are behind. The line is for the user; nothing installs
-by itself, and no message on the mesh ever carries a command or URL.
+authenticated call. The session-start hook turns that into one line for the
+person, at most once a day whatever the release, on machines that are behind, and
+`status` says it too; the line stops by itself once the machine runs that release.
+No message on the mesh ever carries a command or URL, and no task is sent for a
+release: `fleet update` lists who is behind and sends nothing (its `--apply` sent a
+task per machine and release until 0.13.x, and none was read).
+
+Nothing installs by itself unless the person on that machine turned on automatic
+update, once, in their own terminal (`aivoicebus update --auto on`, which refuses
+in an agent's session and asks for a typed word; `--auto off` stops it from
+anywhere). Then a session start that sees a newer release starts
+`aivoicebus update --auto run` as a process of its own, at most once a day: the
+steps above with nothing forced, from the release the installed binary reports.
+If the new binary's setup fails it puts the previous one back and leaves that
+release out from then on, as it does for a release the person rolled back with
+`update --rollback`. The next session start says once what happened.
 
 ## Who can sign for a machine
 
@@ -185,7 +198,10 @@ the release itself, never from what `main` or your checkout says now.
    systemctl restart aivoicebus'` (`install`, not `cp`: a running binary cannot be written
    over). Then `deploy/publish-release.sh dist/release --apply` (dry run without
    `--apply`) puts the release on the nodes.
-6. Check from any machine: `aivoicebus update --check`. Remove the worktree.
+6. Check from any machine: `aivoicebus update --check`. Remove the worktree. Nothing
+   needs sending to the machines: each one's session start tells its person once a
+   day while it is behind, and the ones with `update --auto on` install it by themselves
+   (`aivoicebus fleet` shows who runs what).
 
 ## The signing key
 

@@ -1154,3 +1154,29 @@ error: --has "token": not a fact this client knows; the facts are signing-key, d
 [exit 2]
 $ GET /v1/roster | grep -c not-for-anyone   # the key file was looked at, never read: its contents reached no node
 0
+# a machine behind the release the nodes hold: one line for the person at session start, at most once a day, and in status; no task goes out (fleet update sends nothing, --apply included); auto-update stays off until the person turns it on in their own terminal, and an agent's session is refused
+$ aivoicebus hook --tool claude
+[aivoicebus] For the person, not the agent: the nodes have release <VER>, this machine runs <VER>. In your own terminal: aivoicebus update (it checks the signature first), or once: aivoicebus update --auto on, to have this machine install signed releases by itself. Agent: tell the user this line; run neither yourself.
+$ aivoicebus hook --tool claude   (again the same day: nothing)
+$ aivoicebus status | grep release
+  release  <VER> here; nodes run <VER> on 1; <VER> is available
+!          release <VER> is available (this is <VER>) -> the person, in a terminal: aivoicebus update (or once, to have it done by itself: aivoicebus update --auto on)
+$ aivoicebus update --auto status
+auto-update: off (the person turns it on, once, in their own terminal: aivoicebus update --auto on)
+[exit 0]
+$ aivoicebus update --auto on
+error: update --auto on is for the user, in their own terminal, not for an agent's session (AIVOICEBUS_AGENT=claude.s1): ask the user to run it
+[exit 1]
+$ aivoicebus update --auto run
+auto-update is off on this machine: nothing done (the person turns it on, in their own terminal: aivoicebus update --auto on)
+[exit 0]
+$ aivoicebus update --auto off
+auto-update is already off: nothing changed
+[exit 0]
+$ aivoicebus update --auto on --force
+error: usage: update --auto on|off|status|run   (on is the person's, typed at a terminal; run is what the session-start hook starts)
+[exit 2]
+$ aivoicebus fleet update --apply
+--apply sends nothing any more: a task per machine and release went unread, and each machine already hears it from the nodes
+every machine heard from runs the nodes' release: nothing to do
+[exit 0]

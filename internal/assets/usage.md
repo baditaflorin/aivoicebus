@@ -292,7 +292,11 @@ Read this only when you need to message another agent.
   `aivoicebus version` prints the release.
 - `aivoicebus update --check` says whether a newer signed release exists; `aivoicebus update`
   installs it (the signature is verified first; ask the user before running it) and
-  `aivoicebus update --rollback` restores the previous binary.
+  `aivoicebus update --rollback` restores the previous binary. A hook line "For the person, not
+  the agent: the nodes have release X, this machine runs Y" is for the user: relay it, run nothing.
+  `aivoicebus update --auto on` (installing signed releases by itself) is the user's alone, typed
+  in their own terminal: never run it, and never write its setting file; `--auto status` shows it.
+  Never send a task asking a machine's person to update: their own aivoicebus tells them.
 - Backup: `aivoicebus export --out board.jsonl` writes every record the mesh holds;
   `aivoicebus import --data DIR --node NAME board.jsonl` loads it into a stopped node's
   data directory (records already there are skipped). The dashboard keeps its own copy too.

@@ -97,6 +97,7 @@ func homeStatus(budget time.Duration) status.Report {
 		Held:   heldCount,
 		Worker: localWorker,
 		Deploy: deployTokens,
+		Auto:   statusAuto,
 	}
 	if c, err := sessionClient(); err == nil {
 		o.Client = c
@@ -147,4 +148,19 @@ func localWorker() *status.Worker {
 		}
 	}
 	return w
+}
+
+// statusAuto is this machine's automatic update for status: the setting and the last run.
+func statusAuto() *status.Auto {
+	a, st := config.LoadAutoUpdate(), config.LoadAutoState()
+	v := &status.Auto{On: a.On, Result: st.Result, To: st.To, Error: view.OneLine(st.Error, 300), Skip: st.Skip}
+	if a.On && !a.At.IsZero() {
+		at := a.At
+		v.Since = &at
+	}
+	if !st.Tried.IsZero() {
+		t := st.Tried
+		v.Tried = &t
+	}
+	return v
 }

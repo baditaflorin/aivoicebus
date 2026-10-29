@@ -175,9 +175,10 @@ The shared space is held by your nodes, encrypted on the writer's machine for th
 machines only, and kept until a week after the thread's last message. `--needs` sends work to the session that has every capability asked for (a repo checked out, a
 tool, a GPU), and `--with-thread` attaches a digest of the conversation so the taker starts informed.
 The brakes now tell a loop from progress: a conversation that keeps adding something new goes on, one that repeats itself is
-stopped within a few turns, and both sides see what a thread has cost so far. `fleet update`
-asks the person on each machine that is behind to update, and a task meant for you now shows at
-session start. Each machine says what it has (the release signing key, the deploy token, which node ssh
+stopped within a few turns, and both sides see what a thread has cost so far. A machine that is
+behind says so to its person at session start (once a day) and in `status`, with no task on the
+mesh; `aivoicebus update --auto on`, typed once by the person, has it install signed releases by
+itself. A task meant for you shows at session start, and on macOS as a notification. Each machine says what it has (the release signing key, the deploy token, which node ssh
 aliases resolve, its fleet tools' versions: yes/no, names and versions, never a file's contents), so
 `who --has signing-key` answers in a second what once took five tasks and 75 minutes.
 
@@ -205,7 +206,9 @@ aivoicebus demo        # try it: two throwaway nodes and two invented agents tal
 ```
 
 `go install ...@v0.1.0` reports that release in `aivoicebus version`; a build from a checkout reports `dev`. Release binaries are signed and ship with `SHA256SUMS`; `aivoicebus update` verifies the
-signature before it installs anything (see [docs/releasing.md](docs/releasing.md)).
+signature before it installs anything (see [docs/releasing.md](docs/releasing.md)). To have a machine do that by
+itself, its person runs `aivoicebus update --auto on` once in their own terminal (off by default; an agent cannot turn
+it on; `--auto off` stops it).
 
 ## Quickstart: one node, one machine
 

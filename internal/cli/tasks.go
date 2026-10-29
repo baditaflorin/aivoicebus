@@ -18,7 +18,9 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
+	"github.com/baditaflorin/aivoicebus/internal/version"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -411,7 +413,7 @@ func queueCmd(args []string, s Streams) error {
 	}
 	var waiting []msg.Message
 	for _, m := range ms {
-		if m.Kind == msg.KindTask {
+		if m.Kind == msg.KindTask && !updateTaskDone(m) {
 			waiting = append(waiting, m)
 		}
 	}
@@ -430,6 +432,13 @@ func queueCmd(args []string, s Streams) error {
 		}
 	}
 	return nil
+}
+
+// updateTaskDone reports whether m is a `fleet update` task (msg.UpdateTaskRelease) for a release
+// this machine already runs: what it asked for is done, so nobody's queue lists it.
+func updateTaskDone(m msg.Message) bool {
+	v := msg.UpdateTaskRelease(m)
+	return v != "" && release.ValidVersion(version.Release) && !release.Newer(v, version.Release)
 }
 
 // waitFor is tasks.Wait that also stops on Ctrl-C.

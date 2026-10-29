@@ -208,7 +208,7 @@ func releaseMesh(t *testing.T, running, latest string) *store.Store {
 func TestNoticeWhenANewerReleaseIsAnnouncedThenQuietForADay(t *testing.T) {
 	releaseMesh(t, "0.2.0", "0.3.0")
 	got := runHook(t, "")
-	for _, want := range []string{"Release 0.3.0 is available", "runs 0.2.0", "aivoicebus update", "OK"} {
+	for _, want := range []string{"For the person, not the agent: the nodes have release 0.3.0, this machine runs 0.2.0.", "In your own terminal: aivoicebus update", "aivoicebus update --auto on", "run neither yourself"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notice missing %q:\n%s", want, got)
 		}
@@ -233,26 +233,26 @@ func TestNoticeAndMessagesTogether(t *testing.T) {
 	s := releaseMesh(t, "dev", "0.3.0")
 	s.Send(msg.Message{From: "other/agent", To: "all", Body: "hello"})
 	got := runHook(t, "")
-	if !strings.Contains(got, "Release 0.3.0 is available") || !strings.Contains(got, "hello") {
+	if !strings.Contains(got, "the nodes have release 0.3.0") || !strings.Contains(got, "hello") {
 		t.Errorf("both the notice and the message should show:\n%s", got)
 	}
 }
 
+// At most once a day, whatever the release: a patch released an hour after the last line waits.
 func TestShouldNotify(t *testing.T) {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name string
 		prev noticeRecord
-		last string
 		want bool
 	}{
-		{"never mentioned", noticeRecord{}, "0.3.0", true},
-		{"mentioned an hour ago", noticeRecord{"0.3.0", now.Add(-time.Hour)}, "0.3.0", false},
-		{"mentioned a day ago", noticeRecord{"0.3.0", now.Add(-24 * time.Hour)}, "0.3.0", true},
-		{"a newer release since", noticeRecord{"0.3.0", now.Add(-time.Minute)}, "0.4.0", true},
+		{"never mentioned", noticeRecord{}, true},
+		{"mentioned an hour ago", noticeRecord{"0.3.0", now.Add(-time.Hour)}, false},
+		{"mentioned a day ago", noticeRecord{"0.3.0", now.Add(-24 * time.Hour)}, true},
+		{"a newer release since, mentioned a minute ago", noticeRecord{"0.3.0", now.Add(-time.Minute)}, false},
 	}
 	for _, c := range cases {
-		if got := shouldNotify(c.prev, c.last, now); got != c.want {
+		if got := shouldNotify(c.prev, now); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -485,7 +485,7 @@ func TestQuietSettingSilencesTheUpdateNoticeAndSaysItLater(t *testing.T) {
 	if err := config.SaveQuiet(config.Quiet{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := runHook(t, ""); !strings.Contains(got, "Release 0.3.0 is available") {
+	if got := runHook(t, ""); !strings.Contains(got, "the nodes have release 0.3.0") {
 		t.Errorf("held back means said later, not swallowed: %q", got)
 	}
 }

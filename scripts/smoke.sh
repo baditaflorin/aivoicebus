@@ -390,3 +390,28 @@ step who --has ssh:0own_bastion @team=facts
 step who --has token
 echo "\$ GET /v1/roster | grep -c not-for-anyone   # the key file was looked at, never read: its contents reached no node"
 curl -sS -H "Authorization: Bearer $TOKEN" "$AIVOICEBUS_URL/v1/roster?all=1" | grep -c not-for-anyone || true
+echo "# a machine behind the release the nodes hold: one line for the person at session start, at most once a day, and in status; no task goes out (fleet update sends nothing, --apply included); auto-update stays off until the person turns it on in their own terminal, and an agent's session is refused"
+mkdir -p "$T/rel"; printf '{"schema":1,"version":"99.0.0","files":{}}' >"$T/rel/manifest.json" # a node that holds a newer release (announced, never installed here)
+PORT3=$((20000 + RANDOM % 20000)); [ "$PORT3" != "$PORT" ] || PORT3=$((PORT3 + 1))
+"$BIN" serve --addr "127.0.0.1:$PORT3" --data "$T/data3" --token-file "$T/token" --node smoke3 --release-dir "$T/rel" >"$T/serve3.log" 2>&1 &
+PID3=$!
+trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; kill "$PID3" 2>/dev/null || true; rm -rf "$T"' EXIT
+for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$PORT3/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
+MAIN_URL=$AIVOICEBUS_URL
+export AIVOICEBUS_URL="http://127.0.0.1:$PORT3"
+vnorm() { norm | sed -E -e 's/runs [0-9]+\.[0-9]+\.[0-9]+/runs <VER>/g' -e 's/[0-9]+\.[0-9]+\.[0-9]+ here; nodes run [0-9]+\.[0-9]+\.[0-9]+/<VER> here; nodes run <VER>/' -e 's/\(this is [0-9]+\.[0-9]+\.[0-9]+\)/(this is <VER>)/' -e 's/; 99\.0\.0 is available/; <VER> is available/'; }
+as skew/claude.s1
+echo "\$ aivoicebus hook --tool claude"; "$BIN" hook --tool claude </dev/null 2>&1 | vnorm
+echo "\$ aivoicebus hook --tool claude   (again the same day: nothing)"; "$BIN" hook --tool claude </dev/null 2>&1 | vnorm
+echo "\$ aivoicebus status | grep release"; "$BIN" status </dev/null 2>&1 | grep release | vnorm
+step update --auto status
+export AIVOICEBUS_AGENT=claude.s1
+step update --auto on
+unset AIVOICEBUS_AGENT
+step update --auto run
+step update --auto off
+step update --auto on --force
+step fleet update --apply
+kill "$PID3" 2>/dev/null || true; wait "$PID3" 2>/dev/null || true
+trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
+export AIVOICEBUS_URL=$MAIN_URL

@@ -144,7 +144,7 @@ func TestEverySection(t *testing.T) {
 	if r.Release.Here != "0.10.4" || r.Release.Latest != "0.10.9" || !r.Release.Update || r.Release.Nodes["0.10.4"] != 2 {
 		t.Errorf("release = %+v", r.Release)
 	}
-	if !slices.Contains(fixFor(r, "release"), "aivoicebus update") {
+	if !slices.Contains(fixFor(r, "release"), "the person, in a terminal: aivoicebus update (or once, to have it done by itself: aivoicebus update --auto on)") {
 		t.Errorf("no update fix: %v", r.Problems)
 	}
 	if n := r.Nodes; n.Configured != 2 || n.Up != 2 || len(n.Down) != 0 || n.List[0].Name != "na" || n.SpreadMs > 500 {
@@ -494,5 +494,60 @@ func TestTheDeployMachinesSharedTokenIsNoProblem(t *testing.T) {
 	}
 	if out := render(r); !strings.Contains(out, "right here, this machine deploys (it keeps machine tokens for 3 machine(s))") {
 		t.Errorf("screen:\n%s", out)
+	}
+}
+
+// The release part says what auto-update does about a newer release; a run that failed, or a
+// release it leaves out, is the person's to act on.
+func TestReleaseWithAutoUpdate(t *testing.T) {
+	a, _ := node(t, "na", "0.10.4", "0.10.9")
+	for _, c := range []struct {
+		name      string
+		here      string
+		auto      *Auto
+		text, fix string // the release problem ("" for none)
+		line      string // in the release line
+	}{
+		{"off", "0.10.4", &Auto{}, "release 0.10.9 is available (this is 0.10.4)", "the person, in a terminal: aivoicebus update (or once, to have it done by itself: aivoicebus update --auto on)", "0.10.9 is available"},
+		{"on", "0.10.4", &Auto{On: true}, "", "", "0.10.9 is available: auto-update installs it at a session start (at most once a day)"},
+		{"on, a run failed", "0.10.4", &Auto{On: true, Result: "failed", To: "0.10.9", Error: "bad signature"}, "auto-update did not install 0.10.9: bad signature", "the person, in a terminal: aivoicebus update", "0.10.9 is available"},
+		{"on, rolled back", "0.10.4", &Auto{On: true, Result: "rolled back", To: "0.10.9", Error: "setup failed", Skip: "0.10.9"}, "auto-update did not install 0.10.9: setup failed", "the person, in a terminal: aivoicebus update", "0.10.9 is available"},
+		{"on, the person rolled it back", "0.10.4", &Auto{On: true, Skip: "0.10.9"}, "auto-update leaves it out: it was rolled back here", "the person, in a terminal, if they want it after all: aivoicebus update", "0.10.9 is available"},
+		{"on, up to date", "0.10.9", &Auto{On: true}, "", "", "up to date; auto-update on"},
+	} {
+		o := opts(a.URL)
+		o.Here = c.here
+		o.Auto = func() *Auto { return c.auto }
+		r := Gather(o)
+		var text, fix string
+		for _, p := range r.Problems {
+			if p.Section == "release" {
+				text, fix = p.Text, p.Fix
+			}
+		}
+		if (c.text == "") != (text == "") || !strings.Contains(text, c.text) || fix != c.fix {
+			t.Errorf("%s: problem %q -> %q", c.name, text, fix)
+		}
+		if out := render(r); !strings.Contains(out, c.line) {
+			t.Errorf("%s: release line:\n%s", c.name, out)
+		}
+		if r.Release.Auto != c.auto {
+			t.Errorf("%s: the report carries the setting: %+v", c.name, r.Release.Auto)
+		}
+	}
+}
+
+// A fleet update task (0.11.4 to 0.13.x) for a release this machine runs is not the person's any more.
+func TestPersonLeavesOutAnUpdateTaskThatIsDone(t *testing.T) {
+	a, sa := node(t, "na", "0.11.4", "")
+	for _, v := range []string{"0.10.4", "0.10.9"} {
+		if _, err := sa.Send(msg.Message{From: "deploy/claude", To: msg.HumanOf(me), Kind: msg.KindTask, Prio: msg.PrioUrgent,
+			Body: msg.PersonTag + " Update aivoicebus on here: the nodes run " + v + ". In a terminal there: aivoicebus update (it checks the signature before installing), then aivoicebus version."}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := Gather(opts(a.URL)) // here runs 0.10.4
+	if r.Person == nil || len(r.Person.Tasks) != 1 {
+		t.Fatalf("only the task for 0.10.9 waits: %+v", r.Person)
 	}
 }

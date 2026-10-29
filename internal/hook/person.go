@@ -8,6 +8,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
+	"github.com/baditaflorin/aivoicebus/internal/version"
 )
 
 // What waits for the person on this machine (<machine>/human: a [token hand], an approval, a
@@ -51,7 +52,7 @@ func personWaiting(c *client.Client, me string, left time.Duration, quiet bool, 
 	}
 	var out []msg.Message
 	for _, m := range ms {
-		if m.From == me || m.Retracted != nil || !msg.IsHuman(m.To) || (quiet && m.Priority() != msg.PrioUrgent) || (skip != nil && skip(m.ID)) {
+		if m.From == me || m.Retracted != nil || !msg.IsHuman(m.To) || (quiet && m.Priority() != msg.PrioUrgent) || (skip != nil && skip(m.ID)) || updateDone(m) {
 			continue
 		}
 		out = append(out, m)
@@ -72,4 +73,11 @@ func noteTold(me string, ms []msg.Message) {
 	for _, m := range ms {
 		config.NoteTold(me, m.ID)
 	}
+}
+
+// updateDone reports whether m is a `fleet update` task (msg.UpdateTaskRelease) for a release this
+// machine already runs: it asked for what is done, so it is not the person's any more.
+func updateDone(m msg.Message) bool {
+	v := msg.UpdateTaskRelease(m)
+	return v != "" && release.ValidVersion(version.Release) && !release.Newer(v, version.Release)
 }
