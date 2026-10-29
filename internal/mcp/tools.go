@@ -138,6 +138,7 @@ var sendTool = tool{
 		"prio":         map[string]any{"type": "string", "enum": msg.PrioNames(), "description": "fyi is only counted at session start; urgent is shown first and mid-session (default ask, or fyi when the text says FYI/DONE/no action needed and asks nothing)"},
 		"ttl":          str("how long the message stays relevant, such as 90m, 2h, 3d"),
 		"kind":         map[string]any{"type": "string", "enum": msg.KindNames(), "description": "question: stops being delivered to other sessions once someone answers; answer needs re"},
+		"done_when":    str("optional: a condition the RECEIVING machine checks itself (no network, no model); when true the message is settled there and costs its readers nothing. One of: release>=X.Y.Z, has:FACT (as aivoicebus_who has), file:~/PATH (exists), service:LABEL (a launchd or systemd unit is loaded). Anything else is refused"),
 		"queue":        flag("send anyway when none of the sessions a selector matches was seen in the last 30m, or the one session named was not (it waits for that session); a session named without its machine (claude.f324) is then kept for the one session of that name"),
 		"or_successor": flag("if the one session named is gone for 15 minutes with this unread, the nodes hand it to the session that replaces it (the newest live one on its machine with the same tool and repo, or one that claims its role). Default true when re is set (a reply), false otherwise; set it false to keep a reply for the session named"),
 		"dry_run":      flag("check and report only; nothing is sent"),
@@ -147,6 +148,7 @@ var sendTool = tool{
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct {
 			To, Body, Re, Thread, Prio, TTL, Kind string
+			DoneWhen                              string `json:"done_when"`
 			Queue                                 bool
 			OrSuccessor                           *bool `json:"or_successor"`
 			DryRun                                bool  `json:"dry_run"`
@@ -184,7 +186,8 @@ var sendTool = tool{
 			succ = *a.OrSuccessor
 		}
 		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, Re: a.Re, Thread: a.Thread,
-			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true, ReadWithin: outbox.ReadWithin, Successor: succ, SuccessorAsked: succ && a.OrSuccessor != nil}, &warn)
+			Prio: a.Prio, TTL: a.TTL, Kind: a.Kind, Queue: a.Queue, Authored: true, ReadWithin: outbox.ReadWithin, Successor: succ, SuccessorAsked: succ && a.OrSuccessor != nil,
+			Wants: msg.Wants{DoneWhen: a.DoneWhen}}, &warn)
 		if err != nil {
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}

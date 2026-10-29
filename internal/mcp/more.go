@@ -58,13 +58,15 @@ var taskTool = tool{
 		"body":         str("what to do, self-contained: the other agent has none of your context"),
 		"ttl":          str("how long it stays open, such as 2h or 1d (default 3d)"),
 		"confirm_caps": flag("an owner:... target whose record nobody pinned is only previewed until this is true: anyone with the token can write one, so look at who it resolved to first"),
+		"done_when":    str("optional: a condition the RECEIVING machine checks itself (no network, no model); when true the message is settled there and costs its readers nothing. One of: release>=X.Y.Z, has:FACT (as aivoicebus_who has), file:~/PATH (exists), service:LABEL (a launchd or systemd unit is loaded). Anything else is refused"),
 		"wait_seconds": map[string]any{"type": "integer", "description": fmt.Sprintf("wait this long for the answer (at most %d); 0: return at once", maxWaitSeconds)},
 	}),
 	run: func(s *Server, raw json.RawMessage) (string, error) {
 		var a struct {
 			To, Body, TTL, Needs string
-			ConfirmCaps          bool `json:"confirm_caps"`
-			WaitSeconds          int  `json:"wait_seconds"`
+			DoneWhen             string `json:"done_when"`
+			ConfirmCaps          bool   `json:"confirm_caps"`
+			WaitSeconds          int    `json:"wait_seconds"`
 		}
 		if err := decode(raw, &a); err != nil {
 			return "", err
@@ -112,7 +114,7 @@ var taskTool = tool{
 			return "", errors.New("to is where the task goes (a machine, host/tool or @selector), or give needs: call it again with one")
 		}
 		var warn strings.Builder
-		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, TTL: a.TTL, Kind: msg.KindTask}, &warn)
+		plan, err := outbox.Prepare(c, outbox.Request{To: a.To, Body: a.Body, TTL: a.TTL, Kind: msg.KindTask, Wants: msg.Wants{DoneWhen: a.DoneWhen}}, &warn)
 		if err != nil {
 			return "", errors.New(strings.TrimSpace(warn.String() + "\n" + err.Error()))
 		}

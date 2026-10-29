@@ -34,7 +34,7 @@ func taskCmd(args []string, s Streams) error {
 	// Routing flags pick who may take it; everything else is send's. The machine is the first word
 	// when another word (the text) follows it, or when no capability or model routes the task.
 	args = joinWaitState(args) // --wait-state ready 10m: both words are the flag's
-	valued := map[string]bool{"ttl": true, "wait-reply": true, "wait-state": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true, "until": true, "reply-by": true, "need-by": true, "escalate": true, "escalate-wait": true}
+	valued := map[string]bool{"ttl": true, "wait-reply": true, "wait-state": true, "quiet-after": true, "file": true, "via": true, "prio": true, "thread": true, "re": true, "tail": true, "kind": true, "to": true, "max-turns": true, "deadline": true, "until": true, "reply-by": true, "need-by": true, "escalate": true, "escalate-wait": true, "done-when": true}
 	var machine, tool, can, model, fallback, claimWithin, each, waitAll, needs, withThread string
 	anyListening, person := false, false
 	var rest []string
