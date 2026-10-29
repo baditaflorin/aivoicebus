@@ -140,7 +140,7 @@ func TestDecide(t *testing.T) {
 			m := task("desk/claude.z9", "lap", time.Minute)
 			m.Body = msg.PersonTag + " swap the disk in the hall"
 			return m
-		}(), false, "meant for the person on this machine (aivoicebus claim"},
+		}(), false, "meant for the person on this machine (already done or not needed: aivoicebus done"},
 		{func() msg.Message {
 			m := task("desk/claude.z9", "lap", time.Minute)
 			m.Verified = msg.VerifiedUnsigned

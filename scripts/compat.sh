@@ -576,31 +576,32 @@ done
 check_converged "version vectors equal"
 
 scenario "a settle by the machine's person"
-# The person on machine st-NODE settles a task sent to the machine. A node that knows (settle) stops
+# The person on machine st-NODE settles a message sent to the machine. A node that knows (settle) stops
 # delivering it to every session of that machine, even one it never saw, and refuses to settle an
 # approval request; an older one stores the ack as a read receipt for nothing and keeps delivering it
 # (the client asks the node's features first, so it never relies on one that cannot).
+sent_id() { py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$W/last.out" 2>/dev/null; } # the id the node answered a send with
+declare -A STID APID
 for k in "${!NAME[@]}"; do
   n=${NAME[$k]}; host=st-$n
-  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"settle me MARK-ST-'"$n"'"}' >/dev/null
-  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'/human","body":"[approval needed] run it MARK-AP-'"$n"'"}' >/dev/null
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"settle me MARK-ST-'"$n"'"}' >/dev/null; STID[$k]=$(sent_id)
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'/human","body":"[approval needed] run it MARK-AP-'"$n"'"}' >/dev/null; APID[$k]=$(sent_id)
 done
 check_converged "version vectors equal"
 for k in "${!NAME[@]}"; do
-  n=${NAME[$k]}; host=st-$n
-  t=$(id_of "${PORT[$k]}" "MARK-ST-$n"); ap=$(id_of "${PORT[$k]}" "MARK-AP-$n")
-  check "$(inbox_has "${PORT[$k]}" "$host/agent.one" "$t")" yes "$n (${VER[$k]}): a session of the machine is shown the task"
+  n=${NAME[$k]}; host=st-$n; t=${STID[$k]}; ap=${APID[$k]}
+  check "$(inbox_has "${PORT[$k]}" "$host/agent.one" "$t")" yes "$n (${VER[$k]}): a session of the machine is shown the message"
   code=$(post "${PORT[$k]}" /v1/ack '{"id":"settle:'"$t"'","by":"'"$host"'/human"}')
   check "$code" 200 "$n: the person's settle is accepted"
   want=yes; has "$k" settle && want=no
-  check "$(inbox_has "${PORT[$k]}" "$host/agent.new$k" "$t")" "$want" "$n (${VER[$k]}): a session it never saw is shown the settled task: $want"
+  check "$(inbox_has "${PORT[$k]}" "$host/agent.new$k" "$t")" "$want" "$n (${VER[$k]}): a session it never saw is shown the settled message: $want"
   wantap=200; has "$k" settle && wantap=400
   check "$(post "${PORT[$k]}" /v1/ack '{"id":"settle:'"$ap"'","by":"'"$host"'/human"}')" "$wantap" "$n: a settle of an approval request is $([ $wantap = 400 ] && echo refused || echo stored as a plain ack)"
   check "$(inbox_has "${PORT[$k]}" "$host/human" "$ap")" yes "$n: the approval request still waits for the person"
 done
 check_converged "version vectors equal"
 for k in "${!NAME[@]}"; do
-  n=${NAME[$k]}; host=st-$n; t=$(id_of "${PORT[$k]}" "MARK-ST-$n")
+  n=${NAME[$k]}; host=st-$n; t=${STID[$k]}
   for j in "${!NAME[@]}"; do
     want=yes; has "$j" settle && want=no
     check "$(inbox_has "${PORT[$j]}" "$host/agent.rep$j" "$t")" "$want" "${NAME[$j]} (${VER[$j]}) replicated the settle made on $n: shown $want"
