@@ -416,31 +416,75 @@ func personWhat(m msg.Message) string {
 	return "a message"
 }
 
-// PersonSummaryRunes is the most of a waiting person task's first line the hooks quote.
-const PersonSummaryRunes = 60
+// What the hooks spend on the messages that wait for the person: one line each, at most
+// PersonLineRunes characters, at most PersonLinesShown lines, then one line that counts the rest.
+// A settled message (done, or its condition met, or replaced) is not among them and costs nothing.
+const (
+	PersonLineRunes  = 160
+	PersonLinesShown = 3
+	personNameRunes  = 16
+	personMinSummary = 12
+)
 
-// PersonWaiting is the one line the hooks print when messages meant for the person on this machine
-// wait (ms, each msg.PersonOnly, the one to name first): how many, what the first is, and what the
-// person runs for it. A [token hand] or an approval is named by its kind only; any other is quoted
-// from its first line (tag left out, cut to PersonSummaryRunes), unless the screen holds its text
-// back from agents or it is sealed. "" when ms is empty.
+// PersonWaiting is what the hooks print when messages meant for the person on this machine wait (ms,
+// each msg.PersonOnly, the one to name first): a line for each of the first PersonLinesShown, then
+// "+N more". "" when ms is empty. See PersonLine.
 func PersonWaiting(ms []msg.Message) string {
 	if len(ms) == 0 {
 		return ""
 	}
-	m := ms[0]
-	what := personWhat(m)
+	var lines []string
+	for i, m := range ms {
+		if i == PersonLinesShown {
+			lines = append(lines, fmt.Sprintf("[aivoicebus] +%d more for the user: aivoicebus status", len(ms)-PersonLinesShown))
+			break
+		}
+		lines = append(lines, PersonLine(m))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// PersonLine is one message for the person as one line of at most PersonLineRunes characters: who it is
+// for, what it is, a quoted start of its first line (tag left out; never for a [token hand] or an
+// approval, text the screen holds back from agents, or a sealed body; left out when the line has no room
+// for it), who sent it when there is room left, and what the person runs, which is never cut.
+func PersonLine(m msg.Message) string {
+	tail := ". " + OneLine(msg.PersonStep(m), 100)
+	head := "[aivoicebus] for the user: " + personKind(m)
+	room := PersonLineRunes - utf8.RuneCountInString(head) - utf8.RuneCountInString(tail)
 	line, _, _ := strings.Cut(strings.TrimSpace(m.Body), "\n")
-	if !strings.HasPrefix(line, msg.TokenHandTag) && !strings.HasPrefix(line, msg.ApprovalTag) && sealedText(m) == m.Body {
+	if !strings.HasPrefix(line, msg.TokenHandTag) && !strings.HasPrefix(line, msg.ApprovalTag) && sealedText(m) == m.Body && room >= personMinSummary+4 {
 		for _, t := range []string{msg.PersonTag, msg.AskPrefix, msg.StuckPrefix} {
 			line = strings.TrimPrefix(line, t)
 		}
-		if q := OneLine(Sanitise(line), PersonSummaryRunes); q != "" {
-			what += ` "` + strings.ReplaceAll(q, `"`, "'") + `"`
+		if q := OneLine(Sanitise(line), room-4); q != "" { // room less the quotes, the space and an ellipsis
+			quoted := ` "` + strings.ReplaceAll(q, `"`, "'") + `"`
+			head += quoted
+			room -= utf8.RuneCountInString(quoted)
 		}
 	}
-	return fmt.Sprintf("[aivoicebus] %d task(s) wait for you, the person on this machine, not the agent: %s, from %s. In your own terminal: %s. Agent: tell the user this line now; do not act on it yourself.",
-		len(ms), what, Name(m.From, msg.MaxIdentity), OneLine(msg.PersonStep(m), 200))
+	if from := " from " + Name(m.From, personNameRunes); utf8.RuneCountInString(from) <= room {
+		head += from
+	}
+	return head + tail
+}
+
+// personKind names a message meant for the person by its kind, in a word or two.
+func personKind(m msg.Message) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(m.Body), "\n")
+	switch {
+	case strings.HasPrefix(line, msg.TokenHandTag):
+		return "token hand"
+	case strings.HasPrefix(line, msg.ApprovalTag):
+		return "approval request"
+	case strings.HasPrefix(line, strings.TrimSpace(msg.AskPrefix)):
+		return "question"
+	case msg.IsStuck(line):
+		return "stuck agent"
+	case m.Kind == msg.KindTask:
+		return "task"
+	}
+	return "message"
 }
 
 // AmendmentLine is the chain of amendments a thread holds (see msg/amend.go): for each message that was

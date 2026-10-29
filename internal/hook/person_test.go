@@ -58,10 +58,9 @@ func TestSessionStartTellsWhatWaitsForThePersonAndLeavesItUnread(t *testing.T) {
 
 	got := runHook(t, "")
 	for _, want := range []string{
-		"[aivoicebus] 2 task(s) wait for you, the person on this machine, not the agent: a task \"Update aivoicebus on air: the nodes run 0.11.5. In a",
-		"…\", from deploy/claude.",
-		"In your own terminal: already done or not needed: aivoicebus done " + task.ID + " | to do it: aivoicebus claim " + task.ID,
-		"Agent: tell the user this line now; do not act on it yourself.",
+		"[aivoicebus] for the user: task \"Update aivoicebus",
+		"…\". already done or not needed: aivoicebus done " + task.ID + " | to do it: aivoicebus claim " + task.ID,
+		"[aivoicebus] for the user: token hand from deploy/claude. aivoicebus token install " + hand.ID,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q:\n%s", want, got)
@@ -81,7 +80,7 @@ func TestSessionStartTellsWhatWaitsForThePersonAndLeavesItUnread(t *testing.T) {
 			t.Fatal("a peek never makes the person a session")
 		}
 	}
-	if again := runHook(t, ""); !strings.Contains(again, "2 task(s) wait for you") {
+	if again := runHook(t, ""); strings.Count(again, "[aivoicebus] for the user:") != 2 {
 		t.Errorf("every session start says it while it waits:\n%s", again)
 	}
 
@@ -90,10 +89,10 @@ func TestSessionStartTellsWhatWaitsForThePersonAndLeavesItUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = runHook(t, "")
-	if !strings.Contains(got, "1 task(s) wait for you") || !strings.Contains(got, "aivoicebus token install "+hand.ID) {
+	if strings.Count(got, "[aivoicebus] for the user:") != 1 || !strings.Contains(got, "aivoicebus token install "+hand.ID) {
 		t.Errorf("the token hand is next:\n%s", got)
 	}
-	if strings.Contains(got, "XYZ") || !strings.Contains(got, "[token hand] task") {
+	if strings.Contains(got, "XYZ") || !strings.Contains(got, "token hand from deploy/claude") {
 		t.Errorf("a token hand is named by its kind, never quoted:\n%s", got)
 	}
 }
@@ -121,20 +120,20 @@ func TestQuietHoursHoldThePersonsLineButNotAnUrgentOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer setClock(func() time.Time { return time.Date(2026, 10, 14, 23, 30, 0, 0, time.Local) })()
-	if got := runHook(t, ""); strings.Contains(got, "wait for you") {
+	if got := runHook(t, ""); strings.Contains(got, "for the user:") {
 		t.Fatalf("at night the person's task waits:\n%s", got)
 	}
 	everyPrompt(t)
-	if got := promptHook(t, ""); strings.Contains(got, "wait for you") {
+	if got := promptHook(t, ""); strings.Contains(got, "for the user:") {
 		t.Fatalf("and the prompt hook holds it too:\n%s", got)
 	}
 	s.Send(msg.Message{From: "air/codex.k3", To: "air/human", Prio: msg.PrioUrgent, Body: msg.StuckPrefix + "the build host refuses my key"})
-	if got := runHook(t, ""); !strings.Contains(got, "1 task(s) wait for you") || !strings.Contains(got, `an agent that is stuck "the build host refuses my key"`) {
+	if got := runHook(t, ""); strings.Count(got, "[aivoicebus] for the user:") != 1 || !strings.Contains(got, `stuck agent "the build host refuses my key"`) {
 		t.Fatalf("an urgent one shows at night:\n%s", got)
 	}
 
 	setClock(func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.Local) })
-	if got := runHook(t, ""); !strings.Contains(got, "2 task(s) wait for you") || !strings.Contains(got, "agent that is stuck") {
+	if got := runHook(t, ""); strings.Count(got, "[aivoicebus] for the user:") != 2 || strings.Index(got, "stuck agent") > strings.Index(got, "user: task") {
 		t.Errorf("in the morning both, the urgent one first:\n%s", got)
 	}
 }
@@ -145,7 +144,7 @@ func TestThePromptHookTellsANewPersonTaskOnce(t *testing.T) {
 	s, _ := personMesh(t, "0.11.4")
 	everyPrompt(t)
 	old, _ := s.Send(msg.Message{From: "deploy/claude", To: "air/human", Kind: msg.KindTask, Body: updateTask})
-	if got := runHook(t, ""); !strings.Contains(got, "1 task(s) wait for you") {
+	if got := runHook(t, ""); strings.Count(got, "[aivoicebus] for the user:") != 1 {
 		t.Fatalf("session start:\n%s", got)
 	}
 	if got := promptHook(t, ""); got != "" {
@@ -153,7 +152,7 @@ func TestThePromptHookTellsANewPersonTaskOnce(t *testing.T) {
 	}
 	hand, _ := s.Send(msg.Message{From: "deploy/claude", To: "air/human", Kind: msg.KindTask, Body: msg.TokenHandTag + " sealed"})
 	got := promptHook(t, "")
-	if !strings.Contains(got, "1 task(s) wait for you") || !strings.Contains(got, "aivoicebus token install "+hand.ID) || strings.Contains(got, old.ID) {
+	if strings.Count(got, "[aivoicebus] for the user:") != 1 || !strings.Contains(got, "aivoicebus token install "+hand.ID) || strings.Contains(got, old.ID) {
 		t.Fatalf("the new one, alone:\n%s", got)
 	}
 	if again := promptHook(t, ""); again != "" {
@@ -166,7 +165,7 @@ func TestThePromptHookTellsANewPersonTaskOnce(t *testing.T) {
 	s.Send(msg.Message{From: "deploy/claude", To: "air/human", Kind: msg.KindTask, Body: msg.ApprovalTag + " worker on imac wants to write"})
 	s.Send(msg.Message{From: "other/agent", To: "air/codex", Body: "prod is down", Prio: msg.PrioUrgent})
 	got = promptHook(t, "")
-	if i, j := strings.Index(got, "an approval request"), strings.Index(got, "1 URGENT message(s)"); i < 0 || j < i || !strings.Contains(got, "prod is down") {
+	if i, j := strings.Index(got, "approval request from"), strings.Index(got, "1 URGENT message(s)"); i < 0 || j < i || !strings.Contains(got, "prod is down") {
 		t.Errorf("both, the person's line first:\n%s", got)
 	}
 }
