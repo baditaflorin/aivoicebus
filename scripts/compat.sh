@@ -581,6 +581,7 @@ scenario "a settle by the machine's person"
 # approval request; an older one stores the ack as a read receipt for nothing and keeps delivering it
 # (the client asks the node's features first, so it never relies on one that cannot).
 sent_id() { py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$W/last.out" 2>/dev/null; } # the id the node answered a send with
+declare -A QN0; for i in "${!NAME[@]}"; do QN0[$i]=$(hfield "${PORT[$i]}" quarantined); done # what earlier scenarios quarantined on purpose
 declare -A STID APID
 for k in "${!NAME[@]}"; do
   n=${NAME[$k]}; host=st-$n
@@ -607,7 +608,7 @@ for k in "${!NAME[@]}"; do
     check "$(inbox_has "${PORT[$j]}" "$host/agent.rep$j" "$t")" "$want" "${NAME[$j]} (${VER[$j]}) replicated the settle made on $n: shown $want"
   done
 done
-check_quarantined 0 "no node quarantined a settle"
+for i in "${!NAME[@]}"; do check "$(hfield "${PORT[$i]}" quarantined)" "${QN0[$i]}" "${NAME[$i]} quarantined nothing in this scenario (a settle is an ordinary ack to every release)"; done
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done
