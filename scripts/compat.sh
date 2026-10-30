@@ -66,6 +66,7 @@ feature_since() {
     signing) echo 0.7.0 ;;    # keeps a message's signature; a client signs only when every node does
     budget) echo 0.12.0 ;;    # a conversation's --budget-chars: a message that would pass it is refused, an [end] goes
     inboxwait) echo 0.4.0 ;;  # holds an inbox read open (wait=S&gen=G) and calls the session listening meanwhile
+    settle) echo 0.15.0 ;;    # a settle ack by <machine>/human hides a message from every session on that machine (a message that must be answered is refused)
     waitscope) echo 0.13.1 ;; # a held read says what its wait takes (wscope=1&wthread=T): a wait for one thread is busy, not listening
     *) echo "compat: unknown feature $1" >&2; return 1 ;;
   esac
@@ -573,6 +574,41 @@ for k in "${!NAME[@]}"; do
   fi
 done
 check_converged "version vectors equal"
+
+scenario "a settle by the machine's person"
+# The person on machine st-NODE settles a message sent to the machine. A node that knows (settle) stops
+# delivering it to every session of that machine, even one it never saw, and refuses to settle an
+# approval request; an older one stores the ack as a read receipt for nothing and keeps delivering it
+# (the client asks the node's features first, so it never relies on one that cannot).
+sent_id() { py 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$W/last.out" 2>/dev/null; } # the id the node answered a send with
+declare -A QN0; for i in "${!NAME[@]}"; do QN0[$i]=$(hfield "${PORT[$i]}" quarantined); done # what earlier scenarios quarantined on purpose
+declare -A STID APID
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; host=st-$n
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'","body":"settle me MARK-ST-'"$n"'"}' >/dev/null; STID[$k]=$(sent_id)
+  post "${PORT[$k]}" /v1/send '{"from":"desk-'"$n"'/compat.s1","to":"'"$host"'/human","body":"[approval needed] run it MARK-AP-'"$n"'"}' >/dev/null; APID[$k]=$(sent_id)
+done
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; host=st-$n; t=${STID[$k]}; ap=${APID[$k]}
+  check "$(inbox_has "${PORT[$k]}" "$host/agent.one" "$t")" yes "$n (${VER[$k]}): a session of the machine is shown the message"
+  code=$(post "${PORT[$k]}" /v1/ack '{"id":"settle:'"$t"'","by":"'"$host"'/human"}')
+  check "$code" 200 "$n: the person's settle is accepted"
+  want=yes; has "$k" settle && want=no
+  check "$(inbox_has "${PORT[$k]}" "$host/agent.new$k" "$t")" "$want" "$n (${VER[$k]}): a session it never saw is shown the settled message: $want"
+  wantap=200; has "$k" settle && wantap=400
+  check "$(post "${PORT[$k]}" /v1/ack '{"id":"settle:'"$ap"'","by":"'"$host"'/human"}')" "$wantap" "$n: a settle of an approval request is $([ $wantap = 400 ] && echo refused || echo stored as a plain ack)"
+  check "$(inbox_has "${PORT[$k]}" "$host/human" "$ap")" yes "$n: the approval request still waits for the person"
+done
+check_converged "version vectors equal"
+for k in "${!NAME[@]}"; do
+  n=${NAME[$k]}; host=st-$n; t=${STID[$k]}
+  for j in "${!NAME[@]}"; do
+    want=yes; has "$j" settle && want=no
+    check "$(inbox_has "${PORT[$j]}" "$host/agent.rep$j" "$t")" "$want" "${NAME[$j]} (${VER[$j]}) replicated the settle made on $n: shown $want"
+  done
+done
+for i in "${!NAME[@]}"; do check "$(hfield "${PORT[$i]}" quarantined)" "${QN0[$i]}" "${NAME[$i]} quarantined nothing in this scenario (a settle is an ordinary ack to every release)"; done
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done

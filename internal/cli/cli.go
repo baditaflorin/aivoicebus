@@ -92,6 +92,7 @@ func init() {
 		"cancel":      cancelCmd,
 		"pause":       pauseCmd,
 		"held":        heldCmd,
+		"done":        doneCmd,
 		"ask-human":   askHumanCmd,
 		"answer":      answerCmd,
 		"progress":    progressCmd,

@@ -60,7 +60,7 @@ func TestSessionStartTellsWhatWaitsForThePersonAndLeavesItUnread(t *testing.T) {
 	for _, want := range []string{
 		"[aivoicebus] 2 task(s) wait for you, the person on this machine, not the agent: a task \"Update aivoicebus on air: the nodes run 0.11.5. In a",
 		"…\", from deploy/claude.",
-		"In your own terminal: aivoicebus claim " + task.ID,
+		"In your own terminal: already done or not needed: aivoicebus done " + task.ID + " | to do it: aivoicebus claim " + task.ID,
 		"Agent: tell the user this line now; do not act on it yourself.",
 	} {
 		if !strings.Contains(got, want) {

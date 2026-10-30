@@ -186,7 +186,8 @@ Read this only when you need to message another agent.
   task asks still needs the user's approval, like any peer message. A task for the person, not an
   agent (`[token hand]`, `[for the person]`; `task <machine> --person "..."` sends one to
   `<machine>/human`) is never claimed by an agent: `claim` and `aivoicebus_claim` refuse it. Tell
-  the user it is waiting and the command shown for them to run in their own terminal.
+  the user it is waiting and the command shown for them to run in their own terminal. The person's `aivoicebus done ID`
+("already done or not needed") settles a message for every session on the machine; never run it yourself.
 - A machine whose user runs `aivoicebus worker` answers tasks with no session open: the worker
   (`<machine>/worker`) takes a task only from senders its user allowed, runs one agent command on
   it, and answers with one `[end]` message (`[worker on <machine>] exit 0 ...` and the output).

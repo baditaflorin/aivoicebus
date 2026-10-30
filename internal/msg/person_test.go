@@ -40,7 +40,7 @@ func TestPersonStepNamesWhatThePersonRuns(t *testing.T) {
 		TokenHandTag + " air\n...": "aivoicebus token install a1b2c3d4e5",
 		ApprovalTag + " run it?":   "aivoicebus approve a1b2c3d4e5",
 		AskPrefix + "which one?":   "aivoicebus answer a1b2c3d4e5",
-		PersonTag + " reboot it":   "aivoicebus claim a1b2c3d4e5",
+		PersonTag + " reboot it":   "already done or not needed: aivoicebus done a1b2c3d4e5 | to do it: aivoicebus claim a1b2c3d4e5",
 	} {
 		got := PersonStep(Message{ID: "a1b2c3d4e5", To: "air/human", Kind: KindTask, Body: body})
 		if !strings.HasPrefix(got, want) {

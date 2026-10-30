@@ -67,6 +67,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"state", "a conversation's handshake, seen by both sides: state ID ready \"note\" moves it (offered, taken, ready, doing, done, stuck, declined), --wait-state ready 10m waits for it"},
 	{"progress", "say how a task goes, to whoever waits on it: progress --re ID \"step 3/5\" (waits show it and go on)"},
 	{"stuck", "say you are blocked instead of going silent: stuck \"blocked on X\" [--re ID] [--need person|peer|TOOL]; the task's sender and your person (or a listening peer) are told"},
+	{"done", "the person's \"already done\" or \"not needed\": stop showing a task or message to every session on this machine, and tell its sender (done --all; never an approval, a token hand or a question)"},
 	{"held", "what was held back from agents (a bad signature, or text that reads like instructions to an agent), with the text: the user's, in a terminal"},
 	{"unhold", "let agents see a held message (the user, at a terminal)"},
 	{"incident", "a credential leaked: plan (default) or do, at a terminal, the whole response: revoke or rotate it, retract the messages that held it, who read them, an audit entry"},
