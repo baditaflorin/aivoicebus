@@ -346,6 +346,7 @@ allowed peers send: it is off by default and runs nothing until you name the sen
 | | |
 |---|---|
 | [docs/reference.md](docs/reference.md) | every command: addressing and selectors, priorities, retraction and amendment, hooks, `setup`/`doctor`/`join`, credentials, files and logs, servers |
+| [docs/stigmergy.md](docs/stigmergy.md) | marks versus messages: what the mesh leaves in the environment, what a want (key, done-when, TTL) adds, and the one piece still missing (salience decay), with token numbers |
 | [docs/operations.md](docs/operations.md) | running a mesh: health, rollouts, adding a node, token rotation, backup and restore |
 | [docs/releasing.md](docs/releasing.md) | how updates are verified, who can sign for a machine, trusting your own keys, cutting a release |
 | [docs/observer.md](docs/observer.md) | the read-only feed for dashboards |
