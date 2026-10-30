@@ -30,6 +30,8 @@ Usage of send:
     	print the result as JSON
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
+  -key string
+    	name what this message is for (letters, digits . _ : @ -): a later message with the same key to the same target from this machine replaces it, for every session that has not read it (update-0own)
   -kind string
     	question | answer | task | claim | end | lease | progress: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -max-turns int
@@ -56,6 +58,8 @@ Usage of send:
     	warn (it still sends) when the one session named has read nothing for longer than this, naming who else is live in its repo or the repo's owner; 0: never (default 2h0m0s)
   -reply-by duration
     	wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply
+  -supersedes string
+    	the id of an earlier message this machine sent, which this one replaces: sessions that have not read it are shown only this one
   -tail string
     	point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME
   -test
@@ -103,6 +107,8 @@ Usage of send:
     	print the result as JSON
   -keep
     	with --file: let several sessions read the file (it is not burned by the first read)
+  -key string
+    	name what this message is for (letters, digits . _ : @ -): a later message with the same key to the same target from this machine replaces it, for every session that has not read it (update-0own)
   -kind string
     	question | answer | task | claim | end | lease | progress: a question to several sessions stops being delivered once someone answers it (an answer needs --re)
   -max-turns int
@@ -129,6 +135,8 @@ Usage of send:
     	warn (it still sends) when the one session named has read nothing for longer than this, naming who else is live in its repo or the repo's owner; 0: never (default 2h0m0s)
   -reply-by duration
     	wait this long (up to 24h) for a reply, then say whether anyone read the message: read by 0 of 1 is exit 8 (silence is not consent), a reply is exit 1, read and no reply is exit 0; ends early on a reply
+  -supersedes string
+    	the id of an earlier message this machine sent, which this one replaces: sessions that have not read it are shown only this one
   -tail string
     	point at a live log held by tail server: a stream name, or the word new for a fresh one; feed it with: cmd | aivoicebus tail push --stream NAME
   -test
@@ -563,7 +571,7 @@ ok    claude instructions    snippet b105598f
 ok    state                  applied by release <VER>
 ok    mesh                   reachable
 WARN  approval               nothing on this machine can be approved by a person (no approver key, no notify URL, no terminal): a token install or a write-mode task waits for nobody. Fix: aivoicebus approver init (approve from any terminal here), or aivoicebus watch notify set URL (approve on the phone)
-ok    node features          smoke: amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,offers,quarantine,receipts,retract,retract-dry-run,settle,share,states,successor,tasks,testlane,token-seen,turns,unsigned-report,wait-scope
+ok    node features          smoke: amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,offers,quarantine,receipts,retract,retract-dry-run,settle,share,states,successor,tasks,testlane,token-seen,turns,unsigned-report,wait-scope,wants
 WARN  token kind             the mesh's shared token: whoever holds it can send as this machine. Unless this is the machine you deploy from (which keeps it), the operator gives it its own: deploy/machine-token.sh add air --apply (from the root of an aivoicebus checkout), then aivoicebus token hand air
 [exit 0]
 $ aivoicebus uninstall --dry-run
@@ -866,7 +874,7 @@ $ aivoicebus selftest
 warning: only 1 node(s) took the write
 warning: only 1 node(s) took the write
 selftest (a probe between two throwaway identities on this machine)
-  health <MS>  ok    node smoke release <VER>, features amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,offers,quarantine,receipts,retract,retract-dry-run,settle,share,states,successor,tasks,testlane,token-seen,turns,unsigned-report,wait-scope
+  health <MS>  ok    node smoke release <VER>, features amend,brakes,budget,decide,files,inbox-peek,inbox-wait,leases,offers,quarantine,receipts,retract,retract-dry-run,settle,share,states,successor,tasks,testlane,token-seen,turns,unsigned-report,wait-scope,wants
   send <MS>  ok    id <ID>
   visible <MS>  ok    the reader's inbox showed the probe intact (time to visible, polls included)
   ack <MS>  ok    acknowledged as the reader

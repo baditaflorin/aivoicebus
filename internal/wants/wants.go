@@ -133,9 +133,40 @@ type Met struct {
 	Cond msg.Cond
 }
 
-// Split takes the messages whose done-when is met here out of ms: what is left, and what was met.
-// Never settles a message that must be answered (msg.Settleable), whatever it says.
+// Split takes the messages whose done-when is met here out of ms: what is left, and what was met. It
+// also leaves out a message another one in ms replaces (msg.Replaces), which a node that applies keys
+// and supersedes has already done and an older one has not. Never settles a message that must be
+// answered (msg.Settleable), whatever it says.
 func Split(e Env, ms []msg.Message) (left []msg.Message, met []Met) {
+	left, met = split(e, ms)
+	return dropReplaced(left), met
+}
+
+// dropReplaced leaves out the messages in ms that a later one in ms replaces.
+func dropReplaced(ms []msg.Message) []msg.Message {
+	var bs []msg.Message
+	for _, m := range ms {
+		if m.Retracted == nil && (strings.Contains(m.Body, "\n[supersedes: ") || strings.Contains(m.Body, "\n[key: ")) {
+			bs = append(bs, m)
+		}
+	}
+	if len(bs) == 0 {
+		return ms
+	}
+	out := make([]msg.Message, 0, len(ms))
+next:
+	for _, m := range ms {
+		for _, b := range bs {
+			if msg.Replaces(b, m) {
+				continue next
+			}
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func split(e Env, ms []msg.Message) (left []msg.Message, met []Met) {
 	for _, m := range ms {
 		if w := msg.WantsOf(m); w.DoneWhen != "" && msg.Settleable(m) {
 			if c, err := msg.ParseCond(w.DoneWhen); err == nil && e.Met(c) {
