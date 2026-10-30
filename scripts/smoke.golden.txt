@@ -14,6 +14,8 @@ Usage of send:
     	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
   -detach
     	with a deadline: send, remember it and return at once; watch reports it when it passes, status ID shows it any time
+  -done-when string
+    	a condition the receiving machine checks by itself, with no network and no model: when it is true the message is settled there and costs its readers nothing. release>=X.Y.Z (the installed release), has:FACT (as who --has), file:~/PATH (exists), service:LABEL (a launchd/systemd unit is loaded)
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
   -escalate string
@@ -85,6 +87,8 @@ Usage of send:
     	start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes
   -detach
     	with a deadline: send, remember it and return at once; watch reports it when it passes, status ID shows it any time
+  -done-when string
+    	a condition the receiving machine checks by itself, with no network and no model: when it is true the message is settled there and costs its readers nothing. release>=X.Y.Z (the installed release), has:FACT (as who --has), file:~/PATH (exists), service:LABEL (a launchd/systemd unit is loaded)
   -dry-run
     	check the message and say who it would reach and what it would cost, without sending
   -escalate string
