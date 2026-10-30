@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -416,8 +417,9 @@ func TestAPeersLookalikeNameIsWrittenOutLoud(t *testing.T) {
 func TestPersonWaitingQuotesOnlyWhatAnAgentMayRead(t *testing.T) {
 	task := msg.Message{ID: "00aa11bb22", From: "deploy/claude", To: "air/human", Kind: msg.KindTask, Body: msg.PersonTag + ` Update "aivoicebus" on air` + "\n\nmore"}
 	got := PersonWaiting([]msg.Message{task, {ID: "x"}})
-	if want := `[aivoicebus] 2 task(s) wait for you, the person on this machine, not the agent: a task "Update 'aivoicebus' on air", from deploy/claude. In your own terminal: already done or not needed: aivoicebus done 00aa11bb22 | to do it: aivoicebus claim 00aa11bb22`; !strings.HasPrefix(got, want) {
-		t.Errorf("got  %s\nwant %s…", got, want)
+	lines := strings.Split(got, "\n")
+	if want := `[aivoicebus] for the user: task "Update 'aivoicebus' on air". already done or not needed: aivoicebus done 00aa11bb22 | to do it: aivoicebus claim 00aa11bb22`; len(lines) != 2 || lines[0] != want {
+		t.Errorf("got  %q\nwant %s", got, want)
 	}
 	if PersonWaiting(nil) != "" {
 		t.Error("nothing waits: no line")
@@ -425,7 +427,7 @@ func TestPersonWaitingQuotesOnlyWhatAnAgentMayRead(t *testing.T) {
 	old := Screen
 	Screen = func(m msg.Message) string { return "it reads like instructions" }
 	t.Cleanup(func() { Screen = old })
-	if got := PersonWaiting([]msg.Message{task}); strings.Contains(got, "Update") || !strings.Contains(got, "a task, from deploy/claude") {
+	if got := PersonWaiting([]msg.Message{task}); strings.Contains(got, "Update") || !strings.Contains(got, "task from deploy/claude. already done") {
 		t.Errorf("held text is not quoted: %s", got)
 	}
 	Screen = old
@@ -479,5 +481,37 @@ func TestReceiptsSayWhenAnotherSessionReadWhatWasWrittenToOne(t *testing.T) {
 	Receipts(&b, r)
 	if strings.Contains(b.String(), "in place of") {
 		t.Errorf("a message to a machine is read by whoever is there: %q", b.String())
+	}
+}
+
+// One line per item, whatever a sender chose, and the rest counted: the budget the hooks keep.
+func TestPersonWaitingIsAtMostThreeShortLinesAndACount(t *testing.T) {
+	var ms []msg.Message
+	for i := 0; i < 20; i++ {
+		ms = append(ms, msg.Message{ID: "00aa11bb22", From: strings.Repeat("longname", 20) + "/claude.s1", To: "air/human", Kind: msg.KindTask,
+			Body: msg.PersonTag + " " + strings.Repeat("a very long first line that keeps on going ", 10)})
+	}
+	for n := 1; n <= 20; n++ {
+		lines := strings.Split(PersonWaiting(ms[:n]), "\n")
+		want := min(n, PersonLinesShown)
+		if n > PersonLinesShown {
+			want++
+		}
+		if len(lines) != want {
+			t.Fatalf("%d waiting: %d lines", n, len(lines))
+		}
+		for _, l := range lines {
+			if r := len([]rune(l)); r > PersonLineRunes {
+				t.Errorf("%d characters: %s", r, l)
+			}
+		}
+		if n > PersonLinesShown && !strings.Contains(lines[len(lines)-1], fmt.Sprintf("+%d more", n-PersonLinesShown)) {
+			t.Errorf("the count: %s", lines[len(lines)-1])
+		}
+	}
+	for _, l := range strings.Split(PersonWaiting(ms[:3]), "\n") {
+		if !strings.Contains(l, "aivoicebus done 00aa11bb22 | to do it: aivoicebus claim 00aa11bb22") {
+			t.Errorf("the step is never cut: %s", l)
+		}
 	}
 }

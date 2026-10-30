@@ -653,10 +653,13 @@ guard against agents taking the person's work by mistake, not against a hostile 
 clear its own environment.
 
 Nobody reads as `laptop-b/human`, so the hooks say what waits there (from 0.11.5): every session
-start, and the per-prompt hook once per task per session as one arrives, print one line, "N task(s)
-wait for you, the person on this machine, not the agent", naming the first (a `[token hand]` or an
-approval by its kind only, any other with a short quote of its first line) and the command the
-person runs, for the agent to relay without acting on it. They only look (`inbox?peek=1`, never an
+start, and the per-prompt hook once per task per session as one arrives, print one line for each of
+the first three that wait (0.15.0 on; before it one line for all), at most 160 characters: `[aivoicebus] for the
+user: task "Update aivoicebus on air: the…". already done or not needed: aivoicebus done ID | to do it:
+aivoicebus claim ID`, then `+N more for the user: aivoicebus status`. A `[token hand]` or an approval is named by its
+kind only, any other with a short quote of its first line when there is room, and the sender when there is room
+left; the command the person runs is never cut. For the agent to relay without acting on it. What was
+settled (`done`, a met `--done-when`, a replacement) prints nothing: 20 waiting inject about 540 characters, none 0. They only look (`inbox?peek=1`, never an
 acknowledgement, and only at a node of 0.11.0 or later, which does not list the person as present);
 quiet hours hold the line back unless the task is urgent. On macOS the hook that first names a task
 also raises a notification (from 0.14.0), once per task on the machine whichever session saw it:

@@ -192,12 +192,12 @@ func TestPersonLineLeavesOutAnUpdateTaskForTheReleaseThatRunsHere(t *testing.T) 
 	t.Cleanup(func() { version.Release = old })
 	for _, v := range []string{"0.11.5", "0.12.0"} {
 		version.Release = v
-		if got := runHook(t, ""); strings.Contains(got, "wait for you") {
+		if got := runHook(t, ""); strings.Contains(got, "for the user:") {
 			t.Errorf("running %s, the task for 0.11.5 is done: %q", v, got)
 		}
 	}
 	version.Release = "0.11.4"
-	if got := runHook(t, ""); !strings.Contains(got, "1 task(s) wait for you") {
+	if got := runHook(t, ""); !strings.Contains(got, "[aivoicebus] for the user: task") {
 		t.Errorf("running 0.11.4, the task still waits: %q", got)
 	}
 }
