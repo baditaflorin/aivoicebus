@@ -33,6 +33,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/tasks"
 	"github.com/baditaflorin/aivoicebus/internal/view"
+	"github.com/baditaflorin/aivoicebus/internal/wants"
 )
 
 const (
@@ -154,6 +155,7 @@ type ackSet struct {
 	me   string
 	jobs []ackJob
 	told []msg.Message // what waits for the person and the output named (see person.go)
+	met  []wants.Met   // messages whose done-when came true here: settled after the output (see wants.go)
 	auto bool          // start the automatic update (see release.go), after the output
 	// escalate holds the tasks shown as offered to this session that nobody took in msg.EscalateAfter:
 	// the person is told (tasks.Escalate), after the acknowledgements and within their budget.
@@ -189,6 +191,15 @@ func (a *ackSet) send(budget time.Duration) {
 	}
 	noteTold(a.me, a.told) // only now that the output naming them was handed over
 	notifyNew(a.told)      // and to the person, who may be in no session at all (notify.go)
+	settled := make(chan struct{})
+	a.c.Timeout = budget
+	go func() { defer close(settled); a.settleMet() }()
+	defer func() {
+		select {
+		case <-settled:
+		case <-time.After(budget):
+		}
+	}()
 	if len(a.jobs) == 0 && len(a.escalate) == 0 {
 		return
 	}
@@ -284,15 +295,20 @@ func run(args []string, stdin io.Reader, out io.Writer, timeout time.Duration, n
 	if err != nil {
 		return nil
 	}
+	env := wants.Local()
+	ms, metNow := wants.Split(env, ms) // a message whose condition is met here costs nothing: it is settled below, not shown
 	// Asked first: releaseNotice records that it spoke, and a line held back must be said later.
 	notice, auto := releaseNotice(c.Latest, clock(), quietNow())
 	if notice != "" {
 		fmt.Fprintln(out, notice)
 	}
-	acks := &ackSet{c: c, me: me, auto: auto}
+	acks := &ackSet{c: c, me: me, auto: auto, met: metNow}
 	// What waits for the person on this machine: one line, every session start, since nothing else
 	// tells them (see person.go). It keeps clear of the deadline, which would cost all the output.
-	if ps := personWaiting(c, me, min(personPeekBudget, timeout-time.Since(start)-personPeekHeadroom), quietNow(), nil); len(ps) > 0 {
+	ps := personWaiting(c, me, min(personPeekBudget, timeout-time.Since(start)-personPeekHeadroom), quietNow(), nil)
+	ps, metPerson := wants.Split(env, ps)
+	acks.met = append(acks.met, metPerson...)
+	if len(ps) > 0 {
 		fmt.Fprintln(out, view.PersonWaiting(ps))
 		acks.told = ps
 	}

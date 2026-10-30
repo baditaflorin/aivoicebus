@@ -78,6 +78,9 @@ type Request struct {
 	// off, unless SuccessorAsked says the sender asked for it by name: then a message it cannot apply to
 	// is refused with the reason.
 	Successor, SuccessorAsked bool
+	// Wants are the lines a sender adds to say when the message stops mattering (msg.Wants): they are
+	// validated and written after the text. They go on a text message, not a file or a log link.
+	Wants msg.Wants
 	// Test sends the message in the test lane (msg/testlane.go): it reaches only sessions that opted in,
 	// lives at most msg.TestLife and is purged. A reply to a test message is one without asking.
 	Test bool
@@ -253,6 +256,15 @@ func Prepare(c *client.Client, r Request, warn io.Writer) (Plan, error) {
 		// capabilities are claimed by the sessions themselves, so whoever claims one gets the message:
 		// nothing urgent, no file and no log link goes to them (a pinned role or an explicit --to does)
 		return p, Usagef("refused: %s routes by capability, which any session can claim; an urgent message, a file or a log link never goes to such a route (name the session with --to, or use a pinned role; `aivoicebus who` lists them)", view.Name(to, 80))
+	}
+	if !r.Wants.Empty() {
+		if err := r.Wants.Validate(); err != nil {
+			return p, Usagef("%v", err)
+		}
+		if r.File || r.Attach {
+			return p, Usagef("--done-when, --key and --supersedes go on a text message, not on a file or a log link: run it again without them")
+		}
+		body = msg.AppendWants(body, r.Wants)
 	}
 	m := msg.Message{ID: msg.NewID(), From: me, To: to, Re: r.Re, Thread: r.Thread, Body: body,
 		Prio: strings.ToLower(r.Prio), Kind: strings.ToLower(r.Kind), MaxTurns: r.MaxTurns, Deadline: int64(r.Deadline / time.Second), BudgetChars: r.BudgetChars}

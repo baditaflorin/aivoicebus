@@ -19,6 +19,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/view"
+	"github.com/baditaflorin/aivoicebus/internal/wants"
 )
 
 // DefaultBudget is how long the screen waits for its parts. A hedged read gets past one hung node
@@ -315,6 +316,7 @@ func Gather(o Options) Report {
 				return nil
 			}
 			in, ts := &Inbox{}, &Tasks{IDs: []string{}}
+			ms, _ = wants.Split(wants.Local(), ms) // what its sender's condition already settled is nobody's
 			for _, m := range ms {
 				if m.Kind == msg.KindTask && msg.PersonOnly(m) {
 					continue // the person's to take, not this session's: the person part counts it
@@ -366,6 +368,7 @@ func Gather(o Options) Report {
 			if err != nil {
 				return nil
 			}
+			ms, _ = wants.Split(wants.Local(), ms)
 			for _, m := range ms {
 				switch {
 				case strings.HasPrefix(m.Body, msg.AskPrefix):

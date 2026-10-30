@@ -15,6 +15,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/view"
+	"github.com/baditaflorin/aivoicebus/internal/wants"
 )
 
 // The per-prompt hook is the answer to "an urgent message only reached an agent at
@@ -94,6 +95,8 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 	if err != nil {
 		return nil
 	}
+	env := wants.Local()
+	ms, met := wants.Split(env, ms) // a message whose condition is met here is settled, not shown
 	// Urgent first, as before; then a task the nodes offer to this session alone (msg/offer.go: the
 	// session a person is working in is the one to ask now, not at its next start); then the replies
 	// to this session, in arrival order.
@@ -120,10 +123,15 @@ func promptCheck(args []string, stdin io.Reader, out io.Writer, deadline, every 
 	listed := append(append(urgent, offers...), replies...)
 	told := func(id string) bool { return config.Told(me, id) }
 	ps := personWaiting(c, me, deadline-time.Since(start)-150*time.Millisecond, quiet, told)
+	ps, metPerson := wants.Split(env, ps)
+	met = append(met, metPerson...)
 	if len(listed) == 0 && len(ps) == 0 {
-		return nil
+		if len(met) == 0 {
+			return nil
+		}
+		return &ackSet{c: c, me: me, met: met}
 	}
-	acks := &ackSet{c: c, me: me, told: ps}
+	acks := &ackSet{c: c, me: me, told: ps, met: met}
 	if len(ps) > 0 {
 		fmt.Fprintln(out, view.PersonWaiting(ps))
 	}

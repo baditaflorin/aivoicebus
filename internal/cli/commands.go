@@ -133,6 +133,7 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	wait := fs.Bool("wait", false, "with --file: wait up to 5 minutes and say whether it was read")
 	var metas metaFlag
 	fs.Var(&metas, "meta", "with --file: seal a key=value inside the file's encrypted payload for the reader (repeatable; any keys: it is open data the reader may use or ignore; the file name, size and sha256 are sealed with it)")
+	doneWhen := fs.String("done-when", "", "a condition the receiving machine checks by itself, with no network and no model: when it is true the message is settled there and costs its readers nothing. release>=X.Y.Z (the installed release), has:FACT (as who --has), file:~/PATH (exists), service:LABEL (a launchd/systemd unit is loaded)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	private := fs.Bool("private", false, "seal the text to the recipient machine's key: nodes and every other reader see only that a private message went there (one machine or session, not a selector or all)")
 	deadline := fs.Duration("deadline", 0, "start a conversation that closes this long after it starts (e.g. 1h): the nodes refuse later messages in it, an [end] always goes")
@@ -233,6 +234,9 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 			return outbox.Usagef("--fallback does not combine with --private, --file or --tail")
 		}
 	}
+	if *private && *doneWhen != "" {
+		return outbox.Usagef("--done-when does not combine with --private: the receiving machine reads the condition before it opens the text; send it without --private, or without --done-when")
+	}
 	if *private && (*file != "" || *tail != "") {
 		return outbox.Usagef("--private does not combine with --file or --tail: a file is already encrypted on this machine")
 	}
@@ -274,7 +278,8 @@ func sendImpl(args []string, s Streams, reply, authored bool, moves ...taskMove)
 	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: *to, Body: body, Re: *re, Thread: *thread, Prio: *prio,
 		TTL: ttlText, Kind: *kind, Queue: *queue, Force: *force, TrustRole: *trustRole, TargetSaid: inferred, MaxTurns: *maxTurns, Deadline: *deadline, BudgetChars: *budgetChars,
-		Authored: authored, ReadWithin: *readWithin, Test: *test, Successor: *orSuccessor && authored, SuccessorAsked: succSaid && *orSuccessor}, s.Err)
+		Authored: authored, ReadWithin: *readWithin, Test: *test, Successor: *orSuccessor && authored, SuccessorAsked: succSaid && *orSuccessor,
+		Wants: msg.Wants{DoneWhen: *doneWhen}}, s.Err)
 	if err != nil {
 		return err
 	}
