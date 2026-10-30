@@ -617,7 +617,7 @@ scenario "a message that replaces another"
 # (wants) delivers to a session it never saw: the latest of the key, not the replaced one, not the superseded one,
 # the superseder and the stranger's (another machine cannot replace). An older one delivers them all (the lines
 # are plain body text to it).
-declare -A WK
+declare -A WK QN1; for i in "${!NAME[@]}"; do QN1[$i]=$(hfield "${PORT[$i]}" quarantined); done
 for k in "${!NAME[@]}"; do
   n=${NAME[$k]}; host=wk-$n
   for v in 1 2; do
@@ -637,7 +637,7 @@ for k in "${!NAME[@]}"; do
     check "${got# }" "$want" "${NAME[$j]} (${VER[$j]}) delivers the messages sent through ${NAME[$k]} (key replaced, key latest, superseded, superseder, a stranger's): $want"
   done
 done
-check_quarantined 0 "no node quarantined a trailer line"
+for i in "${!NAME[@]}"; do check "$(hfield "${PORT[$i]}" quarantined)" "${QN1[$i]}" "${NAME[$i]} quarantined nothing in this scenario (a trailer line is plain body text to every release)"; done
 
 scenario "node logs"
 for i in "${!NAME[@]}"; do check "$(grep -c -e '^panic:' -e 'fatal error:' "$W/${NAME[$i]}.log")" 0 "no panic in ${NAME[$i]}'s log"; done
