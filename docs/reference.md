@@ -1208,6 +1208,39 @@ taken within a second, and it shows in `who` and `ping` as listening; with an ol
 the queue every `--every` (15s). A worker shows in `who` and `ping` as `<machine>/worker` with the title
 `aivoicebus worker`, so a sender can see it is there.
 
+#### Named commands: `aivoicebus run`
+
+For the machines you own, when you want a command to happen now and no model should read it. The worker
+runs a command the machine's owner wrote down in advance; a peer can only pick one by name and fill its
+argument slots.
+
+    # on each machine, typed by its owner in a terminal (an agent's session is refused):
+    mkdir -p ~/.config/aivoicebus/run.d
+    cp deploy/run.d/bright.py ~/.config/aivoicebus/run.d/
+    cp deploy/run.d/brightness.json.example ~/.config/aivoicebus/run.d/brightness.json   # edit YOU
+    aivoicebus worker allow add desk                    # who may send
+    aivoicebus worker install --run                     # or add --run to an --agent worker
+
+    # from the sender:
+    aivoicebus run laptop-b,laptop-c --wait 1m -- brightness 1
+
+`run` sends a signed `[run] {"cmd":NAME,"args":[...]}` task to each machine at once and prints one answer per
+machine. A worker takes it only with `--run`; a worker without it skips the task, so a `[run]` request never
+reaches an agent. Rules, all enforced by the worker:
+
+- **run.d/NAME.json** holds `argv` (argv[0] an absolute path, no PATH lookup, no shell), `args` (one regular
+  expression per argument, matched in full), `sandbox` (default true, `false` for a command that needs the
+  display, the keychain...: for that command only) and `timeout` (at most 10 minutes). `{N}` in an `argv` word
+  becomes argument N. Unknown fields, a relative path, a symlink or a file others can write make the worker refuse to start.
+- A request must name an existing file, give exactly as many arguments as it has patterns, and every one must
+  match. Anything else is answered `not run: ...` and nothing starts.
+- The same gates as every task apply: allowlist, signature pinned to the sender's machine, `--max-age`, `pause`,
+  `cancel`, one run at a time, output scanned for credentials, one audit-log line per request (name, exit, size
+  and hash of the output; never the output).
+- With `--run` alone (no `--exec`, no `--agent`) the worker takes nothing but `[run]` tasks.
+- Not in this version: a per-command approval on the phone (`--write`'s approver works for agents only), and a
+  free-form shell. Add a named command instead.
+
 #### Write mode: a worker that changes code, each task approved
 
 By default the worker's presets only read and answer. `--write` lets the agent change files, bounded

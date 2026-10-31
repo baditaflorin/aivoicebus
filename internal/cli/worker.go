@@ -77,12 +77,23 @@ func workerCmd(args []string, s Streams) error {
 	sandbox := fs.Bool("sandbox", true, "run each command without access to this user's secrets (~/.ssh, cloud and git credentials, keychains, browser profiles, the aivoicebus token and keys): sandbox-exec on macOS, bubblewrap on Linux; --sandbox=false runs it as it is")
 	budget := fs.Int("budget", 0, "tokens (in and out, as the agents report them) the runs may use in any 24 hours; over it the worker takes no task and alerts (0: no budget)")
 	watch := fs.Duration("watch", 0, "also alert (see `aivoicebus watch`) when a task this machine sent waits untaken this long, e.g. 15m, or was taken and then silent for 10m")
+	runCmds := fs.Bool("run", false, "also take [run] tasks (`aivoicebus run MACHINE -- NAME ARGS`): the named commands in ~/.config/aivoicebus/run.d/NAME.json, run without a model and without a shell; alone (no --exec, no --agent) the worker takes nothing else")
 	testLane := fs.Bool("test-lane", false, "opt in to the test lane (what AIVOICEBUS_TEST=1 does): the worker also reads test messages, and answers a test task by a built-in step (calc, echo, sleep, status, write) instead of running its command, so nothing is run and no tokens are spent; `aivoicebus selftest --worker HOST` checks it from another machine")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return outbox.Usagef("usage: worker --exec 'COMMAND' [--once] [--dry-run] [--timeout 10m] [--max-output 16000] [--max-age 1h]   |   worker allow add|rm|list [SENDER]")
+	}
+	var runSet *worker.RunSet
+	if *runCmds {
+		if err := personOnly("worker --run"); err != nil {
+			return err
+		}
+		var err error
+		if runSet, err = worker.LoadRunSet(worker.RunDir()); err != nil {
+			return err
+		}
 	}
 	var argv []string
 	format := worker.FormatText // what the command prints: a preset's JSON carries the token counts
@@ -105,7 +116,7 @@ func workerCmd(args []string, s Streams) error {
 		}
 		argv = a
 		fmt.Fprintf(s.Err, "preset %s: %s (%s)\n", *agent, worker.QuoteCommand(argv), note)
-	} else if *execT != "" || !*dry {
+	} else if *execT != "" || (!*dry && !*runCmds) {
 		var err error
 		if argv, err = worker.SplitCommand(*execT); err != nil {
 			return outbox.Usagef("%v", err)
@@ -150,6 +161,10 @@ func workerCmd(args []string, s Streams) error {
 		MaxAge: *maxAge, Settle: *settle, DryRun: *dry, Out: s.Out, AllowUnsigned: *allowUnsigned,
 	}
 	w.Budget = *budget
+	w.Run = runSet
+	if runSet != nil {
+		fmt.Fprintf(s.Err, "[aivoicebus] named commands on: %s (from %s). Anyone in the allowlist can run exactly these, with arguments that match their patterns.\n", strings.Join(runSet.Names(), ", "), runSet.Dir)
+	}
 	if *sandbox {
 		home, _ := os.UserHomeDir()
 		if _, how, ok := worker.Sandboxed(argv, home); ok {

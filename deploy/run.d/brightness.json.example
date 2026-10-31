@@ -1,0 +1,6 @@
+{
+  "argv": ["/usr/bin/python3", "-I", "/Users/YOU/.config/aivoicebus/run.d/bright.py", "{0}"],
+  "args": ["(0(\\.[0-9]+)?|1(\\.0+)?)"],
+  "sandbox": false,
+  "timeout": "30s"
+}
