@@ -61,6 +61,10 @@ type Worker struct {
 	Alert func(text string)
 	// Tick runs at the start of every loop, between passes (the worker's --watch check). nil does nothing.
 	Tick func()
+	// Run, when set, lets a task ask for one of the machine's named commands (runcmd.go). A [run] task
+	// never reaches Argv, the agent: with Run nil it is skipped, and with it set it runs a named
+	// command only. nil takes no [run] task.
+	Run *RunSet
 
 	seen       map[string]bool
 	overNote   bool // the budget was said to be used up, once
@@ -127,6 +131,12 @@ func (w *Worker) Decide(m msg.Message) (why, entry string) {
 	}
 	if why := msg.HoldReason(m); why != "" {
 		return "held for the user: " + why + " (aivoicebus held)", entry
+	}
+	switch {
+	case IsRun(m.Body) && w.Run == nil:
+		return "it asks for a named command, and this worker was not started with --run", entry
+	case !IsRun(m.Body) && w.Run != nil && len(w.Argv) == 0:
+		return "this worker runs named commands only (--run) and the task is not a [run] request", entry
 	}
 	if m.Depth > msg.MaxTaskDepth {
 		return fmt.Sprintf("it is %d tasks deep (sent from the run of a task sent from ...): more than %d is a chain reaction", m.Depth, msg.MaxTaskDepth), entry
@@ -297,6 +307,9 @@ func (w *Worker) handle(ctx context.Context, m msg.Message, entry string, base E
 	if m.IsTest() { // the test lane: the same gates and claim, then a built-in step instead of the command (testlane.go)
 		return w.handleTest(taskCtx, m, base, cancelled, stopWhy)
 	}
+	if IsRun(m.Body) { // a named command: no model, no worktree, no approval step in this version
+		return w.handleRun(taskCtx, m, base, cancelled, stopWhy)
+	}
 	var wt *worktree
 	if w.Write != nil {
 		ok, why := w.approve(taskCtx, m)
@@ -458,9 +471,14 @@ func (w *Worker) watchCancel(ctx context.Context, id string, cancelled *atomic.B
 // returns the kind of credential found instead when the text holds one; the answer then says only
 // that the output was withheld.
 func (w *Worker) answer(r Result) (body, withheld string) {
+	return w.answerWithin(r, w.Limits.Timeout)
+}
+
+// answerWithin is answer for a run that had its own time limit.
+func (w *Worker) answerWithin(r Result, timeout time.Duration) (body, withheld string) {
 	host := msg.HostOf(w.Me)
 	var b strings.Builder
-	fmt.Fprintf(&b, "[worker on %s] %s.\n", host, r.Describe(w.Limits.Timeout))
+	fmt.Fprintf(&b, "[worker on %s] %s.\n", host, r.Describe(timeout))
 	out := strings.TrimRight(r.Stdout, "\n")
 	if out != "" {
 		b.WriteString(out + "\n")
@@ -477,7 +495,7 @@ func (w *Worker) answer(r Result) (body, withheld string) {
 		body = strings.ToValidUTF8(body, "")
 	}
 	if kind, found := outbox.Credential(body); found {
-		return fmt.Sprintf("[worker on %s] %s, but its output is withheld: it looks like it holds a %s. Nothing of it was sent or kept.", host, r.Describe(w.Limits.Timeout), kind), kind
+		return fmt.Sprintf("[worker on %s] %s, but its output is withheld: it looks like it holds a %s. Nothing of it was sent or kept.", host, r.Describe(timeout), kind), kind
 	}
 	return body, ""
 }

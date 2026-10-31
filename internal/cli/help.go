@@ -60,6 +60,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"status", "where this session stands, in one screen, each problem with its fix; `status ID`: did that message get through"},
 	{"ping", "who is there: the sessions a target reaches and how recently each was seen"},
 	{"worker", "answer tasks from allowed senders while no session is open: `worker install --agent codex` keeps one running; opt-in, see `worker allow`"},
+	{"run", "run a named command on your other machines, without a model: `run laptop-b,laptop-c -- brightness 1`; each machine opts in with `worker install --run` and lists its commands in run.d/"},
 	{"tokens", "what aivoicebus cost on this machine: context it put into each session (estimated) and the worker's runs (reported tokens)"},
 	{"audit", "what was approved, run, stopped, released or allowed on this machine; --verify checks the chain and signatures"},
 	{"ask-human", "ask this machine's person a question and wait: they answer on the phone (choice buttons) or with `aivoicebus answer`"},

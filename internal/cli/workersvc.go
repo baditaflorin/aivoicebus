@@ -154,13 +154,22 @@ func workerInstall(args []string, s Streams) error {
 	budget := fs.Int("budget", 0, "tokens the runs may use in any 24 hours (see `worker --budget`)")
 	sandbox := fs.Bool("sandbox", true, "run each command without access to this user's secrets (see `worker --sandbox`)")
 	watchFor := fs.Duration("watch", 0, "also alert when a task this machine sent waits untaken this long (see `aivoicebus watch`)")
+	runCmds := fs.Bool("run", false, "also take [run] tasks: the named commands in run.d (see `worker --run`); with no --agent and no --exec, only those")
 	testLane := fs.Bool("test-lane", false, "opt the worker in to the test lane (see `worker --test-lane`): `aivoicebus selftest --worker` can then check it from another machine")
 	dry := fs.Bool("dry-run", false, "print the service file and change nothing")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || (*agent == "") == (*execT == "") {
-		return outbox.Usagef("usage: worker install --agent %s | --exec 'COMMAND'  [--timeout 10m] [--max-age 1h] [--dry-run]", strings.Join(worker.PresetNames(), "|"))
+	if fs.NArg() != 0 || ((*agent == "") == (*execT == "") && !(*runCmds && *agent == "" && *execT == "")) {
+		return outbox.Usagef("usage: worker install --agent %s | --exec 'COMMAND' | --run  [--timeout 10m] [--max-age 1h] [--dry-run]", strings.Join(worker.PresetNames(), "|"))
+	}
+	if *runCmds {
+		if err := personOnly("worker install --run"); err != nil {
+			return err
+		}
+		if _, err := worker.LoadRunSet(worker.RunDir()); err != nil {
+			return err
+		}
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return errors.New("worker install knows launchd (macOS) and systemd (Linux) only: run `aivoicebus worker` in a terminal instead")
@@ -176,7 +185,9 @@ func workerInstall(args []string, s Streams) error {
 	// The agent's own command, found now: a service starts with almost no PATH.
 	var cmd0 string
 	argv := []string{bin, "worker"}
-	if *agent != "" {
+	if *agent == "" && *execT == "" { // --run alone: no agent to find on PATH
+		cmd0 = bin
+	} else if *agent != "" {
 		a := strings.ToLower(*agent)
 		p, ok := worker.PresetArgv(a)
 		if !ok {
@@ -200,6 +211,9 @@ func workerInstall(args []string, s Streams) error {
 	}
 	if err != nil {
 		return fmt.Errorf("%s is not on PATH: ask the user to install it, or run it again with its full path in --exec", cmd0)
+	}
+	if *runCmds {
+		argv = append(argv, "--run")
 	}
 	if *timeout != 10*time.Minute {
 		argv = append(argv, "--timeout", timeout.String())
