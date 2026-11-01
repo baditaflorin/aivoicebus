@@ -54,8 +54,9 @@ func Digest(w io.Writer, ms []msg.Message) {
 			end = &ms[i]
 		}
 	}
-	fmt.Fprintln(w, UntrustedBanner)
-	fmt.Fprintf(w, "thread %s: %d message(s) from %d session(s), %s to %s (%s)\n", first.Thread, len(ms), len(order),
+	st := StyleOf(w)
+	fmt.Fprintln(w, st.UntrustedBanner())
+	fmt.Fprintf(w, "thread %s: %d message(s) from %d session(s), %s to %s (%s)\n", st.ID(first.Thread), len(ms), len(order),
 		When(first.At, time.Now()), When(lastAt, time.Now()), lastAt.Sub(first.At).Round(time.Second))
 	fmt.Fprintf(w, "  size: %s\n", SizeLine(msg.SizeOf(ms)))
 	what := "started"
@@ -69,7 +70,7 @@ func Digest(w io.Writer, ms []msg.Message) {
 		if t, ok := msg.TaskOwner(first.From, takes); ok {
 			fmt.Fprintf(w, "  taken by %s at %s\n", Name(t.From, msg.MaxIdentity), WhenSec(t.At, time.Now()))
 		} else {
-			fmt.Fprintln(w, "  nobody has taken it")
+			fmt.Fprintln(w, "  "+st.Warn("nobody has taken it"))
 		}
 	}
 	v := msg.ThreadState(ms)
@@ -93,7 +94,7 @@ func Digest(w io.Writer, ms []msg.Message) {
 	case v.Final():
 		fmt.Fprintf(w, "  closed: %s by %s at %s\n", v.State, Name(v.By, msg.MaxIdentity), WhenSec(v.At, time.Now()))
 	default:
-		fmt.Fprintf(w, "  open: the last word is %s's\n", Name(last.From, msg.MaxIdentity))
+		fmt.Fprintf(w, "  %s the last word is %s's\n", st.Good("open:"), Name(last.From, msg.MaxIdentity))
 	}
 }
 

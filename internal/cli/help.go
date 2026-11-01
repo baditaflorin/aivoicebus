@@ -101,6 +101,7 @@ func printHelp(w io.Writer) {
 		fmt.Fprintf(w, "  %-*s  %s\n", width, t.name, t.summary)
 	}
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Before the command: --color=auto|always|never (or --no-color) draws a terminal's output in colour or not; NO_COLOR and AIVOICEBUS_COLOR work too.")
 	fmt.Fprintln(w, "`aivoicebus <command> -h` shows a command's flags. `aivoicebus usage` is the text agents read.")
 }
 

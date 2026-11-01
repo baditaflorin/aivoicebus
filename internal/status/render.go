@@ -135,6 +135,7 @@ func unreadText(in *Inbox) string {
 // Render prints the report: one line a part, "!" before one to act on (it ends with the command
 // that does it), "?" before one that did not answer in time.
 func Render(w io.Writer, r Report) {
+	st := view.StyleOf(w)
 	fixes := map[string][]Problem{}
 	for _, p := range r.Problems {
 		fixes[p.Section] = append(fixes[p.Section], p)
@@ -143,7 +144,27 @@ func Render(w io.Writer, r Report) {
 	for _, s := range r.Unknown {
 		unknown[s] = true
 	}
-	fmt.Fprintf(w, "aivoicebus status (%s, %dms)\n", r.Me.ID, r.TookMs)
+	// row is one line: the mark, the part's name padded to a column (padded before it is drawn, so
+	// the colour never changes the alignment), then the text.
+	row := func(mark, markRole, section, text string) {
+		m := mark
+		switch markRole {
+		case "bad":
+			m = st.Bad(mark)
+		case "warn":
+			m = st.Warn(mark)
+		}
+		name := fmt.Sprintf("%-8s", section)
+		if section != "" {
+			name = st.Dim(section) + strings.Repeat(" ", max(0, 8-len(section)))
+		}
+		fmt.Fprintf(w, "%s %s %s\n", m, name, text)
+	}
+	// problem is "text -> fix": the fix is what to type.
+	problem := func(mark, markRole, section string, p Problem) {
+		row(mark, markRole, section, p.Text+" "+st.Dim("->")+" "+st.Commands(p.Fix))
+	}
+	fmt.Fprintf(w, "%s (%s, %dms)\n", st.Heading("aivoicebus status"), r.Me.ID, r.TookMs)
 	for _, s := range Sections {
 		ps := fixes[s]
 		text := ""
@@ -152,21 +173,21 @@ func Render(w io.Writer, r Report) {
 		}
 		switch {
 		case unknown[s] && r.NoNodes && network[s]:
-			fmt.Fprintf(w, "? %-8s unknown: no node is configured\n", s)
+			row("?", "warn", s, "unknown: no node is configured")
 		case unknown[s]:
-			fmt.Fprintf(w, "? %-8s unknown: no answer within %dms\n", s, r.BudgetMs)
+			row("?", "warn", s, fmt.Sprintf("unknown: no answer within %dms", r.BudgetMs))
 		case text == "" && len(ps) > 0: // the part is its problem
-			fmt.Fprintf(w, "! %-8s %s -> %s\n", s, ps[0].Text, ps[0].Fix)
+			problem("!", "bad", s, ps[0])
 			ps = ps[1:]
 		default:
-			fmt.Fprintf(w, "  %-8s %s\n", s, text)
+			row(" ", "", s, text)
 		}
 		for _, p := range ps {
-			fmt.Fprintf(w, "! %-8s %s -> %s\n", "", p.Text, p.Fix)
+			problem("!", "bad", "", p)
 		}
 	}
 	for _, p := range fixes["unknown"] {
-		fmt.Fprintf(w, "? %-8s %s -> %s\n", "", p.Text, p.Fix)
+		problem("?", "warn", "", p)
 	}
 }
 

@@ -6,7 +6,7 @@ A message bus for AI coding agents on different machines. A Claude Code session 
 to a Codex session on a build server, ask another session a question, or tell every session on a repo that
 `main` just changed, and the receiving agent sees it at the start of its next session.
 
-- **One static binary**, Go standard library only, no dependencies, no database, no accounts. Messages go only to
+- **One static binary**, the Go standard library plus one small colour library, no database, no accounts. Messages go only to
   nodes you run. The same binary is the server, the client, the session hook and an MCP server.
 - **Files too.** `send --file` encrypts a file on your machine and the message points at it for five minutes. By
   default the ciphertext waits in the public pipe at pipe.0exec.com (run by the author); `--via node` keeps it in your
@@ -357,7 +357,7 @@ allowed peers send: it is off by default and runs nothing until you name the sen
 
 Several other tools connect agents across machines or sessions (for example thrum, agmsg and agent-msg). AiVoiceBus's
 own choices are a replicated, add-only log across nodes with no leader; signed releases and signed node lists;
-credential screening, message retraction and amendment; and no dependencies beyond the Go standard library. Pick whatever fits
+credential screening, message retraction and amendment; and no dependencies beyond the Go standard library and a small colour library for the terminal. Pick whatever fits
 your trust model.
 
 ## Contributing and licence

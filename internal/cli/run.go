@@ -88,7 +88,7 @@ func runCmd(args []string, s Streams) error {
 		}
 	}
 	if failed > 0 {
-		return fmt.Errorf("%d of %d machines did not answer or failed", failed, len(machines))
+		return fmt.Errorf("%d of %d machines did not answer or failed: see what each printed above, fix that, then try again", failed, len(machines))
 	}
 	return nil
 }

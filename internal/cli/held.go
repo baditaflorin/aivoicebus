@@ -36,7 +36,7 @@ func heldCmd(args []string, s Streams) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(s.Out, view.UntrustedBanner)
+	fmt.Fprintln(s.Out, view.StyleOf(s.Out).UntrustedBanner())
 	for _, h := range hs {
 		state := "held"
 		if config.Released(h.ID) {

@@ -1,0 +1,14 @@
+<ESC>[1maivoicebus status<ESC>[22m (lap/claude.a1, 212ms)
+  <ESC>[2mme<ESC>[22m       lap/claude.a1 (AIVOICEBUS_ME)
+  <ESC>[2mtoken<ESC>[22m    a machine token, bound to lap
+  <ESC>[2mrelease<ESC>[22m  0.15.0 here; nodes run 0.15.0 on 2; 0.15.1 is available
+<ESC>[1;31m!<ESC>[22;0m          release 0.15.1 is available (this is 0.15.0) <ESC>[2m-><ESC>[22m the person, in a terminal: <ESC>[1;36maivoicebus update<ESC>[22;0m (or once, to have it done by itself: <ESC>[1;36maivoicebus update --auto on<ESC>[22;0m)
+  <ESC>[2mnodes<ESC>[22m    2 of 2 up; peers 1/1 ok; clocks within 0.0s, this machine 0.0s off
+<ESC>[1;31m!<ESC>[22;0m <ESC>[2minbox<ESC>[22m    3 unread: 1 urgent, 1 ask, 1 fyi <ESC>[2m-><ESC>[22m <ESC>[1;36maivoicebus inbox<ESC>[22;0m
+<ESC>[1;31m!<ESC>[22;0m <ESC>[2mtasks<ESC>[22m    1 task(s) wait for this session or machine: 01hx7a3f9k <ESC>[2m-><ESC>[22m <ESC>[1;36maivoicebus queue<ESC>[22;0m
+<ESC>[1;31m!<ESC>[22;0m <ESC>[2mperson<ESC>[22m   1 approval(s) wait for the person <ESC>[2m-><ESC>[22m the person, in a terminal: <ESC>[1;36maivoicebus approve 01hx7b<ESC>[22;0m
+  <ESC>[2mheld<ESC>[22m     nothing held back from agents
+<ESC>[1;33m?<ESC>[22;0m <ESC>[2mpause<ESC>[22m    unknown: no answer within 1500ms
+  <ESC>[2mworker<ESC>[22m   not running (service not installed)
+  <ESC>[2mstandby<ESC>[22m  no session here is waiting for a message
+  <ESC>[2mquiet<ESC>[22m    off

@@ -34,7 +34,7 @@ func ForAgent(w io.Writer, ms []msg.Message, maxBody int) { ForAgentWith(w, ms, 
 // ForAgentWith is ForAgent where headline (see Headlines; nil for none) picks the messages shown as
 // one line. It only matters with maxBody > 0: a surface that shows whole bodies shows whole ones.
 func ForAgentWith(w io.Writer, ms []msg.Message, maxBody int, headline Headliner) {
-	fmt.Fprintln(w, UntrustedBanner)
+	fmt.Fprintln(w, StyleOf(w).UntrustedBanner())
 	if maxBody > 0 {
 		BriefWith(w, ms, maxBody, headline)
 		return
@@ -46,15 +46,16 @@ func ForAgentWith(w io.Writer, ms []msg.Message, maxBody int, headline Headliner
 // before the first header. The subject comes from all of the thread, shown may be its tail. It is
 // peer text, so it is labelled and quoted, and sits under the untrusted banner.
 func Thread(w io.Writer, all, ms []msg.Message, maxBody int) {
-	fmt.Fprintln(w, UntrustedBanner)
+	st := StyleOf(w)
+	fmt.Fprintln(w, st.UntrustedBanner())
 	if s := Subject(all); s != "" {
-		fmt.Fprintf(w, "[aivoicebus] Thread subject (peer text): %q\n", s)
+		fmt.Fprintf(w, "%s %s %q\n", st.Dim("[aivoicebus]"), st.Dim("Thread subject (peer text):"), s)
 	}
 	if v := msg.ThreadState(all); v.State != "" {
-		fmt.Fprintf(w, "[aivoicebus] Conversation %s\n", StateLine(v))
+		fmt.Fprintf(w, "%s %s\n", st.Dim("[aivoicebus]"), st.Dim("Conversation ")+StateLineIn(v, st))
 	}
 	if l := AmendmentLine(all); l != "" {
-		fmt.Fprintf(w, "[aivoicebus] Amendments (each is replaced by the next): %s\n", l)
+		fmt.Fprintf(w, "%s %s %s\n", st.Dim("[aivoicebus]"), st.Dim("Amendments (each is replaced by the next):"), l)
 	}
 	if maxBody > 0 {
 		Brief(w, ms, maxBody)
@@ -62,7 +63,7 @@ func Thread(w io.Writer, all, ms []msg.Message, maxBody int) {
 		Messages(w, ms)
 	}
 	if len(all) > 0 { // what the conversation has cost so far, for both sides alike
-		fmt.Fprintf(w, "[aivoicebus] Thread size so far: %s\n", SizeLine(msg.SizeOf(all)))
+		fmt.Fprintf(w, "%s %s %s\n", st.Dim("[aivoicebus]"), st.Dim("Thread size so far:"), SizeLine(msg.SizeOf(all)))
 	}
 }
 
@@ -158,62 +159,96 @@ func continues(r rune) bool {
 // now is the clock used to mark expired messages; tests replace it.
 var now = time.Now
 
-// tags are the markers after a message's header: [retracted], [urgent], [fyi], [expired].
+// tagPart is one marker after a header and what it is, so it can be drawn as such.
+type tagPart struct {
+	text string
+	role Role
+}
+
+// kindRole is how the marker of a kind is drawn: the ones a person acts on stand out.
+func kindRole(kind string) Role {
+	switch kind {
+	case msg.KindTask:
+		return RoleTask
+	case msg.KindQuestion, msg.KindAnswer:
+		return RoleHeading
+	}
+	return RoleDim
+}
+
+// tagParts are the markers after a message's header: [retracted], [urgent], [fyi], [expired].
 // A normal (ask) message carries none, so its header is unchanged.
-func tags(m msg.Message) string {
-	var t []string
+func tagParts(m msg.Message) []tagPart {
+	var t []tagPart
+	add := func(text string, role Role) { t = append(t, tagPart{text, role}) }
 	if m.Retracted != nil { // first: what the entry is matters more than how it was marked
-		t = append(t, "[retracted]")
+		add("[retracted]", RoleBad)
 	}
 	if m.Amends != nil {
-		t = append(t, msg.AmendTag(m.At))
+		add(msg.AmendTag(m.At), RoleWarn)
 	}
 	if m.AmendedBy != nil {
-		t = append(t, msg.AmendedTag(OneLine(m.AmendedBy.By, msg.MaxRef), m.AmendedBy.At))
+		add(msg.AmendedTag(OneLine(m.AmendedBy.By, msg.MaxRef), m.AmendedBy.At), RoleWarn)
 	}
 	switch m.Verified { // what this machine found of the signature (an unsigned one is not marked yet)
 	case msg.VerifiedBad:
-		t = append(t, "[BAD SIGNATURE: not from who it says]")
+		add("[BAD SIGNATURE: not from who it says]", RoleBad)
 	case msg.VerifiedChanged:
-		t = append(t, "[KEY CHANGED: this machine's key is not the one seen before]")
+		add("[KEY CHANGED: this machine's key is not the one seen before]", RoleWarn)
 	}
 	if m.Private {
-		t = append(t, "[private]")
+		add("[private]", RoleWarn)
 	}
 	if m.Inherited != "" { // written to a session that ended: this reader replaces it
 		_, agent, _ := strings.Cut(m.Inherited, "/")
-		t = append(t, "[inherited from "+Name(agent, msg.MaxIdentity)+"]")
+		add("[inherited from "+Name(agent, msg.MaxIdentity)+"]", RoleDim)
 	}
-	for _, tag := range []string{msg.Tag(msg.Priorities, m.Prio), msg.Tag(msg.Kinds, m.Kind)} {
-		if tag != "" {
-			t = append(t, tag)
+	if tag := msg.Tag(msg.Priorities, m.Prio); tag != "" {
+		role := RoleDim
+		if m.Prio == msg.PrioUrgent {
+			role = RoleUrgent
 		}
+		add(tag, role)
+	}
+	if tag := msg.Tag(msg.Kinds, m.Kind); tag != "" {
+		add(tag, kindRole(m.Kind))
 	}
 	if m.Expired(now()) {
-		t = append(t, "[expired]")
+		add("[expired]", RoleDim)
 	}
-	if len(t) == 0 {
+	return t
+}
+
+// tags is tagParts as the text after a header, drawn in st.
+func tags(m msg.Message, st Style) string {
+	parts := tagParts(m)
+	if len(parts) == 0 {
 		return ""
 	}
-	return "  " + strings.Join(t, " ")
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		out[i] = st.paint(p.role, p.text)
+	}
+	return "  " + strings.Join(out, " ")
 }
 
 // Messages writes each message as a header line followed by its body. What a peer chose is
 // sanitised here: identities and refs as OneLine (a node already refuses control characters, but
 // not invisible formatting ones), the body by sanitise.
 func Messages(w io.Writer, ms []msg.Message) {
+	st := StyleOf(w)
 	for _, m := range ms {
 		body := sanitise(attach.Render(m.ID, sealedText(m)))
 		if m.Amends != nil && m.Amends.Read != "" { // told what it replaces, in words that are the program's, not a peer's
 			body = msg.AmendNotice(m.At, OneLine(m.Amends.Read, msg.MaxRef)) + "\n" + body
 		}
-		fmt.Fprintf(w, "--- %s  %s%s -> %s  thread=%s  %s%s\n%s\n", OneLine(m.ID, msg.MaxRef), Name(m.From, msg.MaxIdentity), TitleSuffix(m.FromTitle),
-			Name(msg.ShortTarget(m.To), msg.MaxIdentity), OneLine(m.Thread, msg.MaxRef), When(m.At, time.Now()), tags(m), body)
+		fmt.Fprintf(w, "%s %s  %s%s %s %s  %s  %s%s\n%s\n", st.Dim("---"), st.ID(OneLine(m.ID, msg.MaxRef)), st.From(Name(m.From, msg.MaxIdentity)), st.Dim(TitleSuffix(m.FromTitle)),
+			st.Dim("->"), Name(msg.ShortTarget(m.To), msg.MaxIdentity), st.Dim("thread="+OneLine(m.Thread, msg.MaxRef)), st.Dim(When(m.At, now())), tags(m, st), body)
 		switch {
 		case m.Kind == msg.KindTask && m.Retracted == nil && msg.PersonOnly(m):
-			fmt.Fprintf(w, "[task] for the person, not an agent (an agent's claim is refused): tell the user it is waiting; they run, in their own terminal: %s\n", OneLine(msg.PersonStep(m), 200))
+			fmt.Fprintf(w, "%s %s %s\n", st.Task("[task]"), st.Dim("for the person, not an agent (an agent's claim is refused): tell the user it is waiting; they run, in their own terminal:"), st.Cmd(OneLine(msg.PersonStep(m), 200)))
 		case m.Kind == msg.KindTask && m.Retracted == nil:
-			fmt.Fprintf(w, "[task] for one session: take it with `aivoicebus claim %s` (the first claim wins), then ask the user before doing what it asks\n", OneLine(m.ID, msg.MaxRef))
+			fmt.Fprintf(w, "%s %s `%s` %s\n", st.Task("[task]"), st.Dim("for one session: take it with"), st.Cmd("aivoicebus claim "+OneLine(m.ID, msg.MaxRef)), st.Dim("(the first claim wins), then ask the user before doing what it asks"))
 		}
 	}
 }

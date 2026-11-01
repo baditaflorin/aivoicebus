@@ -38,14 +38,27 @@ func when(t, now time.Time, clock string) string {
 //
 //	mac14-m1pro-mbp/claude.aac5 "Aivoicebus standby" (listening)
 //	mac14-m1pro-mbp/claude.632e "Fix the login redirect" (seen Oct 17 14:03 EEST)
-func Session(e msg.RosterEntry, now time.Time) string {
+func Session(e msg.RosterEntry, now time.Time) string { return SessionIn(e, now, Style{}) }
+
+// SessionIn is Session drawn in st: the id stands out, the title and the tool are secondary, and the
+// state is green when the session is listening, yellow when it is busy, dim when it was only seen.
+func SessionIn(e msg.RosterEntry, now time.Time, st Style) string {
 	var b strings.Builder
-	b.WriteString(Name(e.Me, msg.MaxIdentity))
-	b.WriteString(TitleSuffix(e.Title))
+	b.WriteString(st.From(Name(e.Me, msg.MaxIdentity)))
+	b.WriteString(st.Dim(TitleSuffix(e.Title)))
 	if tool := e.Labels["tool"]; tool != "" && !strings.HasPrefix(agentOf(e.Me), strings.ToLower(tool)) {
-		b.WriteString(" [" + Name(tool, 24) + "]") // an id named by AIVOICEBUS_NAME does not say its tool
+		b.WriteString(st.Dim(" [" + Name(tool, 24) + "]")) // an id named by AIVOICEBUS_NAME does not say its tool
 	}
-	b.WriteString(" (" + SessionState(e, now) + ")")
+	role := RoleDim
+	switch {
+	case e.Unverified():
+		role = RoleWarn
+	case e.Listening:
+		role = RoleGood
+	case e.Busy() != "":
+		role = RoleWarn
+	}
+	b.WriteString(" (" + st.paint(role, SessionState(e, now)) + ")")
 	return b.String()
 }
 
