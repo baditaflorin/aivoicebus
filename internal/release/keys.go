@@ -24,6 +24,14 @@ import (
 var builtinKeys = []string{
 	// 2026-10-15: the first public release key. The private half is kept offline by the maintainer.
 	"VZWMody5REXot6TMsPTVcgTgN8DBFmLmI3L+vd9MH4k=",
+	// 2026-11-01: one signing key per build machine, so that no single machine is the only one that can
+	// sign a release. Each private half stays on the machine named here and never leaves it.
+	// florins-macbook-air-m4-mba
+	"ff/I+IEJIit1UyGaus2GwBBlft7q3di5+latmZnCzoM=",
+	// imac-m1-imac
+	"vjyWCC0IqnXZ8zdmZ2+uBsnpRKJgol9hGMPjdnmUnyY=",
+	// mac14-m1pro-mbp
+	"ifPkwhdAJPKrwwAQtxU8kZNRQhx/PXn8KWoS+EvzgVY=",
 }
 
 // extraKey is one more public key a build can carry, for a fork or a company that signs its own
