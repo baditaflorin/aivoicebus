@@ -56,7 +56,7 @@ out=$("$FM" update --check 2>&1); check "update --check sees the release" "relea
 # The hook gives up without a word past its deadline (2.5s), so a busy machine can make it print
 # nothing; it records that it spoke only when it did, so running it again is the same first look.
 for _ in 1 2 3; do out=$("$FM" hook --tool claude 2>&1); [ -n "$out" ] && break; done
-check "hook mentions the release" "Release $NEWV is available" "$out"
+check "hook mentions the release" "the nodes have release $NEWV" "$out"
 out=$("$FM" hook --tool claude 2>&1); [ -z "$out" ] && pass "hook is silent the second time" || fail "hook repeated: $out"
 out=$("$FM" doctor 2>&1); check "doctor warns about the release" "WARN  release" "$out"
 
