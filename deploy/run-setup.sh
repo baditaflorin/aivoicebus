@@ -18,7 +18,7 @@ command -v aivoicebus >/dev/null || { echo "aivoicebus is not installed here: ru
 
 echo "== 1. update"
 aivoicebus update --from github || echo "(update did not install anything; continuing with $(aivoicebus version | head -1))"
-aivoicebus worker --help 2>&1 | grep -q -- '--run' || { echo "this aivoicebus ($(aivoicebus version | head -1)) has no worker --run: it needs 0.15.0 or newer" >&2; exit 1; }
+aivoicebus worker --help 2>&1 | grep -q '^  -run' || { echo "this aivoicebus ($(aivoicebus version | head -1)) has no worker --run: it needs 0.15.0 or newer" >&2; exit 1; }
 
 echo "== 2. who may send"
 for s in $SENDERS; do
