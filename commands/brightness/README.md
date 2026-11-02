@@ -1,0 +1,1 @@
+Set the built-in display brightness, 0 to 1: `aivoicebus run MACHINE -- brightness 1`. macOS on Apple Silicon (private DisplayServices call via python3 ctypes; no Accessibility permission). Runs outside the sandbox, for this command only.
