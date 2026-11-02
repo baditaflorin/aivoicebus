@@ -23,6 +23,7 @@ var allowed = map[string][]string{
 	"credstore":  {},
 	"config":     {},
 	"assets":     {},
+	"term":       {"view"}, // the one place that imports the colour library; only the program's own commands use it
 	"version":    {},
 	"release":    {"config"},
 	"identity":   {"config", "msg"},
@@ -42,7 +43,7 @@ var allowed = map[string][]string{
 	"status":     {"client", "config", "msg", "release", "view", "wants"},
 	"worker":     {"client", "config", "msg", "outbox", "tasks", "view"},
 	"outbox":     {"client", "config", "identity", "msg", "release", "secrets", "view"},
-	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "status", "store", "tasks", "updater", "version", "view", "wants", "worker"},
+	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "status", "store", "tasks", "term", "updater", "version", "view", "wants", "worker"},
 }
 
 func TestPackageDependenciesPointOneWay(t *testing.T) {
@@ -101,5 +102,34 @@ func TestTheViewerDependsOnTheReadSideOnly(t *testing.T) {
 				t.Errorf("%s imports internal/%s; the viewer may only import %v", f, dep, viewerAllowed)
 			}
 		}
+	}
+}
+
+// The only third-party code is the colour library and the terminal check, and only internal/term
+// imports them: everything else asks it for a role and never writes an escape sequence.
+func TestThirdPartyCodeIsImportedInOnePlace(t *testing.T) {
+	const module = "github.com/baditaflorin/aivoicebus"
+	allowedThirdParty := map[string]bool{"github.com/fatih/color": true, "github.com/mattn/go-isatty": true}
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		af, perr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if perr != nil {
+			return perr
+		}
+		for _, imp := range af.Imports {
+			p := strings.Trim(imp.Path.Value, `"`)
+			if first, _, _ := strings.Cut(p, "/"); !strings.Contains(first, ".") || strings.HasPrefix(p, module) {
+				continue // the standard library, or this module
+			}
+			if !allowedThirdParty[p] || filepath.Dir(path) != filepath.Join("internal", "term") {
+				t.Errorf("%s imports %s: third-party code is only the colour library and the terminal check, and only internal/term imports them", path, p)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

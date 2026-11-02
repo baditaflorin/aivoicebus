@@ -587,6 +587,9 @@ would change config files           env, state.json, hook-status.json in <TMP>/h
 [exit 0]
 $ aivoicebus trust-key list
 SHA256:bA42de4EOjIOfqrjW6Gt8vvtn/L2iRY/EVPmuW0CCfE  built in               -
+SHA256:2H9Bvhbtz2mFmYYWdx5WH2+wHxk0HHo655c4GFmM1IQ  built in               -
+SHA256:x27TB6u9pldlCT5MwMcRLKmAsJqjLvhqdgEipEV39t4  built in               -
+SHA256:2toi2aGfL814SEyj8JCeCNDDXjtCCH1fp1A21N9yxCA  built in               -
 [exit 0]
 # hand a credential to the agents (piped here; at a terminal it asks with nothing shown)
 $ printf '<token>' | aivoicebus secret save demo --no-check --host api.example.test

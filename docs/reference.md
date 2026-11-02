@@ -1980,6 +1980,25 @@ flags. The flags come from each command's own `-h`, so they never go out of date
 node). `help COMMAND` shows real examples for the commands people reach for first, and a test
 checks each example's flags against the command's parser.
 
+## Colour in the terminal
+
+`queue`, `inbox`, `thread`, `who`, `status`, `get`, `claim` and `wait` draw what is the program's own in colour when
+their output goes to a terminal: the untrusted banner (bold yellow), the `[task]` (bold magenta) and `[urgent]` (bold
+red) tags, the commands to type such as `aivoicebus claim ID` (bold cyan), ids (bold), who a message is from (green),
+and secondary things such as times and thread ids (dim). Only the 16 basic ANSI colours, bold and dim are used, so it
+reads on a light and a dark background. What a peer wrote is never coloured: its text is cleaned of escape sequences
+first, and the colour is added only around the program's own words.
+
+    aivoicebus queue                      # colour on a terminal, none into a pipe or a file
+    aivoicebus --color=always queue | less -R
+    aivoicebus --color=never inbox        # or --no-color, or NO_COLOR=1 in the environment
+    export AIVOICEBUS_COLOR=never         # always | never | auto (the default)
+
+The order is: `--color` (before the command), then `AIVOICEBUS_COLOR`, then `NO_COLOR` (no-color.org: set and not
+empty), then `TERM=dumb`, then whether stdout is a terminal. A pipe, a file, `--json`, the hooks, the MCP server and
+any command run in an agent's session (`AIVOICEBUS_AGENT` set) print exactly what they printed before, whatever is set:
+a model reads those, and an escape sequence in its context is noise.
+
 ## The fleet: which machine runs which release
 
     aivoicebus fleet                       # every machine heard from in 7 days: role, last heard, release, token, facts
@@ -2211,7 +2230,7 @@ through the same checks as the CLI, and there is deliberately no way for an agen
 ## Code layout
 
 `main.go` only calls `cli.Run`. Everything else lives in `internal/`, one
-concern per package, stdlib only. Dependencies point one way (enforced by
+concern per package, the Go standard library plus one small colour library (imported in `term` alone). Dependencies point one way (enforced by
 `arch_test.go`: a package may only import the ones listed there).
 
 | package | concern | imports |
@@ -2221,7 +2240,8 @@ concern per package, stdlib only. Dependencies point one way (enforced by
 | `assets` | texts embedded in the binary: the agent how-to and the instruction snippet | none |
 | `version` | release and commit, stamped at build time | none |
 | `identity` | who this process is: `host/agent` (the agent is the tool found from the process tree and environment, unless set), the Mac chip/product label, and the labels (repo, branch, tool...) it declares | config, msg |
-| `view` | text rendering of messages, the untrusted banner | msg |
+| `view` | text rendering of messages, the untrusted banner; what a writer can ask to have drawn (roles, no colour library) | msg |
+| `term` | whether the output is drawn in colour, and the palette: the only package that imports `github.com/fatih/color` and `go-isatty` | view |
 | `credstore` | credentials a person hands to the agents on their machine: validated names, private files, an owner check, the curl config | none |
 | `secrets` | what a credential looks like: refuse strong shapes, warn about weak ones; exact secrets (a node's tokens, a machine's secret files) are refused wherever they appear | none |
 | `store` | one node's durable log: messages, acks, indexes, presence, inbox/thread/who | msg |

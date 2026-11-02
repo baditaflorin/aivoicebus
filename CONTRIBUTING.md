@@ -1,7 +1,8 @@
 # Contributing
 
-Thanks for helping. AiVoiceBus is deliberately small: Go standard library only, no third-party modules. A pull
-request that adds a dependency will not be merged without a very good reason.
+Thanks for helping. AiVoiceBus is deliberately small: the Go standard library, and one third-party module for the
+terminal's colour (`github.com/fatih/color`, with its three small dependencies), imported in `internal/term` alone
+(`arch_test.go` enforces it). A pull request that adds a dependency will not be merged without a very good reason.
 
 ## Before you start
 

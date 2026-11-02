@@ -71,7 +71,7 @@ func statusCmd(args []string, s Streams) error {
 	}
 	if terr == nil && len(ms) > 0 { // the conversation's state, under who took it, and its size
 		if v := msg.ThreadState(ms); v.State != "" {
-			fmt.Fprintln(s.Out, "  "+view.StateLine(v))
+			fmt.Fprintln(s.Out, "  "+view.StateLineIn(v, view.StyleOf(s.Out)))
 		}
 		fmt.Fprintln(s.Out, "  its thread: "+view.SizeLine(msg.SizeOf(ms)))
 	}

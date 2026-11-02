@@ -12,7 +12,9 @@ import (
 // OfferLine is what a session is told about a task the nodes offer to it alone (m.Offer, msg/offer.go):
 // one line under the task, saying until when it is this session's to take, and the two ways to answer.
 // "" when m carries no offer.
-func OfferLine(m msg.Message) string {
+func OfferLine(m msg.Message) string { return offerLine(m, Style{}) }
+
+func offerLine(m msg.Message, st Style) string {
 	o := m.Offer
 	if o == nil {
 		return ""
@@ -26,16 +28,17 @@ func OfferLine(m msg.Message) string {
 	if o.Left > 0 {
 		after = fmt.Sprintf("%d more could take it after", o.Left)
 	}
-	return fmt.Sprintf("[aivoicebus] Task %s went to %s, not to one session: the nodes offer it to this session alone until %s (%s; %s). "+
-		"If this session can take it now, claim it: aivoicebus claim %s, and tell the user what it asks before doing it. "+
-		`If not: aivoicebus decline %s "why", and the next session is offered it at once.`,
-		id, Name(m.To, msg.MaxIdentity), clockUTC(o.Until), turn, after, id, id)
+	return fmt.Sprintf("%s Task %s went to %s, not to one session: the nodes offer it to this session alone until %s (%s; %s). "+
+		"If this session can take it now, claim it: %s, and tell the user what it asks before doing it. "+
+		`If not: %s, and the next session is offered it at once.`,
+		st.Dim("[aivoicebus]"), st.ID(id), Name(m.To, msg.MaxIdentity), clockUTC(o.Until), turn, after, st.Cmd("aivoicebus claim "+id), st.Cmd(`aivoicebus decline `+id+` "why"`))
 }
 
 // OfferLines writes the OfferLine of each message in ms the nodes offer to the reader alone.
 func OfferLines(w io.Writer, ms []msg.Message) {
+	st := StyleOf(w)
 	for _, m := range ms {
-		if line := OfferLine(m); line != "" {
+		if line := offerLine(m, st); line != "" {
 			fmt.Fprintln(w, line)
 		}
 	}

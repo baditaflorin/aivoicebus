@@ -689,7 +689,7 @@ func inbox(args []string, s Streams) error {
 		}
 		if *watch == 0 {
 			if len(ms) == 0 && !*asJSON {
-				fmt.Fprintln(s.Out, "(no unread messages)")
+				fmt.Fprintln(s.Out, view.StyleOf(s.Out).Dim("(no unread messages)"))
 			}
 			return nil
 		}
@@ -912,6 +912,7 @@ func who(args []string, s Streams) error {
 		return err
 	}
 	now := time.Now()
+	st := view.StyleOf(s.Out)
 	cutoff := now.Add(-span)
 	hidden, shown := 0, 0
 	rows := []msg.RosterEntry{} // what --json prints and --tools groups
@@ -926,12 +927,12 @@ func who(args []string, s Streams) error {
 			rows = append(rows, e)
 			return
 		}
-		line := view.Session(e, now)
+		line := view.SessionIn(e, now, st)
 		if l := e.Labels.String(); l != "" {
-			line += "  " + view.Name(l, 300)
+			line += "  " + st.Dim(view.Name(l, 300))
 		}
 		if caps := msg.CapsOf(e.Me, e.Labels); len(caps) > 0 { // what task/ask --needs matches
-			line += "  can: " + view.Name(strings.Join(caps, " "), 300)
+			line += "  " + st.Dim("can: "+view.Name(strings.Join(caps, " "), 300))
 		}
 		fmt.Fprintln(s.Out, line)
 	}
@@ -996,11 +997,11 @@ func who(args []string, s Streams) error {
 	recent := "in the last " + *within
 	switch {
 	case sel != nil && shown == 0 && hidden == 0:
-		fmt.Fprintf(s.Out, "(no session this node knows of matches %s)\n", sel)
+		fmt.Fprintln(s.Out, st.Dim(fmt.Sprintf("(no session this node knows of matches %s)", sel)))
 	case sel != nil && shown == 0:
-		fmt.Fprintf(s.Out, "(no session seen %s matches %s; %d older one(s) hidden, --all shows them)\n", recent, sel, hidden)
+		fmt.Fprintln(s.Out, st.Dim(fmt.Sprintf("(no session seen %s matches %s; %d older one(s) hidden, --all shows them)", recent, sel, hidden)))
 	case hidden > 0:
-		fmt.Fprintf(s.Out, "(%d session(s) not seen %s hidden; --all shows them)\n", hidden, recent)
+		fmt.Fprintln(s.Out, st.Dim(fmt.Sprintf("(%d session(s) not seen %s hidden; --all shows them)", hidden, recent)))
 	}
 	return nil
 }

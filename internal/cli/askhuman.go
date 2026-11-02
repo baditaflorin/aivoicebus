@@ -169,7 +169,7 @@ func answerCmd(args []string, s Streams) error {
 			return err
 		}
 		n := 0
-		fmt.Fprintln(s.Out, view.UntrustedBanner)
+		fmt.Fprintln(s.Out, view.StyleOf(s.Out).UntrustedBanner())
 		for _, m := range ms {
 			if msg.IsStuck(m.Body) {
 				n++

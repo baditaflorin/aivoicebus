@@ -122,6 +122,11 @@ func (e exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
 // Run executes one aivoicebus invocation and returns its exit code.
 func Run(args []string, s Streams) int {
+	args, colour, err := takeColour(args)
+	if err != nil {
+		fmt.Fprintln(s.Err, "error:", err)
+		return exitCode(err)
+	}
 	config.LoadEnvFile()
 	client.SetRelease(version.Release) // every request says which release this machine runs (aivoicebus fleet)
 	if len(args) < 1 {
@@ -140,12 +145,13 @@ func Run(args []string, s Streams) int {
 		fmt.Fprintln(s.Err, "error:", fmt.Errorf("unknown command %q: `aivoicebus help` lists the commands", args[0]))
 		return 1
 	}
+	s = withColour(args[0], colour, s)
 	var counted *countingWriter
 	if agentReads[args[0]] && os.Getenv("AIVOICEBUS_AGENT") != "" { // an agent session ran it: its output is context
 		counted = &countingWriter{w: s.Out}
 		s.Out = counted
 	}
-	err := cmd(args[1:], s)
+	err = cmd(args[1:], s)
 	if counted != nil {
 		config.NoteUsage(identity.Me(), "cli:"+args[0], counted.n)
 	}

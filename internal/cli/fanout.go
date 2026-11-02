@@ -112,7 +112,7 @@ func fanOut(machines []string, tool, text, waitAll string, flags []string, s Str
 			return err
 		}
 	} else {
-		fmt.Fprintln(s.Out, view.UntrustedBanner)
+		fmt.Fprintln(s.Out, view.StyleOf(s.Out).UntrustedBanner())
 		for _, r := range results {
 			fmt.Fprintf(s.Out, "== %s (%s)", r.Machine, r.ID)
 			switch {
