@@ -1215,11 +1215,9 @@ runs a command the machine's owner wrote down in advance; a peer can only pick o
 argument slots.
 
     # on each machine, typed by its owner in a terminal (an agent's session is refused):
-    mkdir -p ~/.config/aivoicebus/run.d
-    cp deploy/run.d/bright.py ~/.config/aivoicebus/run.d/
-    cp deploy/run.d/brightness.json.example ~/.config/aivoicebus/run.d/brightness.json   # edit YOU
-    aivoicebus worker allow add desk                    # who may send
-    aivoicebus worker install --run                     # or add --run to an --agent worker
+    curl -fsSL https://raw.githubusercontent.com/baditaflorin/aivoicebus/<COMMIT>/deploy/run-setup.sh | AIVOICEBUS_RUN_REF=<COMMIT> sh
+    # it updates, allows the senders in AIVOICEBUS_RUN_SENDERS, installs commands/ (see commands/README.md for the list
+    # and how to add one) into ~/.config/aivoicebus/run.d and installs the worker with --run
 
     # from the sender:
     aivoicebus run laptop-b,laptop-c --wait 1m -- brightness 1
