@@ -25,6 +25,9 @@ for arg do
 done
 if [ -n "$cache" ]; then
  test -f "$src/go.mod" && test -f "$src/go.sum" || exit 43
+ mkdir -p "$cache/module/nested"
+ printf verified > "$cache/module/nested/proof"
+ chmod 555 "$cache/module/nested" "$cache/module"
  test -z "$FAIL_PREP" || exit 42
 elif [ -n "$out" ]; then
  printf identical > "$out/aivoicebus-linux-amd64"

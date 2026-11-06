@@ -24,7 +24,22 @@ sums() { # sums <dir>: "<sha256>  <name>" for each binary, sorted by name
 }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/aivoicebus-reproduce.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+cleanup() {
+  local status=$?
+  trap - EXIT
+  # Downloaded modules contain read-only directories even for an ordinary user.
+  # Restore write permission only inside this invocation's private cache.
+  if [ -d "$work/modcache" ] && ! find "$work/modcache" -type d -exec chmod u+w '{}' +; then
+    echo "reproduce.sh: could not make the owned module cache removable: $work/modcache" >&2
+    [ "$status" -ne 0 ] || status=2
+  fi
+  if ! rm -rf "$work"; then
+    echo "reproduce.sh: could not remove owned temporary files: $work" >&2
+    [ "$status" -ne 0 ] || status=2
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 mkdir -p "$work/src"
 git archive "$COMMIT" | tar -x -C "$work/src"
 # Prepare dependencies from the archived module contract, never a shared host cache.
