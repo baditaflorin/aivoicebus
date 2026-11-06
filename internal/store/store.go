@@ -32,6 +32,7 @@ type Store struct {
 	logCounts      map[string]uint64       // contiguous version vector; no entry per historical record
 	leaseRetention LeaseRetentionOptions
 	history        *leaseHistory
+	historyLock    *os.File
 	historyErr     error
 	msgs           []msg.Message              // all known messages in arrival order
 	acks           map[string]map[string]bool // id -> by -> true
@@ -364,8 +365,11 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	s.loadPresence()
 	s.loadLimits()
 	s.sweepLocked(s.now().UTC()) // test messages that expired while the node was down lose their bodies now
+	if err == nil && s.historyErr != nil {
+		err = s.historyErr
+	}
 	if err != nil && s.history != nil {
-		s.history.close()
+		_ = s.Close()
 		return nil, err
 	}
 	return s, err

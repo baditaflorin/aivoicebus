@@ -105,11 +105,15 @@ func TestTheViewerDependsOnTheReadSideOnly(t *testing.T) {
 	}
 }
 
-// The only third-party code is the colour library and the terminal check, and only internal/term
-// imports them: everything else asks it for a role and never writes an escape sequence.
+// Third-party imports stay at explicit boundaries: terminal adapters and the
+// rebuildable disk index. Other packages use this project's interfaces.
 func TestThirdPartyCodeIsImportedInOnePlace(t *testing.T) {
 	const module = "github.com/baditaflorin/aivoicebus"
-	allowedThirdParty := map[string]bool{"github.com/fatih/color": true, "github.com/mattn/go-isatty": true}
+	allowedThirdParty := map[string]string{
+		"github.com/fatih/color":     "internal/term",
+		"github.com/mattn/go-isatty": "internal/term",
+		"go.etcd.io/bbolt":           "internal/store",
+	}
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return err
@@ -123,8 +127,8 @@ func TestThirdPartyCodeIsImportedInOnePlace(t *testing.T) {
 			if first, _, _ := strings.Cut(p, "/"); !strings.Contains(first, ".") || strings.HasPrefix(p, module) {
 				continue // the standard library, or this module
 			}
-			if !allowedThirdParty[p] || filepath.Dir(path) != filepath.Join("internal", "term") {
-				t.Errorf("%s imports %s: third-party code is only the colour library and the terminal check, and only internal/term imports them", path, p)
+			if boundary, ok := allowedThirdParty[p]; !ok || filepath.Dir(path) != filepath.FromSlash(boundary) {
+				t.Errorf("%s imports %s outside its explicit third-party boundary", path, p)
 			}
 		}
 		return nil

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -80,12 +81,39 @@ func (s *Store) initLeaseRetention() error {
 	if o.Mode == LeaseRetentionOff {
 		return nil
 	}
+	dir, err := s.privateHistoryDir()
+	if err != nil {
+		return err
+	}
+	s.historyLock, err = lockLeaseHistory(filepath.Join(dir, "lease-history.lock"))
+	if err != nil {
+		return err
+	}
+	ready := false
+	defer func() {
+		if !ready {
+			_ = s.historyLock.Close()
+			s.historyLock = nil
+		}
+	}()
+	// Only derived, privately owned rebuild files in this tool's namespace are
+	// removed, with the exclusive writer lock held. A crash can leave these.
+	if err := cleanupHistoryRebuilds(dir); err != nil {
+		return err
+	}
+	if err := checkHistoryPaths(dir); err != nil {
+		return err
+	}
 	// Repair the existing append format before recording byte offsets. This is
 	// the same torn-tail recovery Open already performs without the sidecar.
 	if err := repairTail(filepath.Join(s.dir, "log.jsonl")); err != nil {
 		return err
 	}
-	return s.rebuildLeaseHistory()
+	if err := s.rebuildLeaseHistory(); err != nil {
+		return err
+	}
+	ready = true
+	return nil
 }
 
 func (s *Store) LeaseRetentionStats() LeaseRetentionStatus {
@@ -109,11 +137,15 @@ func (s *Store) SweepLeaseRetention() error {
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.history == nil {
-		return nil
+	var err error
+	if s.history != nil {
+		err = s.history.close()
+		s.history = nil
 	}
-	err := s.history.close()
-	s.history = nil
+	if s.historyLock != nil {
+		err = errors.Join(err, s.historyLock.Close())
+		s.historyLock = nil
+	}
 	s.historyErr = errors.New("lease history is closed")
 	return err
 }
@@ -122,15 +154,17 @@ var historyRecords = []byte("records")
 var historyIDs = []byte("ids")
 
 type historyRef struct {
-	Offset   int64
-	Length   int64
-	Digest   [32]byte
-	Override json.RawMessage `json:",omitempty"`
+	Offset        int64
+	Length        int64
+	Digest        [32]byte
+	LogicalDigest [32]byte
+	Override      json.RawMessage `json:",omitempty"`
 }
 
 type leaseHistory struct {
-	db  *bolt.DB
-	raw *os.File
+	db      *bolt.DB
+	raw     *os.File
+	rawPath string
 }
 
 func historyKey(origin string, seq uint64) []byte {
@@ -143,14 +177,43 @@ func historyKey(origin string, seq uint64) []byte {
 
 func (h *leaseHistory) close() error { return errors.Join(h.db.Close(), h.raw.Close()) }
 
-func (h *leaseHistory) put(r msg.Record, offset, length int64, raw []byte) error {
-	return h.db.Update(func(tx *bolt.Tx) error { return putHistoryRef(tx, r, offset, length, raw) })
+func historyExtentDigest(f *os.File, offset, length int64) ([32]byte, error) {
+	var out [32]byte
+	fi, err := f.Stat()
+	if err != nil {
+		return out, err
+	}
+	if offset < 0 || length < 1 || length > fi.Size() || offset > fi.Size()-length {
+		return out, errors.New("lease history: raw extent is unavailable")
+	}
+	hash := sha256.New()
+	n, err := io.CopyBuffer(hash, io.NewSectionReader(f, offset, length), make([]byte, 32<<10))
+	if err != nil {
+		return out, err
+	}
+	if n != length {
+		return out, io.ErrUnexpectedEOF
+	}
+	copy(out[:], hash.Sum(nil))
+	return out, nil
 }
 
-func putHistoryRef(tx *bolt.Tx, r msg.Record, offset, length int64, raw []byte) error {
+func (h *leaseHistory) put(r msg.Record, offset, length int64, raw []byte) error {
+	return h.db.Update(func(tx *bolt.Tx) error { return putHistoryRef(tx, h.raw, r, offset, length, raw) })
+}
+
+func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length int64, raw []byte) error {
 	ref := historyRef{Offset: offset, Length: length, Digest: sha256.Sum256(raw)}
+	if length != int64(len(raw)) {
+		var err error
+		ref.Digest, err = historyExtentDigest(rawFile, offset, length)
+		if err != nil {
+			return err
+		}
+	}
 	var decoded msg.Record
 	want, _ := json.Marshal(r)
+	ref.LogicalDigest = sha256.Sum256(want)
 	if len(raw) > maxLine || json.Unmarshal(raw, &decoded) != nil {
 		ref.Override = want
 	} else if got, _ := json.Marshal(decoded); !bytes.Equal(got, want) {
@@ -173,8 +236,13 @@ func putHistoryRef(tx *bolt.Tx, r msg.Record, offset, length int64, raw []byte) 
 }
 
 func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
+	fdInfo, err := h.raw.Stat()
+	pathInfo, pathErr := os.Lstat(h.rawPath)
+	if err != nil || pathErr != nil || !pathInfo.Mode().IsRegular() || !historyOwned(pathInfo) || !os.SameFile(fdInfo, pathInfo) {
+		return msg.Record{}, errors.New("lease history: raw generation changed")
+	}
 	var ref historyRef
-	err := h.db.View(func(tx *bolt.Tx) error {
+	err = h.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(historyRecords).Get(historyKey(origin, seq))
 		if b == nil {
 			return errors.New("lease history: sequence is missing from index")
@@ -185,7 +253,14 @@ func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
 		return msg.Record{}, err
 	}
 	b := []byte(ref.Override)
-	if len(b) == 0 {
+	if len(b) != 0 {
+		// A normalized/quarantine/test-lane representation is still tied to
+		// the exact raw extent and generation from which it was derived.
+		digest, err := historyExtentDigest(h.raw, ref.Offset, ref.Length)
+		if err != nil || digest != ref.Digest || sha256.Sum256(b) != ref.LogicalDigest {
+			return msg.Record{}, errors.New("lease history: overridden raw authority changed")
+		}
+	} else {
 		if ref.Offset < 0 || ref.Length < 1 || ref.Length > maxLine+1 {
 			return msg.Record{}, errors.New("lease history: invalid indexed extent")
 		}
@@ -198,6 +273,9 @@ func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
 		}
 	}
 	var r msg.Record
+	if after, err := os.Lstat(h.rawPath); err != nil || !after.Mode().IsRegular() || !os.SameFile(fdInfo, after) {
+		return msg.Record{}, errors.New("lease history: raw generation changed during read")
+	}
 	if err := json.Unmarshal(b, &r); err != nil || r.Origin != origin || r.Seq != seq {
 		return msg.Record{}, errors.New("lease history: indexed record identity differs")
 	}
@@ -215,6 +293,7 @@ func (h *leaseHistory) replace(r msg.Record) error {
 			return err
 		}
 		ref.Override, _ = json.Marshal(r)
+		ref.LogicalDigest = sha256.Sum256(ref.Override)
 		b, err := json.Marshal(ref)
 		if err != nil {
 			return err
@@ -223,30 +302,103 @@ func (h *leaseHistory) replace(r msg.Record) error {
 	})
 }
 
-func (s *Store) rebuildLeaseHistory() error {
+func (s *Store) privateHistoryDir() (string, error) {
 	dir, err := filepath.EvalSymlinks(s.dir)
+	if err != nil {
+		return "", err
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 || !historyOwned(fi) {
+		return "", errors.New("lease history: data directory must be private and owned by this server")
+	}
+	return dir, nil
+}
+
+func cleanupHistoryRebuilds(dir string) error {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	fi, err := os.Stat(dir)
-	if err != nil || !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 {
-		return errors.New("lease history: data directory must be private")
+	for _, e := range entries {
+		suffix, ok := strings.CutPrefix(e.Name(), ".lease-history-rebuild-")
+		if !ok || suffix == "" {
+			continue
+		}
+		for _, c := range suffix {
+			if c < '0' || c > '9' {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		fi, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o600 || !historyOwned(fi) {
+			return errors.New("lease history: unsafe stale rebuild file")
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkHistoryPaths(dir string) error {
+	for _, name := range []string{"log.jsonl", "lease-history.db"} {
+		fi, err := os.Lstat(filepath.Join(dir, name))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 || !historyOwned(fi) {
+			return fmt.Errorf("lease history: unsafe %s path", name)
+		}
+	}
+	return nil
+}
+
+func (s *Store) rebuildLeaseHistory() error {
+	dir, err := s.privateHistoryDir()
+	if err != nil {
+		return err
+	}
+	if err := checkHistoryPaths(dir); err != nil {
+		return err
 	}
 	path := filepath.Join(dir, "lease-history.db")
 	if fi, err := os.Lstat(path); err == nil {
-		if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 {
+		if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 || !historyOwned(fi) {
 			return errors.New("lease history: unsafe sidecar path")
 		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	raw, err := os.OpenFile(filepath.Join(dir, "log.jsonl"), os.O_RDONLY|os.O_CREATE, 0o600)
+	rawPath := filepath.Join(dir, "log.jsonl")
+	if fi, err := os.Lstat(rawPath); err == nil {
+		if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 || !historyOwned(fi) {
+			return errors.New("lease history: unsafe raw log path")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	raw, err := os.OpenFile(rawPath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return err
 	}
 	if fi, err := raw.Stat(); err != nil || !fi.Mode().IsRegular() {
 		raw.Close()
 		return errors.New("lease history: raw log must be regular")
+	}
+	if err := raw.Sync(); err != nil {
+		raw.Close()
+		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".lease-history-rebuild-*")
 	if err != nil {
@@ -261,7 +413,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		raw.Close()
 		return err
 	}
-	h := &leaseHistory{db: db, raw: raw}
+	h := &leaseHistory{db: db, raw: raw, rawPath: filepath.Join(dir, "log.jsonl")}
 	keep := false
 	defer func() {
 		if !keep {
@@ -304,7 +456,7 @@ func (s *Store) rebuildLeaseHistory() error {
 			return
 		}
 		if r, ok := vetter.vetLocked(r); ok {
-			buildErr = putHistoryRef(batch, r, offset, length, line)
+			buildErr = putHistoryRef(batch, raw, r, offset, length, line)
 			vetter.logCounts[r.Origin]++
 			batchN++
 			if buildErr == nil && batchN == 256 {
@@ -406,9 +558,30 @@ func (s *Store) appendRecord(r msg.Record) error {
 	}
 	b = append(b, '\n')
 	if n, err := f.Write(b); err != nil {
+		s.historyErr = err
 		return err
 	} else if n != len(b) {
+		s.historyErr = io.ErrShortWrite
 		return io.ErrShortWrite
+	}
+	// The derived sidecar must never get ahead of an acknowledged durable raw
+	// record. A failed post-append durability/index step requires recovery;
+	// another request must not append the same origin sequence again.
+	if s.history != nil {
+		if err := f.Sync(); err != nil {
+			s.historyErr = err
+			return err
+		}
+		if fi.Size() == 0 {
+			d, err := os.Open(filepath.Dir(path))
+			if err == nil {
+				err = errors.Join(d.Sync(), d.Close())
+			}
+			if err != nil {
+				s.historyErr = err
+				return err
+			}
+		}
 	}
 	if s.history != nil {
 		if err := s.history.put(r, fi.Size(), int64(len(b)), b); err != nil {
