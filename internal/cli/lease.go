@@ -82,14 +82,18 @@ func leaseCmd(args []string, s Streams) error {
 		if fs.NArg() != 0 {
 			return outbox.Usagef("lease take KEY [--ttl 30m] [--note TEXT]: one key, and the note in --note")
 		}
-		current, held, err := holderOf(c, key)
+		current, held, latest, err := holderOf(c, key)
 		if err != nil {
 			return err
 		}
 		if held && current.By != me {
 			return fmt.Errorf("%s", leaseLine(current, me)) // nextstep: leaseLine says when it frees up
 		}
-		out, h, err := sendLease(c, me, key, *note, *ttl, "", *settle, s)
+		previous := ""
+		if held {
+			previous = latest
+		}
+		out, h, err := sendLease(c, me, key, *note, *ttl, previous, *settle, s)
 		if err != nil {
 			return err
 		}
@@ -138,17 +142,25 @@ func withoutOwnerRecords(hs []msg.Lease, globs []string) []msg.Lease {
 	return slices.DeleteFunc(slices.Clone(hs), func(h msg.Lease) bool { return msg.IsOwnerKey(h.Key) })
 }
 
-func holderOf(c *client.Client, key string) (msg.Lease, bool, error) {
+func holderOf(c *client.Client, key string) (msg.Lease, bool, string, error) {
 	live, err := c.Leases()
 	if err != nil {
-		return msg.Lease{}, false, err
+		return msg.Lease{}, false, "", err
 	}
 	for _, h := range msg.Holders(live) {
 		if h.Key == key {
-			return h, true, nil
+			// Keep the aggregated earliest holder intact, but use its latest
+			// actual claim as provenance for a fresh manual renewal.
+			latest := h
+			for _, l := range live {
+				if l.Key == key && l.By == h.By && (msg.TakeRef{ID: latest.ID, At: latest.At}).Earlier(msg.TakeRef{ID: l.ID, At: l.At}) {
+					latest = l
+				}
+			}
+			return h, true, latest.ID, nil
 		}
 	}
-	return msg.Lease{}, false, nil
+	return msg.Lease{}, false, "", nil
 }
 
 func leaseLine(h msg.Lease, me string) string {
@@ -194,7 +206,7 @@ func sendLease(c *client.Client, me, key, note, ttl, previous string, settle tim
 		// A missing answer is not proof that our acquisition won. Retract only
 		// the record this attempt wrote; an unavailable node may leave it until
 		// its TTL, which is safer than starting an uncoordinated command.
-		_, _ = c.Retract(out.ID, me, false, false)
+		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false)
 		return out, nil, fmt.Errorf("could not settle lease ownership: %w", err)
 	}
 	var h msg.Lease
@@ -212,11 +224,11 @@ func sendLease(c *client.Client, me, key, note, ttl, previous string, settle tim
 		}
 	}
 	if held && h.By != me {
-		_, _ = c.Retract(out.ID, me, false, false) // someone else was first: give ours back
+		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false) // someone else was first: give ours back
 		return out, &h, nil
 	}
 	if !held || !confirmed || out.Exp == nil || !out.Exp.After(now) {
-		_, _ = c.Retract(out.ID, me, false, false)
+		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false)
 		return out, nil, fmt.Errorf("could not confirm the lease just written")
 	}
 	return out, nil, nil

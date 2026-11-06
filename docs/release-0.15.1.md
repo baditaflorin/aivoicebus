@@ -11,8 +11,14 @@ leave insufficient space are refused before acquisition. Key, TTL and wire forma
 and retracts only IDs created by that run. Renewal I/O is bounded before the current lease expiry.
 Healthy command exit codes and explicit audited overrides retain their existing semantics.
 Final cleanup failures are reported and the claim expires by TTL.
+Process-group termination covers the supported Linux and Darwin release targets; other operating
+systems retain the direct-child termination fallback.
 
 Interactive terminal stdin is conservatively refused before network requests or lease writes.
 Pipes, files and `/dev/null` remain supported for unattended guarded work. No server storage or
 history behavior changes in this release. The compatibility release matrix now includes 0.14.0
 and 0.15.0, in addition to the previous entries.
+
+Canonical reproduction now prepares and verifies dependencies from the exact archived module
+contract in a task-owned private cache. Both actual builds remain offline and mount that cache
+read-only; no shared host cache or network access is used by either build.

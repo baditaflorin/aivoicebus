@@ -140,6 +140,10 @@ the release itself, never from what `main` or your checkout says now.
    sign). From a `git archive` of the commit instead of a checkout, set `AIVOICEBUS_COMMIT=<short sha>`.
    Build it a second time and compare the sha256 of every binary (`scripts/reproduce.sh <commit>`
    does both builds): a release is only signed when the two builds are byte-identical.
+   Reproduction first downloads and verifies the exact archived `go.mod`/`go.sum` dependencies in
+   the pinned image into its own private temporary cache. Both actual builds run with no network,
+   read-only source and cache, and module proxy/sumdb disabled; no shared host cache is used.
+   A preparation failure stops before building and reports the archived commit to inspect.
    Copy `dist/release` to the machine that holds the signing key.
 3. **Key machine:** `scripts/release.sh sign dist/release` packs, signs, verifies and writes
    `SHA256SUMS`. It takes the release number and the commit **from the binaries**: it runs the one

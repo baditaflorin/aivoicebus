@@ -379,3 +379,24 @@ func TestLeaseRunRejectsNoteWithoutRenewalSpaceBeforeAnyRequest(t *testing.T) {
 		t.Fatalf("oversized note not refused before acquisition: %d %s", code, detail)
 	}
 }
+
+func TestLeaseTakeAgainWritesDistinctExtendedClaim(t *testing.T) {
+	n := newLeaseFailureNode(t, func(*leaseFailureNode) bool { return false }, false)
+	for i := 0; i < 3; i++ {
+		code, _, detail := run(t, "", "lease", "take", leaseKey, "--note", "operator release", "--settle", "0s")
+		if code != 0 {
+			t.Fatalf("take %d: %d %s", i, code, detail)
+		}
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.written) != 3 || n.written[0].ID == n.written[1].ID || n.written[1].ID == n.written[2].ID || !n.written[2].Exp.After(*n.written[1].Exp) {
+		t.Fatal("taking the lease again did not extend it with a new claim")
+	}
+	if n.written[1].Body != msg.LeaseBody(leaseKey, "operator release\nrenewal of "+n.written[0].ID) {
+		t.Fatal("manual renewal lost original note or bounded provenance")
+	}
+	if n.written[2].Body != msg.LeaseBody(leaseKey, "operator release\nrenewal of "+n.written[1].ID) {
+		t.Fatal("manual renewal reused the aggregated earliest ID")
+	}
+}
