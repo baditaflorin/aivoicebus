@@ -476,7 +476,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		}
 	}()
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range [][]byte{historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets, historyLeaseLive, historyLeaseWindow} {
+		for _, bucket := range [][]byte{historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets, historyLeaseLive, historyLeaseWindow, historyReceipts, historyTestReceipts, historyRetractionBy, historyManagedRetracted, historyManagedInert, historyDeferredTargets} {
 			if _, err := tx.CreateBucket(bucket); err != nil {
 				return err
 			}

@@ -133,14 +133,20 @@ func putLeaseProjection(tx *bolt.Tx, r msg.Record, offset int64, o LeaseRetentio
 					return err
 				}
 			}
+			if err := seedManagedRetractionCounts(tx, ref); err != nil {
+				return err
+			}
 		}
 	}
 	if a := r.Ack; a != nil {
 		if id := ackTarget(*a); id != "" {
 			// Keep all target relations on disk, including a claim that arrived
 			// before its message. No unknown target needs a permanent heap slot.
-			return tx.Bucket(historyAckTargets).Put(append([]byte(id+"\x00"), key...), key)
+			if err := tx.Bucket(historyAckTargets).Put(append([]byte(id+"\x00"), key...), key); err != nil {
+				return err
+			}
 		}
+		return putAckMetadata(tx, *a)
 	}
 	return nil
 }
