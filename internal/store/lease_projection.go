@@ -124,6 +124,15 @@ func putLeaseProjection(tx *bolt.Tx, r msg.Record, offset int64, o LeaseRetentio
 			if err := tx.Bucket(historyLeaseExpiry).Put(expiryKey, []byte(m.ID)); err != nil {
 				return err
 			}
+			floor, err := leaseWindowFloor(tx)
+			if err != nil {
+				return err
+			}
+			if ref.Expiry.After(floor) {
+				if err := putLiveLease(tx, ref, true); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if a := r.Ack; a != nil {

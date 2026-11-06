@@ -476,12 +476,16 @@ func (s *Store) rebuildLeaseHistory() error {
 		}
 	}()
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range [][]byte{historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets} {
+		for _, bucket := range [][]byte{historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets, historyLeaseLive, historyLeaseWindow} {
 			if _, err := tx.CreateBucket(bucket); err != nil {
 				return err
 			}
 		}
-		return nil
+		value, err := json.Marshal(s.now().UTC())
+		if err != nil {
+			return err
+		}
+		return tx.Bucket(historyLeaseWindow).Put(historyWindowFloor, value)
 	}); err != nil {
 		return err
 	}
