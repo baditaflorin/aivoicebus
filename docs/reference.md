@@ -1071,6 +1071,19 @@ when it is held or no node answers: the run says so, writes a `lease override` l
 log (the command's name, not its arguments, the key, the holder and the reason; see `aivoicebus
 audit`) and sends the holder a notice. It takes nothing from the holder, whose lease stays.
 
+Since 0.15.1, a successful write is followed by a read confirming that exact claim is live and
+this session holds the key. An unavailable, empty or stale answer refuses the run. Each renewal
+appends `renewal of <previous-ID>` to the original operator note, so duplicate suppression cannot
+return the previous record. The suffix has constant size and does not accumulate; notes too long
+to leave room for it are refused before acquisition. The key and TTL stay unchanged.
+If renewal, confirmation or withdrawal of the previous claim fails, the command and its process
+group are stopped and reaped before best-effort cleanup of only this run's known claims. This
+exits nonzero, even if the command would otherwise succeed; exit 7 remains a refusal before work
+starts. Renewal requests have a deadline before the current claim expires. Failed final cleanup
+is reported and leaves the command's exit code unchanged; the remaining claim expires by its TTL.
+Terminal stdin is refused before taking a lease because interactive foreground job control is
+not supported by these guarded process groups. Redirect stdin from a pipe, file or `/dev/null`.
+
 **Rooms.** `aivoicebus room join release-0.5` puts this session in a standing conversation of
 several agents: everything `room say release-0.5 "..."` says goes to every member, in one thread
 (`room-release-0.5`), which `room wait release-0.5` follows and the viewer shows as one
@@ -1215,11 +1228,9 @@ runs a command the machine's owner wrote down in advance; a peer can only pick o
 argument slots.
 
     # on each machine, typed by its owner in a terminal (an agent's session is refused):
-    mkdir -p ~/.config/aivoicebus/run.d
-    cp deploy/run.d/bright.py ~/.config/aivoicebus/run.d/
-    cp deploy/run.d/brightness.json.example ~/.config/aivoicebus/run.d/brightness.json   # edit YOU
-    aivoicebus worker allow add desk                    # who may send
-    aivoicebus worker install --run                     # or add --run to an --agent worker
+    curl -fsSL https://raw.githubusercontent.com/baditaflorin/aivoicebus/<COMMIT>/deploy/run-setup.sh | AIVOICEBUS_RUN_REF=<COMMIT> sh
+    # it updates, allows the senders in AIVOICEBUS_RUN_SENDERS, installs commands/ (see commands/README.md for the list
+    # and how to add one) into ~/.config/aivoicebus/run.d and installs the worker with --run
 
     # from the sender:
     aivoicebus run laptop-b,laptop-c --wait 1m -- brightness 1
