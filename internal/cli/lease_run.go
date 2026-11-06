@@ -17,6 +17,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
+	"github.com/baditaflorin/aivoicebus/internal/term"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -35,7 +36,7 @@ var leaseRenewEvery = func(ttl time.Duration) time.Duration { return ttl / 3 }
 
 // leaseRun is `lease run KEY [--ttl 30m] [--note TEXT] -- CMD [ARGS...]`: take the lease or refuse,
 // run CMD, and release the lease when CMD ends, whatever ended it but a kill -9 (then the ttl
-// does). It exits with CMD's code; 7 when the lease is someone else's and CMD did not run.
+// does). Lost or unverifiable ownership stops CMD; otherwise its exit code is preserved.
 // noNode is what client.FromEnv said when no node is configured (c is nil then).
 func leaseRun(c *client.Client, noNode error, me string, args []string, s Streams) error {
 	dash := slices.Index(args, "--")
@@ -82,6 +83,12 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 		return outbox.Usagef("lease run --override-hold needs a reason of at least %d characters: who agreed, and why the lease does not apply", minOverrideWhy)
 	}
 	argv := args[dash+1:]
+	if len(msg.LeaseBody(key, leaseRenewalNote(*note, "0000000000"))) > msg.MaxBody {
+		return outbox.Usagef("lease run --note is too long to leave room for renewal provenance (maximum body %d bytes)", msg.MaxBody)
+	}
+	if f, ok := s.In.(*os.File); ok && term.IsTerminal(f) {
+		return fmt.Errorf("lease run: terminal input is unsupported for guarded process groups; redirect stdin from a file, pipe or /dev/null")
+	}
 
 	// Signals are caught from here on, so one that arrives while the lease is being taken still
 	// ends in a release.
@@ -104,7 +111,7 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 			}
 		}
 		if holder == nil {
-			lease, holder, why = sendLease(c, me, key, *note, *ttl, *settle, s)
+			lease, holder, why = sendLease(c, me, key, *note, *ttl, "", *settle, s)
 		}
 	}
 	held := false // this run holds the lease and must release it
@@ -116,12 +123,21 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 	} else {
 		held = true
 	}
+	// Only records created by this run may be withdrawn. Listing by owner/key can
+	// also find another run's records, especially while a node is failing.
+	owned := []string{lease.ID}
 	release := func() {
 		if !held {
 			return
 		}
-		if _, err := releaseLeases(c, me, key); err != nil {
-			fmt.Fprintf(s.Err, "aivoicebus: lease run: the lease on %s was not released (%v): it ends when its ttl does; `aivoicebus lease release %s` frees it now\n", key, view.Sanitise(err.Error()), key)
+		cleanup := leaseClientUntil(c, time.Now().Add(5*time.Second))
+		for _, id := range owned {
+			if id == "" {
+				continue
+			}
+			if _, err := cleanup.Retract(id, me, false, false); err != nil {
+				fmt.Fprintf(s.Err, "aivoicebus: lease run: its lease on %s was not released (%v): it ends when its ttl does\n", key, view.Sanitise(err.Error()))
+			}
 		}
 	}
 	select {
@@ -130,10 +146,17 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 		return exitError{signalCode(sig)}
 	default:
 	}
+	margin := min(ttlD/10, 5*time.Second)
+	if held && !lease.Exp.Add(-margin).After(time.Now()) {
+		release()
+		return fmt.Errorf("lease run: insufficient confirmed lease lifetime to start %s safely", argv[0])
+	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = s.In, s.Out, s.Err
 	cmd.Env = append(os.Environ(), leaseEnv+"="+strings.Trim(os.Getenv(leaseEnv)+","+key, ","))
+	ownLeaseProcessGroup(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		release()
 		code := 126 // the shell's codes: found but not runnable, and not found
@@ -146,35 +169,63 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	var renew <-chan time.Time // a run that overrode the hold has no lease to extend
+	var timer *time.Timer
+	nextRenewal := func() time.Duration {
+		return max(min(leaseRenewEvery(ttlD), time.Until(*lease.Exp)-margin), 10*time.Millisecond)
+	}
 	if held {
-		tick := time.NewTicker(max(leaseRenewEvery(ttlD), 10*time.Millisecond))
-		defer tick.Stop()
-		renew = tick.C
+		timer = time.NewTimer(nextRenewal())
+		defer timer.Stop()
+		renew = timer.C
+	}
+	stop := func(why error) error {
+		killLeaseProcessGroup(cmd)
+		<-done // reap the command before giving up its lease
+		release()
+		return fmt.Errorf("lease run: stopped %s because ownership of %s could not be maintained: %w", argv[0], key, why)
 	}
 	for last := lease.ID; ; {
 		select {
 		case sig := <-sigc:
-			// A terminal's ^C has reached the command already, as it shares our process group; the
-			// others are ours to pass on, and we wait for the command to end before releasing.
-			if sig != os.Interrupt {
-				_ = cmd.Process.Signal(sig)
-			}
+			// CMD has its own group, including its children, so forward ^C too.
+			signalLeaseProcessGroup(cmd, sig)
 		case <-renew:
-			next, other, err := sendLease(c, me, key, *note, *ttl, 0, s)
+			// Bound all failover, POST and settlement I/O by the existing
+			// claim's expiry, leaving time to stop work before it becomes free.
+			bounded := leaseClientUntil(c, lease.Exp.Add(-margin))
+			next, other, err := sendLease(bounded, me, key, *note, *ttl, last, 0, s)
+			// At most the previous and attempted replacement are ours to clean up.
+			owned = []string{last, next.ID}
 			switch {
 			case err != nil:
-				fmt.Fprintf(s.Err, "aivoicebus: lease run: the lease on %s was not extended (%v): it ends when its ttl does, and %s goes on\n", key, view.Sanitise(err.Error()), argv[0])
+				return stop(err)
 			case other != nil:
-				fmt.Fprintf(s.Err, "aivoicebus: lease run: %s; the lease on %s was lost, and %s goes on\n", view.Sanitise(leaseLine(*other, me)), key, argv[0])
+				return stop(fmt.Errorf("%s", view.Sanitise(leaseLine(*other, me))))
 			default:
-				_, _ = c.Retract(last, me, false, false) // one live lease at a time, not one per extension
+				if _, err := bounded.Retract(last, me, false, false); err != nil {
+					return stop(fmt.Errorf("could not withdraw the previous lease: %w", err))
+				}
 				last = next.ID
+				lease = next
+				owned = []string{last}
+				timer.Reset(nextRenewal())
 			}
 		case err := <-done:
+			killLeaseProcessGroup(cmd) // no orphan may keep working after release
 			release()
 			return exitError{waitCode(err)}
 		}
 	}
+}
+
+// Clone request settings without copying the client's learned state or locks.
+func leaseClientUntil(c *client.Client, until time.Time) *client.Client {
+	bounded := c.WithRaw(c.Lane)
+	bounded.Raw = c.Raw
+	if c.Deadline.IsZero() || until.Before(c.Deadline) {
+		bounded.Deadline = until
+	}
+	return bounded
 }
 
 // refuseLease reports why CMD did not run, naming the holder, the note and when it frees up, and

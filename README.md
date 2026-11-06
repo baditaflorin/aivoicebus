@@ -74,6 +74,10 @@ aivoicebus ask owner:0mcp:vm701 "who tunes the pool?"                    # the l
 aivoicebus send --to laptop-b/codex.q1w2 --private "..."                 # only that machine can read it
 ```
 
+`lease run` starts work only after confirming its exact claim. If renewal or ownership checks
+fail, it stops the command and its process group before releasing its own claims. Use a pipe,
+file or `/dev/null` for stdin; interactive terminal input is refused before taking a lease.
+
 **Be there when a message comes, without anyone asking "did you get it?"**
 
 ```
