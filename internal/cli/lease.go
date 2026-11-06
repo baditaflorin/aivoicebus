@@ -229,7 +229,7 @@ func sendLease(c *client.Client, me, key, note, ttl, previous string, settle tim
 	}
 	if !held || !confirmed || out.Exp == nil || !out.Exp.After(now) {
 		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false)
-		return out, nil, fmt.Errorf("could not confirm the lease just written")
+		return out, nil, fmt.Errorf("could not confirm the lease just written: run `aivoicebus doctor`, then try again")
 	}
 	return out, nil, nil
 }

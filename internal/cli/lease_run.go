@@ -87,7 +87,7 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 		return outbox.Usagef("lease run --note is too long to leave room for renewal provenance (maximum body %d bytes)", msg.MaxBody)
 	}
 	if f, ok := s.In.(*os.File); ok && term.IsTerminal(f) {
-		return fmt.Errorf("lease run: terminal input is unsupported for guarded process groups; redirect stdin from a file, pipe or /dev/null")
+		return fmt.Errorf("lease run: terminal input is unsupported for guarded process groups; try again with stdin redirected from a file, pipe or /dev/null")
 	}
 
 	// Signals are caught from here on, so one that arrives while the lease is being taken still
@@ -149,7 +149,7 @@ func leaseRun(c *client.Client, noNode error, me string, args []string, s Stream
 	margin := min(ttlD/10, 5*time.Second)
 	if held && !lease.Exp.Add(-margin).After(time.Now()) {
 		release()
-		return fmt.Errorf("lease run: insufficient confirmed lease lifetime to start %s safely", argv[0])
+		return fmt.Errorf("lease run: insufficient confirmed lease lifetime to start %s safely: try again with a shorter --settle or longer --ttl", argv[0])
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
