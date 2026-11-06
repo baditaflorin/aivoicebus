@@ -162,9 +162,10 @@ type historyRef struct {
 }
 
 type leaseHistory struct {
-	db      *bolt.DB
-	raw     *os.File
-	rawPath string
+	db        *bolt.DB
+	raw       *os.File
+	rawPath   string
+	retention LeaseRetentionOptions
 }
 
 func historyKey(origin string, seq uint64) []byte {
@@ -199,10 +200,10 @@ func historyExtentDigest(f *os.File, offset, length int64) ([32]byte, error) {
 }
 
 func (h *leaseHistory) put(r msg.Record, offset, length int64, raw []byte) error {
-	return h.db.Update(func(tx *bolt.Tx) error { return putHistoryRef(tx, h.raw, r, offset, length, raw) })
+	return h.db.Update(func(tx *bolt.Tx) error { return putHistoryRef(tx, h.raw, r, offset, length, raw, h.retention) })
 }
 
-func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length int64, raw []byte) error {
+func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length int64, raw []byte, retention LeaseRetentionOptions) error {
 	ref := historyRef{Offset: offset, Length: length, Digest: sha256.Sum256(raw)}
 	if length != int64(len(raw)) {
 		var err error
@@ -230,9 +231,11 @@ func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length i
 		return err
 	}
 	if r.Msg != nil && tx.Bucket(historyIDs).Get([]byte(r.Msg.ID)) == nil {
-		return tx.Bucket(historyIDs).Put([]byte(r.Msg.ID), key)
+		if err := tx.Bucket(historyIDs).Put([]byte(r.Msg.ID), key); err != nil {
+			return err
+		}
 	}
-	return nil
+	return putLeaseProjection(tx, r, offset, retention)
 }
 
 func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
@@ -413,7 +416,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		raw.Close()
 		return err
 	}
-	h := &leaseHistory{db: db, raw: raw, rawPath: filepath.Join(dir, "log.jsonl")}
+	h := &leaseHistory{db: db, raw: raw, rawPath: filepath.Join(dir, "log.jsonl"), retention: s.leaseRetention}
 	keep := false
 	defer func() {
 		if !keep {
@@ -421,11 +424,12 @@ func (s *Store) rebuildLeaseHistory() error {
 		}
 	}()
 	if err := db.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucket(historyRecords); err != nil {
-			return err
+		for _, bucket := range [][]byte{historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets} {
+			if _, err := tx.CreateBucket(bucket); err != nil {
+				return err
+			}
 		}
-		_, err := tx.CreateBucket(historyIDs)
-		return err
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -456,7 +460,7 @@ func (s *Store) rebuildLeaseHistory() error {
 			return
 		}
 		if r, ok := vetter.vetLocked(r); ok {
-			buildErr = putHistoryRef(batch, raw, r, offset, length, line)
+			buildErr = putHistoryRef(batch, raw, r, offset, length, line, s.leaseRetention)
 			vetter.logCounts[r.Origin]++
 			batchN++
 			if buildErr == nil && batchN == 256 {
