@@ -142,16 +142,21 @@ func TestLeaseRunReleasesOnSignals(t *testing.T) {
 
 // A command that outlives the ttl keeps its lease: the run extends it, one live lease at a time.
 func TestLeaseRunExtendsTheLeaseWhileTheCommandGoesOn(t *testing.T) {
-	meshStore(t) // with a send limit high enough for an extension every 40ms
+	st := meshStore(t) // artificial 40ms renewals need matching retraction capacity
+	st.SetRetractLimit(1 << 20)
 	t.Setenv("AIVOICEBUS_ME", sa)
 	old := leaseRenewEvery
 	leaseRenewEvery = func(time.Duration) time.Duration { return 40 * time.Millisecond }
 	t.Cleanup(func() { leaseRenewEvery = old })
 
-	done := make(chan int, 1)
+	type result struct {
+		code   int
+		detail string
+	}
+	done := make(chan result, 1)
 	go func() {
-		code, _, _ := run(t, "", "lease", "run", leaseKey, "--ttl", "1m", "--settle", "0s", "--", "sh", "-c", "sleep 1.5")
-		done <- code
+		code, _, detail := run(t, "", "lease", "run", leaseKey, "--ttl", "1m", "--settle", "0s", "--", "sh", "-c", "sleep 1.5")
+		done <- result{code, detail}
 	}()
 	c, err := client.FromEnv()
 	if err != nil {
@@ -161,9 +166,9 @@ func TestLeaseRunExtendsTheLeaseWhileTheCommandGoesOn(t *testing.T) {
 	maxLive := 0
 	for running := true; running; {
 		select {
-		case code := <-done:
-			if code != 0 {
-				t.Errorf("exit code %d", code)
+		case result := <-done:
+			if result.code != 0 {
+				t.Errorf("exit code %d: %s", result.code, result.detail)
 			}
 			running = false
 		case <-time.After(25 * time.Millisecond):
