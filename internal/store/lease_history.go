@@ -81,6 +81,7 @@ func (s *Store) initLeaseRetention() error {
 	if o.Mode == LeaseRetentionOff {
 		return nil
 	}
+	s.historyScope = newHistoryScope()
 	dir, err := s.privateHistoryDir()
 	if err != nil {
 		return err
@@ -136,18 +137,43 @@ func (s *Store) SweepLeaseRetention() error {
 
 func (s *Store) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	var err error
-	if s.history != nil {
-		err = s.history.close()
-		s.history = nil
+	if s.closeDone == nil {
+		s.closeDone = make(chan struct{})
+		h, lock, scope := s.history, s.historyLock, s.historyScope
+		s.history, s.historyLock = nil, nil
+		s.historyErr = errors.New("lease history is closed")
+		go func() {
+			var err error
+			if scope != nil {
+				scope.cancel()
+			}
+			if h != nil {
+				err = h.close()
+			}
+			if scope != nil {
+				scope.wg.Wait()
+				err = errors.Join(err, scope.result())
+			}
+			if lock != nil {
+				err = errors.Join(err, lock.Close())
+			}
+			s.mu.Lock()
+			s.closeResult = err
+			close(s.closeDone)
+			s.mu.Unlock()
+		}()
 	}
-	if s.historyLock != nil {
-		err = errors.Join(err, s.historyLock.Close())
-		s.historyLock = nil
+	done := s.closeDone
+	s.mu.Unlock()
+	select {
+	case <-done:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.closeResult
+	case <-time.After(5 * time.Second):
+		// Keep the writer lock until asynchronous resource finalization is done.
+		return errors.New("lease history: close did not finish within five seconds")
 	}
-	s.historyErr = errors.New("lease history is closed")
-	return err
 }
 
 var historyRecords = []byte("records")
@@ -166,6 +192,7 @@ type leaseHistory struct {
 	raw       *os.File
 	rawPath   string
 	retention LeaseRetentionOptions
+	life      historyLife
 }
 
 func historyKey(origin string, seq uint64) []byte {
@@ -175,8 +202,6 @@ func historyKey(origin string, seq uint64) []byte {
 	binary.BigEndian.PutUint64(b[len(origin)+1:], seq)
 	return b
 }
-
-func (h *leaseHistory) close() error { return errors.Join(h.db.Close(), h.raw.Close()) }
 
 func historyExtentDigest(f *os.File, offset, length int64) ([32]byte, error) {
 	var out [32]byte
@@ -239,21 +264,44 @@ func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length i
 }
 
 func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
-	fdInfo, err := h.raw.Stat()
-	pathInfo, pathErr := os.Lstat(h.rawPath)
-	if err != nil || pathErr != nil || !pathInfo.Mode().IsRegular() || !historyOwned(pathInfo) || !os.SameFile(fdInfo, pathInfo) {
-		return msg.Record{}, errors.New("lease history: raw generation changed")
-	}
 	var ref historyRef
-	err = h.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(historyRecords).Get(historyKey(origin, seq))
-		if b == nil {
-			return errors.New("lease history: sequence is missing from index")
-		}
-		return json.Unmarshal(b, &ref)
+	err := h.db.View(func(tx *bolt.Tx) error {
+		var err error
+		ref, err = historyReference(tx, origin, seq)
+		return err
 	})
 	if err != nil {
 		return msg.Record{}, err
+	}
+	return h.readReference(origin, seq, ref, false)
+}
+
+func historyReference(tx *bolt.Tx, origin string, seq uint64) (historyRef, error) {
+	var ref historyRef
+	bucket := tx.Bucket(historyRecords)
+	if bucket == nil {
+		return ref, errors.New("lease history: record index is missing")
+	}
+	b := bucket.Get(historyKey(origin, seq))
+	if b == nil {
+		return ref, errors.New("lease history: sequence is missing from index")
+	}
+	err := json.Unmarshal(b, &ref)
+	return ref, err
+}
+
+func (h *leaseHistory) readReference(origin string, seq uint64, ref historyRef, pinned bool) (msg.Record, error) {
+	fdInfo, err := h.raw.Stat()
+	if err != nil || !fdInfo.Mode().IsRegular() {
+		return msg.Record{}, errors.New("lease history: raw generation changed")
+	}
+	if !pinned || !h.retired() {
+		pathInfo, pathErr := os.Lstat(h.rawPath)
+		if pathErr != nil || !pathInfo.Mode().IsRegular() || !historyOwned(pathInfo) || !os.SameFile(fdInfo, pathInfo) {
+			if !pinned || !h.retired() {
+				return msg.Record{}, errors.New("lease history: raw generation changed")
+			}
+		}
 	}
 	b := []byte(ref.Override)
 	if len(b) != 0 {
@@ -276,8 +324,12 @@ func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
 		}
 	}
 	var r msg.Record
-	if after, err := os.Lstat(h.rawPath); err != nil || !after.Mode().IsRegular() || !os.SameFile(fdInfo, after) {
-		return msg.Record{}, errors.New("lease history: raw generation changed during read")
+	if !pinned || !h.retired() {
+		if after, err := os.Lstat(h.rawPath); err != nil || !after.Mode().IsRegular() || !os.SameFile(fdInfo, after) {
+			if !pinned || !h.retired() {
+				return msg.Record{}, errors.New("lease history: raw generation changed during read")
+			}
+		}
 	}
 	if err := json.Unmarshal(b, &r); err != nil || r.Origin != origin || r.Seq != seq {
 		return msg.Record{}, errors.New("lease history: indexed record identity differs")
@@ -416,7 +468,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		raw.Close()
 		return err
 	}
-	h := &leaseHistory{db: db, raw: raw, rawPath: filepath.Join(dir, "log.jsonl"), retention: s.leaseRetention}
+	h := &leaseHistory{db: db, raw: raw, rawPath: filepath.Join(dir, "log.jsonl"), retention: s.leaseRetention, life: historyLife{done: make(chan struct{})}}
 	keep := false
 	defer func() {
 		if !keep {
@@ -498,6 +550,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		return err
 	}
 	old := s.history
+	h.bindScope(s.historyScope)
 	s.history, s.historyErr = h, nil
 	keep = true
 	if old != nil {

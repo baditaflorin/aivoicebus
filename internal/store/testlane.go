@@ -149,7 +149,13 @@ func (s *Store) rewriteLogLocked() error {
 		werr = cerr
 	}
 	if werr == nil {
+		if s.history != nil {
+			s.history.retire(true)
+		}
 		werr = renameLog(tmp, path)
+		if werr != nil && s.history != nil {
+			s.history.retire(false)
+		}
 	}
 	if werr != nil {
 		os.Remove(tmp)

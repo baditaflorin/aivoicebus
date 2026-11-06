@@ -34,6 +34,9 @@ type Store struct {
 	history        *leaseHistory
 	historyLock    *os.File
 	historyErr     error
+	historyScope   *historyScope
+	closeDone      chan struct{}
+	closeResult    error
 	msgs           []msg.Message              // all known messages in arrival order
 	acks           map[string]map[string]bool // id -> by -> true
 	// ackAt is when each reader first acknowledged a message and how it was shown to them, for receipts.
