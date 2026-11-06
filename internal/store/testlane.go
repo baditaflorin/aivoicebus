@@ -46,11 +46,17 @@ func (s *Store) sweepLocked(now time.Time) {
 		s.lastSweep = now
 		keep := s.tests[:0]
 		for _, ref := range s.tests {
-			recs := s.log[ref.origin]
-			if ref.seq == 0 || ref.seq > uint64(len(recs)) || recs[ref.seq-1].Msg == nil {
+			if ref.seq == 0 || ref.seq > s.logCount(ref.origin) {
 				continue
 			}
-			r := &recs[ref.seq-1]
+			r, err := s.logRecord(ref.origin, ref.seq)
+			if err != nil {
+				s.historyErr = err
+				return
+			}
+			if r.Msg == nil {
+				continue
+			}
 			i, held := s.idx[r.Msg.ID]
 			if !held {
 				continue
@@ -65,6 +71,10 @@ func (s *Store) sweepLocked(now time.Time) {
 			if !msg.TestPurged(*r.Msg) {
 				stub := msg.TestStub(*r.Msg)
 				r.Msg = &stub
+				if err := s.replaceLogRecord(r); err != nil {
+					s.historyErr = err
+					return
+				}
 				s.purgedRefs[ref] = true
 			}
 		}
@@ -114,12 +124,16 @@ func (s *Store) rewriteLogLocked() error {
 			write(line)
 			return
 		}
-		cur := s.log[r.Origin]
-		if r.Seq == 0 || r.Seq > uint64(len(cur)) {
+		if r.Seq == 0 || r.Seq > s.logCount(r.Origin) {
 			write(line)
 			return
 		}
-		b, _ := json.Marshal(cur[r.Seq-1])
+		cur, err := s.logRecord(r.Origin, r.Seq)
+		if err != nil {
+			werr = err
+			return
+		}
+		b, _ := json.Marshal(cur)
 		write(append(b, '\n'))
 	})
 	if werr == nil {
@@ -140,6 +154,14 @@ func (s *Store) rewriteLogLocked() error {
 	if werr != nil {
 		os.Remove(tmp)
 		return werr
+	}
+	if s.history != nil {
+		// Offsets belong to a raw-file generation. No caller can observe the
+		// renamed file with its predecessor's index: Store.mu spans this swap.
+		if err := s.rebuildLeaseHistory(); err != nil {
+			s.historyErr = err
+			return err
+		}
 	}
 	s.purgedRefs = map[testRef]bool{}
 	return nil

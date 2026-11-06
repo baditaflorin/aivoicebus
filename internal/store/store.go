@@ -25,12 +25,16 @@ import (
 )
 
 type Store struct {
-	mu   sync.Mutex
-	dir  string
-	node string
-	log  map[string][]msg.Record    // origin -> records, index = seq-1
-	msgs []msg.Message              // all known messages in arrival order
-	acks map[string]map[string]bool // id -> by -> true
+	mu             sync.Mutex
+	dir            string
+	node           string
+	log            map[string][]msg.Record // origin -> records, index = seq-1
+	logCounts      map[string]uint64       // contiguous version vector; no entry per historical record
+	leaseRetention LeaseRetentionOptions
+	history        *leaseHistory
+	historyErr     error
+	msgs           []msg.Message              // all known messages in arrival order
+	acks           map[string]map[string]bool // id -> by -> true
 	// ackAt is when each reader first acknowledged a message and how it was shown to them, for receipts.
 	ackAt map[string]map[string]msg.Receipt
 	// gen counts applied records; changed is closed and replaced at each one, so a reader waiting
@@ -327,7 +331,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
+	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{}, logCounts: map[string]uint64{},
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, held: map[string]map[uint64]heldRead{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
@@ -335,6 +339,9 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		offered: map[string][]offerRec{}, declined: map[string][]declineRef{}}
 	for _, o := range opts {
 		o(s)
+	}
+	if err := s.initLeaseRetention(); err != nil {
+		return nil, err
 	}
 	s.loadArrived()
 	err := readLines(filepath.Join(dir, "log.jsonl"), func(b []byte, over bool) {
@@ -357,6 +364,10 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	s.loadPresence()
 	s.loadLimits()
 	s.sweepLocked(s.now().UTC()) // test messages that expired while the node was down lose their bodies now
+	if err != nil && s.history != nil {
+		s.history.close()
+		return nil, err
+	}
 	return s, err
 }
 
@@ -439,6 +450,12 @@ const (
 // (a peer's record once got in at 1.5 MB, and a scanner with a limit then stopped the node from
 // starting); one longer than maxLine is given as its first headLen bytes, with over set.
 func readLines(path string, fn func(line []byte, over bool)) error {
+	return readLinesAt(path, func(line []byte, over bool, _, _ int64) { fn(line, over) })
+}
+
+// readLinesAt also reports the complete extent, including an oversized line's
+// discarded tail. Only one bounded line buffer is resident while rebuilding.
+func readLinesAt(path string, fn func(line []byte, over bool, offset, length int64)) error {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -449,9 +466,11 @@ func readLines(path string, fn func(line []byte, over bool)) error {
 	defer f.Close()
 	br := bufio.NewReaderSize(f, 64<<10)
 	var line []byte
+	var offset, length int64
 	over, ended := false, false
 	for {
 		chunk, rerr := br.ReadSlice('\n')
+		length += int64(len(chunk))
 		ended = len(chunk) > 0 && chunk[len(chunk)-1] == '\n'
 		if !over {
 			line = append(line, chunk...)
@@ -465,8 +484,10 @@ func readLines(path string, fn func(line []byte, over bool)) error {
 		// A line too long to parse that never ended is the torn tail of a crashed append, which
 		// repairTail cuts: it was never acknowledged, so it keeps no place in the numbering.
 		if len(line) > 0 && (ended || !over) {
-			fn(line, over)
+			fn(line, over, offset, length)
 		}
+		offset += length
+		length = 0
 		line, over = line[:0], false
 		if rerr != nil {
 			if rerr == io.EOF {
@@ -520,10 +541,16 @@ func appendLine(path string, v any) error {
 // applyLocked applies r if it is the next record from its origin; it is
 // idempotent, so duplicate or replayed pulls are harmless.
 func (s *Store) applyLocked(r msg.Record) bool {
-	if r.Origin == "" || r.Seq != uint64(len(s.log[r.Origin]))+1 {
+	if r.Origin == "" || r.Seq != s.logCount(r.Origin)+1 {
 		return false
 	}
-	s.log[r.Origin] = append(s.log[r.Origin], r)
+	if s.logCounts == nil {
+		s.logCounts = map[string]uint64{}
+	}
+	s.logCounts[r.Origin] = r.Seq
+	if s.history == nil {
+		s.log[r.Origin] = append(s.log[r.Origin], r)
+	}
 	s.gen++
 	close(s.changed)
 	s.changed = make(chan struct{})
@@ -572,7 +599,7 @@ func quarantine(origin string, seq uint64) msg.Record {
 // all). A record that fails msg.Record.ValidateReplicated comes back as its placeholder: leaving
 // the number out would stall that origin for good, since every later record would look like a gap.
 func (s *Store) vetLocked(r msg.Record) (msg.Record, bool) {
-	if r.Seq != uint64(len(s.log[r.Origin]))+1 {
+	if r.Seq != s.logCount(r.Origin)+1 {
 		return r, false
 	}
 	err := r.ValidateReplicated()
@@ -923,8 +950,8 @@ func forgedView(m msg.Message) msg.Message {
 // commitLocked appends a locally originated record durably, then applies it.
 func (s *Store) commitLocked(r msg.Record) error {
 	r.Origin = s.node
-	r.Seq = uint64(len(s.log[s.node])) + 1
-	if err := appendLine(filepath.Join(s.dir, "log.jsonl"), r); err != nil {
+	r.Seq = s.logCount(s.node) + 1
+	if err := s.appendRecord(r); err != nil {
 		return err
 	}
 	s.applyLocked(r)
@@ -936,8 +963,8 @@ func (s *Store) VV() map[string]uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	vv := map[string]uint64{}
-	for o, l := range s.log {
-		vv[o] = uint64(len(l))
+	for o, n := range s.logCounts {
+		vv[o] = n
 	}
 	return vv
 }
@@ -952,24 +979,40 @@ func (s *Store) Since(vv map[string]uint64, limit int) []msg.Record {
 // always returns at least one record when any is missing, so a caller that asks again until it
 // gets nothing still gets through a record larger than the limit.
 func (s *Store) SinceBytes(vv map[string]uint64, limit, maxBytes int) []msg.Record {
+	out, err := s.SinceBytesChecked(vv, limit, maxBytes)
+	if err != nil {
+		// This legacy in-process API cannot represent an I/O error. Never turn
+		// missing history into an empty/partial feed. HTTP uses the checked API.
+		panic(err)
+	}
+	return out
+}
+
+func (s *Store) SinceBytesChecked(vv map[string]uint64, limit, maxBytes int) ([]msg.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.historyErr != nil {
+		return nil, s.historyErr
+	}
 	var out []msg.Record
 	size := 0
-	for _, o := range slices.Sorted(maps.Keys(s.log)) {
-		l := s.log[o]
-		for i := vv[o]; i < uint64(len(l)) && len(out) < limit; i++ {
+	for _, o := range slices.Sorted(maps.Keys(s.logCounts)) {
+		for i := vv[o]; i < s.logCount(o) && len(out) < limit; i++ {
+			r, err := s.logRecord(o, i+1)
+			if err != nil {
+				return nil, err
+			}
 			if maxBytes > 0 {
-				b, _ := json.Marshal(l[i])
+				b, _ := json.Marshal(r)
 				if len(out) > 0 && size+len(b)+1 > maxBytes {
-					return out
+					return out, nil
 				}
 				size += len(b) + 1
 			}
-			out = append(out, l[i])
+			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Merge applies records pulled from a peer, persisting those that were new. A record that fails
@@ -985,9 +1028,12 @@ func (s *Store) Merge(recs []msg.Record) (int, error) {
 		if ok && r.Msg != nil {
 			_, held = s.byIDLocked(r.Msg.ID)
 		}
-		if ok && s.applyLocked(r) {
-			if err := appendLine(filepath.Join(s.dir, "log.jsonl"), r); err != nil {
+		if ok {
+			if err := s.appendRecord(r); err != nil {
 				return n, err
+			}
+			if !s.applyLocked(r) {
+				return n, errors.New("record sequence changed before apply")
 			}
 			n++
 			if r.Msg != nil && !held {
@@ -1842,8 +1888,8 @@ func (s *Store) Roster() []msg.RosterEntry {
 func (s *Store) Empty() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, l := range s.log {
-		if len(l) > 0 {
+	for _, n := range s.logCounts {
+		if n > 0 {
 			return false
 		}
 	}

@@ -469,7 +469,12 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	mux.HandleFunc("/v1/sync", feed(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		vv := map[string]uint64{}
 		_ = json.Unmarshal([]byte(r.URL.Query().Get("vv")), &vv)
-		js(w, s.SinceBytes(vv, syncPageRecords, syncPageBytes))
+		records, err := s.SinceBytesChecked(vv, syncPageRecords, syncPageBytes)
+		if err != nil {
+			http.Error(w, "replication history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		js(w, records)
 	}))
 	// Who and the roster are display views: join probes are left out unless ?all=1 asks for every
 	// identity (the sender's own safety checks, which count recipients, must not miss a session that
