@@ -24,14 +24,40 @@ sums() { # sums <dir>: "<sha256>  <name>" for each binary, sorted by name
 }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/aivoicebus-reproduce.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+cleanup() {
+  local status=$?
+  trap - EXIT
+  # Downloaded modules contain read-only directories even for an ordinary user.
+  # Restore write permission only inside this invocation's private cache.
+  if [ -d "$work/modcache" ] && ! find "$work/modcache" -type d -exec chmod u+w '{}' +; then
+    echo "reproduce.sh: could not make the owned module cache removable: $work/modcache" >&2
+    [ "$status" -ne 0 ] || status=2
+  fi
+  if ! rm -rf "$work"; then
+    echo "reproduce.sh: could not remove owned temporary files: $work" >&2
+    [ "$status" -ne 0 ] || status=2
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 mkdir -p "$work/src"
 git archive "$COMMIT" | tar -x -C "$work/src"
+# Prepare dependencies from the archived module contract, never a shared host cache.
+# Downloads are verified before either offline build can read this private cache.
+mkdir -m 700 "$work/modcache"
+echo "preparing and verifying the archived module dependencies in $IMG"
+if ! docker run --rm --user "$(id -u):$(id -g)" -v "$work/src":/src:ro -v "$work/modcache":/gomodcache -w /src \
+  -e GOFLAGS='-mod=readonly -buildvcs=false' -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOMODCACHE=/gomodcache \
+  "$IMG" sh -ec 'go mod download all; go mod verify'; then
+  echo "reproduce.sh: dependency preparation failed; check network access to the Go module proxy and checksums in go.mod/go.sum at $COMMIT" >&2
+  exit 2
+fi
 
 build() { # build <outdir>
   mkdir -p "$1"
-  docker run --rm --network none --user "$(id -u):$(id -g)" -v "$work/src":/src:ro -v "$1":/out -w /src \
-    -e AIVOICEBUS_COMMIT="$SHORT" -e GOFLAGS=-buildvcs=false -e HOME=/tmp -e GOCACHE=/tmp/gocache \
+  docker run --rm --network none --user "$(id -u):$(id -g)" -v "$work/src":/src:ro -v "$work/modcache":/gomodcache:ro -v "$1":/out -w /src \
+    -e AIVOICEBUS_COMMIT="$SHORT" -e GOFLAGS='-mod=readonly -buildvcs=false' -e HOME=/tmp -e GOCACHE=/tmp/gocache \
+    -e GOMODCACHE=/gomodcache -e GOPROXY=off -e GOSUMDB=off \
     "$IMG" scripts/release.sh build /out >/dev/null
 }
 

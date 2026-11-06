@@ -82,10 +82,18 @@ func leaseCmd(args []string, s Streams) error {
 		if fs.NArg() != 0 {
 			return outbox.Usagef("lease take KEY [--ttl 30m] [--note TEXT]: one key, and the note in --note")
 		}
-		if h, held := holderOf(c, key); held && h.By != me {
-			return fmt.Errorf("%s", leaseLine(h, me)) // nextstep: leaseLine says when it frees up
+		current, held, latest, err := holderOf(c, key)
+		if err != nil {
+			return err
 		}
-		out, h, err := sendLease(c, me, key, *note, *ttl, *settle, s)
+		if held && current.By != me {
+			return fmt.Errorf("%s", leaseLine(current, me)) // nextstep: leaseLine says when it frees up
+		}
+		previous := ""
+		if held {
+			previous = latest
+		}
+		out, h, err := sendLease(c, me, key, *note, *ttl, previous, *settle, s)
 		if err != nil {
 			return err
 		}
@@ -134,17 +142,25 @@ func withoutOwnerRecords(hs []msg.Lease, globs []string) []msg.Lease {
 	return slices.DeleteFunc(slices.Clone(hs), func(h msg.Lease) bool { return msg.IsOwnerKey(h.Key) })
 }
 
-func holderOf(c *client.Client, key string) (msg.Lease, bool) {
+func holderOf(c *client.Client, key string) (msg.Lease, bool, string, error) {
 	live, err := c.Leases()
 	if err != nil {
-		return msg.Lease{}, false
+		return msg.Lease{}, false, "", err
 	}
 	for _, h := range msg.Holders(live) {
 		if h.Key == key {
-			return h, true
+			// Keep the aggregated earliest holder intact, but use its latest
+			// actual claim as provenance for a fresh manual renewal.
+			latest := h
+			for _, l := range live {
+				if l.Key == key && l.By == h.By && (msg.TakeRef{ID: latest.ID, At: latest.At}).Earlier(msg.TakeRef{ID: l.ID, At: l.At}) {
+					latest = l
+				}
+			}
+			return h, true, latest.ID, nil
 		}
 	}
-	return msg.Lease{}, false
+	return msg.Lease{}, false, "", nil
 }
 
 func leaseLine(h msg.Lease, me string) string {
@@ -170,7 +186,12 @@ func ttlOf(s string) time.Duration {
 // sendLease writes this session's lease on key, waits settle for one taken elsewhere at the same
 // moment and, when that one is earlier, withdraws its own and returns it as the holder. The
 // caller has already looked for a holder it must not take from.
-func sendLease(c *client.Client, me, key, note, ttl string, settle time.Duration, s Streams) (msg.Message, *msg.Lease, error) {
+func sendLease(c *client.Client, me, key, note, ttl, previous string, settle time.Duration, s Streams) (msg.Message, *msg.Lease, error) {
+	// Old nodes deduplicate identical lease bodies. A bounded provenance note
+	// distinguishes replacements without self-replies tripping the pair brake.
+	if previous != "" {
+		note = leaseRenewalNote(note, previous)
+	}
 	plan, err := outbox.Prepare(c, outbox.Request{To: me, Body: msg.LeaseBody(key, note), Kind: msg.KindLease, TTL: ttl}, s.Err)
 	if err != nil {
 		return msg.Message{}, nil, err
@@ -180,11 +201,41 @@ func sendLease(c *client.Client, me, key, note, ttl string, settle time.Duration
 		return msg.Message{}, nil, err
 	}
 	time.Sleep(settle)
-	if h, held := holderOf(c, key); held && h.By != me {
-		_, _ = c.Retract(out.ID, me, false, false) // someone else was first: give ours back
+	live, err := c.Leases()
+	if err != nil {
+		// A missing answer is not proof that our acquisition won. Retract only
+		// the record this attempt wrote; an unavailable node may leave it until
+		// its TTL, which is safer than starting an uncoordinated command.
+		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false)
+		return out, nil, fmt.Errorf("could not settle lease ownership: %w", err)
+	}
+	var h msg.Lease
+	held, confirmed := false, false
+	now := time.Now()
+	for _, l := range live {
+		if l.ID == out.ID && l.By == me && l.Key == key && l.Until.After(now) {
+			confirmed = true
+		}
+	}
+	for _, candidate := range msg.Holders(live) {
+		if candidate.Key == key {
+			h, held = candidate, true
+			break
+		}
+	}
+	if held && h.By != me {
+		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false) // someone else was first: give ours back
 		return out, &h, nil
 	}
+	if !held || !confirmed || out.Exp == nil || !out.Exp.After(now) {
+		_, _ = leaseClientUntil(c, time.Now().Add(5*time.Second)).Retract(out.ID, me, false, false)
+		return out, nil, fmt.Errorf("could not confirm the lease just written: run `aivoicebus doctor`, then try again")
+	}
 	return out, nil, nil
+}
+
+func leaseRenewalNote(original, previous string) string {
+	return strings.TrimSpace(strings.TrimSpace(original) + "\nrenewal of " + previous)
 }
 
 // releaseLeases withdraws every live lease of me on key and says how many there were.
