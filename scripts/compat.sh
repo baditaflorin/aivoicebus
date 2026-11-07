@@ -151,7 +151,7 @@ start() { # INDEX [BINARY]: a node keeps its data dir whichever binary runs on i
     retention_flags=(--lease-retention on --lease-retention-hosts fixture-builder)
   fi
   for j in "${!NAME[@]}"; do [ "$j" != "$i" ] && peers="$peers,http://127.0.0.1:${PORT[$j]}"; done
-  mkdir -p -m 700 "$W/d$i"
+  (umask 077; mkdir -p "$W/d$i")
   "$bin" serve --addr "127.0.0.1:${PORT[$i]}" --data "$W/d$i" --token-file "$W/tok" --node "${NAME[$i]}" \
     --peers "${peers#,}" "${retention_flags[@]}" >>"$W/${NAME[$i]}.log" 2>&1 &
   PID[$i]=$!
