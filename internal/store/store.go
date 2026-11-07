@@ -25,12 +25,20 @@ import (
 )
 
 type Store struct {
-	mu   sync.Mutex
-	dir  string
-	node string
-	log  map[string][]msg.Record    // origin -> records, index = seq-1
-	msgs []msg.Message              // all known messages in arrival order
-	acks map[string]map[string]bool // id -> by -> true
+	mu             sync.Mutex
+	dir            string
+	node           string
+	log            map[string][]msg.Record // origin -> records, index = seq-1
+	logCounts      map[string]uint64       // contiguous version vector; no entry per historical record
+	leaseRetention LeaseRetentionOptions
+	history        *leaseHistory
+	historyLock    *os.File
+	historyErr     error
+	historyScope   *historyScope
+	closeDone      chan struct{}
+	closeResult    error
+	msgs           []msg.Message              // all known messages in arrival order
+	acks           map[string]map[string]bool // id -> by -> true
 	// ackAt is when each reader first acknowledged a message and how it was shown to them, for receipts.
 	ackAt map[string]map[string]msg.Receipt
 	// gen counts applied records; changed is closed and replaced at each one, so a reader waiting
@@ -104,14 +112,18 @@ type Store struct {
 	refused     int64     // records dropped because their origin cannot be kept, since start
 	logw        io.Writer // one line per quarantined or refused record; nil says nothing
 
-	sends        map[string][]time.Time  // sender -> when it sent recently, oldest first
-	recent       map[[32]byte]recentSend // fingerprint of a recent message -> its id
-	sendLimit    int                     // messages a sender may send per sendWindow
-	refusedBy    map[string]int64        // sends refused since start, by reason (metrics)
-	arrivals     []time.Time             // when messages were taken in, the last hour of them (metrics)
-	machineLimit int                     // messages a machine may send per sendWindow (SetSendLimit raises it too)
-	hostSends    map[string][]time.Time  // per machine, for machineLimit
-	pairSends    map[string][]time.Time  // per pair of sessions, for pairLimit
+	sends                 map[string][]time.Time  // sender -> when it sent recently, oldest first
+	recent                map[[32]byte]recentSend // fingerprint of a recent message -> its id
+	sendLimit             int                     // messages a sender may send per sendWindow
+	refusedBy             map[string]int64        // sends refused since start, by reason (metrics)
+	arrivals              []time.Time             // when messages were taken in, the last hour of them (metrics)
+	managedArrivalHot     *[256]arrivalSegment
+	managedArrivalN       int
+	managedArrivalBase    time.Time
+	managedArrivalBaseSet bool
+	machineLimit          int                    // messages a machine may send per sendWindow (SetSendLimit raises it too)
+	hostSends             map[string][]time.Time // per machine, for machineLimit
+	pairSends             map[string][]time.Time // per pair of sessions, for pairLimit
 	// limitsDirty: the counts changed since they were last written to ratelimits.json, so a
 	// restart does not forget them (they were "courtesies that a restart forgets" before 0.10).
 	limitsDirty bool
@@ -327,7 +339,7 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{},
+	s := &Store{dir: dir, node: node, log: map[string][]msg.Record{}, logCounts: map[string]uint64{},
 		idx: map[string]int{}, threads: map[string][]int{}, byTo: map[string][]int{}, succ: map[string]map[string][]int{}, sels: map[string]msg.Selector{}, answers: map[string][]answerRef{}, lastSent: map[string]time.Time{},
 		acks: map[string]map[string]bool{}, ackAt: map[string]map[string]msg.Receipt{}, changed: make(chan struct{}), retr: map[string]*claims{}, due: map[string]*dueList{}, countOnly: map[string]map[string]bool{}, forged: map[string]bool{}, noticeIDs: map[string]bool{}, arrived: map[string]time.Time{}, seen: map[string]seenInfo{}, held: map[string]map[uint64]heldRead{}, now: time.Now,
 		sends: map[string][]time.Time{}, refusedBy: map[string]int64{}, hostSends: map[string][]time.Time{}, pairSends: map[string][]time.Time{}, recent: map[[32]byte]recentSend{}, sendLimit: defaultSendLimit, machineLimit: machineLimit,
@@ -335,6 +347,9 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 		offered: map[string][]offerRec{}, declined: map[string][]declineRef{}}
 	for _, o := range opts {
 		o(s)
+	}
+	if err := s.initLeaseRetention(); err != nil {
+		return nil, err
 	}
 	s.loadArrived()
 	err := readLines(filepath.Join(dir, "log.jsonl"), func(b []byte, over bool) {
@@ -357,6 +372,13 @@ func Open(dir, node string, opts ...Option) (*Store, error) {
 	s.loadPresence()
 	s.loadLimits()
 	s.sweepLocked(s.now().UTC()) // test messages that expired while the node was down lose their bodies now
+	if err == nil && s.historyErr != nil {
+		err = s.historyErr
+	}
+	if err != nil && s.history != nil {
+		_ = s.Close()
+		return nil, err
+	}
 	return s, err
 }
 
@@ -439,6 +461,12 @@ const (
 // (a peer's record once got in at 1.5 MB, and a scanner with a limit then stopped the node from
 // starting); one longer than maxLine is given as its first headLen bytes, with over set.
 func readLines(path string, fn func(line []byte, over bool)) error {
+	return readLinesAt(path, func(line []byte, over bool, _, _ int64) { fn(line, over) })
+}
+
+// readLinesAt also reports the complete extent, including an oversized line's
+// discarded tail. Only one bounded line buffer is resident while rebuilding.
+func readLinesAt(path string, fn func(line []byte, over bool, offset, length int64)) error {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -449,9 +477,11 @@ func readLines(path string, fn func(line []byte, over bool)) error {
 	defer f.Close()
 	br := bufio.NewReaderSize(f, 64<<10)
 	var line []byte
+	var offset, length int64
 	over, ended := false, false
 	for {
 		chunk, rerr := br.ReadSlice('\n')
+		length += int64(len(chunk))
 		ended = len(chunk) > 0 && chunk[len(chunk)-1] == '\n'
 		if !over {
 			line = append(line, chunk...)
@@ -465,8 +495,10 @@ func readLines(path string, fn func(line []byte, over bool)) error {
 		// A line too long to parse that never ended is the torn tail of a crashed append, which
 		// repairTail cuts: it was never acknowledged, so it keeps no place in the numbering.
 		if len(line) > 0 && (ended || !over) {
-			fn(line, over)
+			fn(line, over, offset, length)
 		}
+		offset += length
+		length = 0
 		line, over = line[:0], false
 		if rerr != nil {
 			if rerr == io.EOF {
@@ -520,33 +552,46 @@ func appendLine(path string, v any) error {
 // applyLocked applies r if it is the next record from its origin; it is
 // idempotent, so duplicate or replayed pulls are harmless.
 func (s *Store) applyLocked(r msg.Record) bool {
-	if r.Origin == "" || r.Seq != uint64(len(s.log[r.Origin]))+1 {
+	if r.Origin == "" || r.Seq != s.logCount(r.Origin)+1 {
 		return false
 	}
-	s.log[r.Origin] = append(s.log[r.Origin], r)
+	if s.logCounts == nil {
+		s.logCounts = map[string]uint64{}
+	}
+	s.logCounts[r.Origin] = r.Seq
+	if s.history == nil {
+		s.log[r.Origin] = append(s.log[r.Origin], r)
+	}
 	s.gen++
 	close(s.changed)
 	s.changed = make(chan struct{})
 	if r.Msg != nil {
+		if s.leaseOnLocked() && s.internalIDLocked(r.Msg.ID) {
+			s.noteManagedArrivalLocked(s.now())
+			return true
+		}
+		if s.historyErr != nil {
+			return true
+		}
+		if err := s.hydrateOrdinaryAcksLocked(r.Msg.ID); err != nil {
+			s.historyErr = err
+			return true
+		}
 		s.addMsgLocked(*r.Msg)
 		if r.Msg.IsTest() {
 			s.tests = append(s.tests, testRef{r.Origin, r.Seq}) // not counted as an arrival: Stats leaves the lane out
 		} else {
-			s.arrivals = append(s.arrivals, s.now()) // for Stats.LastHour, trimmed there
+			if s.leaseOnLocked() {
+				s.noteManagedArrivalLocked(s.now())
+			} else {
+				s.arrivals = append(s.arrivals, s.now())
+			} // one ordered On tape includes ordinary arrivals too
 		}
 	}
 	if r.Ack != nil {
-		if mid, leak, ok := msg.RetractedID(r.Ack.ID); ok {
-			s.addRetractionLocked(mid, r.Ack.By, r.Ack.At, leak, r.Origin+"/"+strconv.FormatUint(r.Seq, 10)) // its Via and Chars are not read
-		} else if aid, ok := msg.AmendedID(r.Ack.ID); ok {
-			s.addAmendClaimLocked(aid, r.Ack.By, r.Ack.At) // a claim, not a read receipt
-		} else if sid, ok := msg.SettledID(r.Ack.ID); ok {
-			s.addSettleLocked(sid, r.Ack.By, r.Ack.At) // a settle, not a read receipt
-		} else {
-			s.addAck(*r.Ack)
-		}
-		if r.Ack.ID == QuarantineID && r.Ack.By == QuarantineBy {
-			s.quarantined++
+		key := r.Origin + "/" + strconv.FormatUint(r.Seq, 10)
+		if !s.deferAckLocked(*r.Ack, key) {
+			s.applyAckViewLocked(*r.Ack, key)
 		}
 	}
 	return true
@@ -572,7 +617,7 @@ func quarantine(origin string, seq uint64) msg.Record {
 // all). A record that fails msg.Record.ValidateReplicated comes back as its placeholder: leaving
 // the number out would stall that origin for good, since every later record would look like a gap.
 func (s *Store) vetLocked(r msg.Record) (msg.Record, bool) {
-	if r.Seq != uint64(len(s.log[r.Origin]))+1 {
+	if r.Seq != s.logCount(r.Origin)+1 {
 		return r, false
 	}
 	err := r.ValidateReplicated()
@@ -863,6 +908,13 @@ func (s *Store) countInertLocked(mid string, d int) {
 // earliest claim (then the lowest identity) among those whose author is on the sender's machine.
 // It looks only at the claims on that one message, so reading mail costs nothing while there are none.
 func (s *Store) retractionLocked(id, from string) (retraction, bool) {
+	if s.leaseOnLocked() && s.internalIDLocked(id) {
+		r, ok, err := s.history.foldedRetraction(id, from, s.logCounts, s.history.read)
+		if err != nil {
+			s.historyErr = err
+		}
+		return r, ok
+	}
 	c := s.retr[id]
 	if c == nil {
 		return retraction{}, false
@@ -923,12 +975,12 @@ func forgedView(m msg.Message) msg.Message {
 // commitLocked appends a locally originated record durably, then applies it.
 func (s *Store) commitLocked(r msg.Record) error {
 	r.Origin = s.node
-	r.Seq = uint64(len(s.log[s.node])) + 1
-	if err := appendLine(filepath.Join(s.dir, "log.jsonl"), r); err != nil {
+	r.Seq = s.logCount(s.node) + 1
+	if err := s.appendRecord(r); err != nil {
 		return err
 	}
 	s.applyLocked(r)
-	return nil
+	return s.historyErr
 }
 
 // VV returns the version vector.
@@ -936,8 +988,8 @@ func (s *Store) VV() map[string]uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	vv := map[string]uint64{}
-	for o, l := range s.log {
-		vv[o] = uint64(len(l))
+	for o, n := range s.logCounts {
+		vv[o] = n
 	}
 	return vv
 }
@@ -952,24 +1004,40 @@ func (s *Store) Since(vv map[string]uint64, limit int) []msg.Record {
 // always returns at least one record when any is missing, so a caller that asks again until it
 // gets nothing still gets through a record larger than the limit.
 func (s *Store) SinceBytes(vv map[string]uint64, limit, maxBytes int) []msg.Record {
+	out, err := s.SinceBytesChecked(vv, limit, maxBytes)
+	if err != nil {
+		// This legacy in-process API cannot represent an I/O error. Never turn
+		// missing history into an empty/partial feed. HTTP uses the checked API.
+		panic(err)
+	}
+	return out
+}
+
+func (s *Store) SinceBytesChecked(vv map[string]uint64, limit, maxBytes int) ([]msg.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.historyErr != nil {
+		return nil, s.historyErr
+	}
 	var out []msg.Record
 	size := 0
-	for _, o := range slices.Sorted(maps.Keys(s.log)) {
-		l := s.log[o]
-		for i := vv[o]; i < uint64(len(l)) && len(out) < limit; i++ {
+	for _, o := range slices.Sorted(maps.Keys(s.logCounts)) {
+		for i := vv[o]; i < s.logCount(o) && len(out) < limit; i++ {
+			r, err := s.logRecord(o, i+1)
+			if err != nil {
+				return nil, err
+			}
 			if maxBytes > 0 {
-				b, _ := json.Marshal(l[i])
+				b, _ := json.Marshal(r)
 				if len(out) > 0 && size+len(b)+1 > maxBytes {
-					return out
+					return out, nil
 				}
 				size += len(b) + 1
 			}
-			out = append(out, l[i])
+			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Merge applies records pulled from a peer, persisting those that were new. A record that fails
@@ -985,9 +1053,15 @@ func (s *Store) Merge(recs []msg.Record) (int, error) {
 		if ok && r.Msg != nil {
 			_, held = s.byIDLocked(r.Msg.ID)
 		}
-		if ok && s.applyLocked(r) {
-			if err := appendLine(filepath.Join(s.dir, "log.jsonl"), r); err != nil {
+		if ok {
+			if err := s.appendRecord(r); err != nil {
 				return n, err
+			}
+			if !s.applyLocked(r) {
+				return n, errors.New("record sequence changed before apply")
+			}
+			if s.historyErr != nil {
+				return n, s.historyErr
 			}
 			n++
 			if r.Msg != nil && !held {
@@ -1042,9 +1116,19 @@ func (s *Store) addAck(a msg.Ack) {
 // client that wrote to several nodes causes no duplicate; so is an identical
 // message (same sender, target, reply and text) sent again within dupWindow. A
 // sender over its hourly limit gets a *RateLimitError.
-func (s *Store) Send(m msg.Message) (msg.Message, error) {
+func (s *Store) Send(m msg.Message) (sent msg.Message, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() {
+		if s.historyErr != nil {
+			sent, err = msg.Message{}, s.historyErr
+		}
+	}()
+	if s.leaseOnLocked() {
+		if err := s.healthLocked(); err != nil {
+			return msg.Message{}, err
+		}
+	}
 	m.Retracted = nil                 // what a node says about a message, not something a sender sets
 	m.Amends, m.AmendedBy = nil, nil  // likewise
 	m.Offer = nil                     // likewise
@@ -1058,11 +1142,13 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 			return msg.Message{}, ErrIDTaken
 		}
 		return s.tombstoneLocked(p), nil // client wrote to several nodes: idempotent; a retracted message does not come back with its text
-	} else if s.noticeIDs[m.ID] {
+	} else if s.reservedNoticeLocked(m.ID) {
 		return msg.Message{}, ErrReservedID
 	}
-	if _, held := s.idx[m.Re]; m.Re != "" && !held && s.noticeIDs[m.Re] {
-		return msg.Message{}, ErrReplyToNotice
+	if m.Re != "" {
+		if _, held := s.byIDLocked(m.Re); !held && s.reservedNoticeLocked(m.Re) {
+			return msg.Message{}, ErrReplyToNotice
+		}
 	}
 	now := s.now().UTC()
 	s.sweepLocked(now)
@@ -1134,6 +1220,27 @@ func (s *Store) Send(m msg.Message) (msg.Message, error) {
 }
 
 func (s *Store) byIDLocked(id string) (msg.Message, bool) {
+	if s.leaseOnLocked() {
+		if s.historyErr != nil {
+			return msg.Message{}, false
+		}
+		m, ok, err := s.history.messageByID(id)
+		if err != nil {
+			s.historyErr = err
+			return msg.Message{}, false
+		}
+		if ok {
+			position, _, e := s.history.firstPosition(id)
+			if e != nil {
+				s.historyErr = e
+				return msg.Message{}, false
+			}
+			if position.seq > s.logCounts[position.origin] {
+				return msg.Message{}, false
+			}
+		}
+		return m, ok
+	}
 	if i, ok := s.idx[id]; ok {
 		return s.msgs[i], true
 	}
@@ -1463,13 +1570,21 @@ func (s *Store) RetractDryRun(id, by string, leak bool) (msg.RetractResult, erro
 	return s.retract(id, by, leak, true)
 }
 
-func (s *Store) retract(id, by string, leak, dry bool) (msg.RetractResult, error) {
+func (s *Store) retract(id, by string, leak, dry bool) (result msg.RetractResult, err error) {
 	if !msg.ValidRetractID(id) || !msg.ValidIdentity(by) || by == QuarantineBy {
 		return msg.RetractResult{}, ErrBadRetract
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() {
+		if s.historyErr != nil {
+			result, err = msg.RetractResult{}, s.historyErr
+		}
+	}()
+	if err := s.healthLocked(); err != nil {
+		return msg.RetractResult{}, err
+	}
 	m, ok := s.byIDLocked(id)
 	if !ok {
 		return msg.RetractResult{}, ErrUnknown
@@ -1510,8 +1625,11 @@ func (s *Store) retract(id, by string, leak, dry bool) (msg.RetractResult, error
 // sender, the one retracting it and the quarantine placeholder: the sessions that may have acted
 // on it. Receipts written to other nodes may not have arrived, so it is a lower bound.
 func (s *Store) readByLocked(m msg.Message, retractor string) int {
+	if s.leaseOnLocked() {
+		return s.receiptCountLocked(m.ID, m.From, retractor, QuarantineBy)
+	}
 	n := 0
-	for by := range s.acks[m.ID] {
+	for by := range s.receiptViewLocked(m.ID) {
 		if by != m.From && by != retractor && by != QuarantineBy {
 			n++
 		}
@@ -1551,7 +1669,7 @@ func (s *Store) InboxLane(me string, all bool, labels msg.Labels, lane bool) []m
 	s.flushPresenceLocked(now, false)
 	out := s.inboxLocked(me, all, labels, lane, true, now)
 	if !all { // first: a reader that lists only the first few must not miss them
-		out = append(s.noticesLocked(me, now), out...)
+		out = append(s.managedNoticesLocked(me, now, s.noticesLocked(me, now)), out...)
 	}
 	return out
 }
@@ -1636,7 +1754,7 @@ func (s *Store) inboxLocked(me string, all bool, labels msg.Labels, lane, read b
 		m.Offer = offer
 		out = append(out, m)
 	}
-	return out
+	return s.managedInboxLocked(me, all, labels, out, now)
 }
 
 // candidatesLocked lists, in arrival order, the messages whose target could reach
@@ -1709,11 +1827,38 @@ func (s *Store) ThreadLane(id string, lane bool) []msg.Message {
 		t = m.Thread
 	}
 	var out []msg.Message
+	var rootOffset int64
+	var coldRoot *msg.Message
+	if s.leaseOnLocked() && s.internalIDLocked(t) {
+		if root, ok := s.byIDLocked(t); ok {
+			root = s.amendViewLocked(s.tombstoneLocked(root), "")
+			coldRoot = &root
+			_, rootOffset, _ = s.history.firstPosition(t)
+		}
+	}
+	inserted := false
 	for _, i := range s.threads[t] {
 		if m := s.msgs[i]; m.IsTest() && (!lane || msg.TestPurged(m)) {
 			continue
 		}
+		if coldRoot != nil && !inserted {
+			_, offset, err := s.history.firstPosition(s.msgs[i].ID)
+			if err != nil {
+				s.historyErr = err
+				return nil
+			}
+			if rootOffset < offset {
+				out = append(out, *coldRoot)
+				inserted = true
+			}
+		}
 		out = append(out, s.viewLocked(i)) // a retracted message stays in place, as a tombstone, so replies still make sense
+	}
+	if coldRoot != nil && !inserted {
+		out = append(out, *coldRoot)
+	}
+	if s.historyErr != nil {
+		return nil
 	}
 	return out
 }
@@ -1724,6 +1869,9 @@ func (s *Store) Messages() []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(s.now().UTC())
+	if s.leaseOnLocked() {
+		return s.allMessagesOnLocked(nil, true)
+	}
 	out := make([]msg.Message, 0, len(s.msgs)-s.nTest)
 	for i := range s.msgs {
 		if !s.msgs[i].IsTest() { // the test lane is not part of the board
@@ -1739,6 +1887,9 @@ func (s *Store) Messages() []msg.Message {
 func (s *Store) ArrivedSince(t time.Time) []msg.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.leaseOnLocked() {
+		return s.allMessagesOnLocked(&t, false)
+	}
 	var out []msg.Message
 	for _, m := range s.msgs {
 		if !m.At.Before(t) && !m.IsTest() {
@@ -1753,8 +1904,14 @@ func (s *Store) Readers(id string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, ok := s.byIDLocked(id)
+	if s.leaseOnLocked() {
+		if ok {
+			return s.receiptCountLocked(id, m.From)
+		}
+		return s.receiptCountLocked(id)
+	}
 	n := 0
-	for by := range s.acks[id] {
+	for by := range s.receiptViewLocked(id) {
 		if !ok || by != m.From {
 			n++
 		}
@@ -1770,7 +1927,7 @@ func (s *Store) Who() map[string]time.Time {
 	for k, v := range s.seen {
 		out[k] = v.at
 	}
-	for from, at := range s.lastSent {
+	for from, at := range s.transientSentLocked() {
 		if at.After(out[from]) {
 			out[from] = at
 		}
@@ -1822,7 +1979,7 @@ func (s *Store) Roster() []msg.RosterEntry {
 			byMe[k] = e
 		}
 	}
-	for from, at := range s.lastSent {
+	for from, at := range s.transientSentLocked() {
 		e := byMe[from]
 		e.Me = from
 		if at.After(e.Seen) {
@@ -1842,8 +1999,8 @@ func (s *Store) Roster() []msg.RosterEntry {
 func (s *Store) Empty() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, l := range s.log {
-		if len(l) > 0 {
+	for _, n := range s.logCounts {
+		if n > 0 {
 			return false
 		}
 	}
@@ -1877,6 +2034,17 @@ func (s *Store) Stats() Stats {
 	st := Stats{Messages: len(s.msgs) - s.nTest, Acks: s.nAck - s.nTestAck, Sessions: len(s.seen), Duplicates: s.dups, RateLimited: s.limited,
 		Quarantined: s.quarantined, Refused: s.refused}
 	st.Retracted, st.RetractionsIneffective = s.nRetracted-s.nTestRetracted, s.nInert-s.nTestInert // a claim on a message not held yet is neither: it is decided when the message arrives
+	if s.leaseOnLocked() {
+		counters, err := s.history.counters()
+		if err != nil {
+			s.historyErr = err
+			return st
+		}
+		st.Messages += int(counters.messages)
+		st.Acks = int(counters.receipts - counters.testReceipts)
+		st.Retracted += int(counters.retracted)
+		st.RetractionsIneffective += int(counters.inert)
+	}
 	st.RefusedBy = maps.Clone(s.refusedBy)
 	hour := s.now().Add(-time.Hour)
 	k := 0
@@ -1885,6 +2053,14 @@ func (s *Store) Stats() Stats {
 	}
 	s.arrivals = s.arrivals[k:]
 	st.LastHour = len(s.arrivals)
+	if s.leaseOnLocked() {
+		n, err := s.managedLastHourLocked(hour)
+		if err != nil {
+			s.historyErr = err
+		} else {
+			st.LastHour += int(n)
+		}
+	}
 	return st
 }
 

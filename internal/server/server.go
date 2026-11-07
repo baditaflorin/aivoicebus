@@ -139,7 +139,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 			}
 			w.Header().Set(msg.HeaderVersion, cfg.version)
 			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-			h(w, r, who)
+			h(&historyResponseWriter{ResponseWriter: w, store: s}, r, who)
 		}
 	}
 	guard := func(observerOK, machineOK bool, h principalHandler) http.HandlerFunc {
@@ -151,6 +151,10 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	// an unrestricted token or the observer may take it, not a token bound to one machine.
 	feed := func(h principalHandler) http.HandlerFunc { return guard(true, false, h) }
 	js := func(w http.ResponseWriter, v any) {
+		if s.HealthChecked() != nil {
+			http.Error(w, "store history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(v)
 	}
@@ -207,6 +211,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	mux.HandleFunc("/metrics", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		cfg.metrics.write(w, health(), s.Stats())
+		writeLeaseRetentionMetrics(w, s.LeaseRetentionStats())
 	}))
 	// What kind of token this is, so a script can tell a shared token from a machine's own before it
 	// pushes it somewhere. Says nothing about the token itself.
@@ -469,13 +474,18 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	mux.HandleFunc("/v1/sync", feed(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		vv := map[string]uint64{}
 		_ = json.Unmarshal([]byte(r.URL.Query().Get("vv")), &vv)
-		js(w, s.SinceBytes(vv, syncPageRecords, syncPageBytes))
+		records, err := s.SinceBytesChecked(vv, syncPageRecords, syncPageBytes)
+		if err != nil {
+			http.Error(w, "replication history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		js(w, records)
 	}))
 	// Who and the roster are display views: join probes are left out unless ?all=1 asks for every
 	// identity (the sender's own safety checks, which count recipients, must not miss a session that
 	// merely named itself like a probe), and gossip (?since) always carries everything.
 	mux.HandleFunc("/v1/leases", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
-		js(w, s.Leases())
+		streamLeases(w, r, s)
 	}))
 	mux.HandleFunc("/v1/receipts", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		id := r.URL.Query().Get("id")

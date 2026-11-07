@@ -11,6 +11,7 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/identity"
 	"github.com/baditaflorin/aivoicebus/internal/server"
+	"github.com/baditaflorin/aivoicebus/internal/store"
 )
 
 func serve(args []string, s Streams) error {
@@ -27,8 +28,15 @@ func serve(args []string, s Streams) error {
 	every := fs.Duration("sync-every", 3*time.Second, "peer pull interval")
 	rdir := fs.String("release-dir", "", "serve this release directory (manifest, signature, binaries) at /v1/release/")
 	requireSigned := fs.Bool("require-signed", os.Getenv("AIVOICEBUS_REQUIRE_SIGNED") == "1", "refuse messages that carry no valid signature (every client of 0.7.0 or later signs); also AIVOICEBUS_REQUIRE_SIGNED=1")
+	leaseMode := fs.String("lease-retention", "off", "scoped lease storage: off (default), observe (index only), or on (explicit opt-in; keeps raw audit history)")
+	leaseHosts := fs.String("lease-retention-hosts", "", "comma-separated exact builder host allowlist; required for on")
+	leaseKeep := fs.Duration("lease-retention-keep", 30*24*time.Hour, "minimum expired-lease identity retention before transient roster cleanup (at least 720h)")
 	allowPublic := fs.Bool("allow-public", false, "listen on all interfaces, a public address or a host name (plain HTTP: put it behind TLS you control)")
 	if err := parseFlags(fs, args, s); err != nil {
+		return err
+	}
+	retention, err := leaseRetentionOptions(*leaseMode, *leaseHosts, *leaseKeep)
+	if err != nil {
 		return err
 	}
 	warn, err := checkListenAddr(*addr, *allowPublic)
@@ -51,6 +59,7 @@ func serve(args []string, s Streams) error {
 		BootstrapMaxAge: *bmax,
 		ReleaseDir:      *rdir,
 		RequireSigned:   *requireSigned,
+		LeaseRetention:  retention,
 		Out:             s.Out,
 	})
 }
@@ -87,4 +96,14 @@ func checkListenAddr(addr string, allowPublic bool) (warn string, err error) {
 			"Listen on loopback or a private-network address, or run it again with --allow-public if something else (a TLS proxy, a firewall) protects it")
 	}
 	return "this node listens on " + what + " (" + addr + ") over plain HTTP: the token and every message are readable by anyone on the path; terminate TLS in front of it", nil
+}
+
+func leaseRetentionOptions(mode, hosts string, keep time.Duration) (store.LeaseRetentionOptions, error) {
+	options := store.LeaseRetentionOptions{Mode: store.LeaseRetentionMode(mode), Keep: keep}
+	if hosts != "" {
+		for _, host := range strings.Split(hosts, ",") {
+			options.Hosts = append(options.Hosts, strings.TrimSpace(host))
+		}
+	}
+	return options, options.Validate()
 }

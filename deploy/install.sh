@@ -12,9 +12,10 @@
 # The binary: set AIVOICEBUS_BIN to a prebuilt linux/amd64 aivoicebus (the one from the
 # signed release, so the nodes run exactly what was released). Without it the script
 # builds one on THIS machine, which belongs on a build host, not a laptop.
-# Each node keeps its previous binary as /usr/local/bin/aivoicebus.prev; to roll back:
-#   ssh <node> 'install -m 755 /usr/local/bin/aivoicebus.prev /usr/local/bin/aivoicebus && systemctl restart aivoicebus'
-# (install, not cp: it replaces the file, so a running binary does not fail with "Text file busy"; or use deploy/rollout.sh, which rolls back by itself)
+# Each node keeps its previous binary and paired service unit. Use deploy/rollout.sh
+# for automatic rollback, or restore BOTH previous binary and previous unit, then
+# daemon-reload before restarting. A binary-only rollback can feed unsupported
+# retention flags to the old binary. Use install, not cp, to replace a running binary.
 # Observers (a dashboard or exporter): if ~/.config/aivoicebus/observer-token exists (make it with
 # --gen-observer-token), every node also accepts that second, READ-ONLY token (replication
 # feed, roster, threads; it cannot send, ack, read an inbox or fetch a release). Without the
@@ -25,6 +26,9 @@
 # Signed messages only: AIVOICEBUS_NODE_REQUIRE_SIGNED=1 puts AIVOICEBUS_REQUIRE_SIGNED=1 in each
 # node's node.env (serve --require-signed: a message without a valid signature is refused), =0 takes
 # it out; unset, every install keeps what the node has. Check first: aivoicebus mesh --signed-check.
+# AIVOICEBUS_NODE_LEASE_RETENTION_ARGS sets the optional canonical off/observe/on
+# arguments (on requires explicit comma-separated machine hosts). Unset preserves
+# each node's validated LEASE_RETENTION_ARGS; empty clears it. No arbitrary flags.
 # A temporary BOOTSTRAP_ARGS line in node.env (deploy/bootstrap-share.sh) is preserved.
 # Rotating the shared token: deploy/rotate-token.sh drives --tokens-only, which rewrites the token
 # files and restarts each node (one at a time) without touching its binary or unit. If
@@ -82,6 +86,14 @@ check_tokens() {
   return 0
 }
 
+# Validate caller input before --gen-token or any other credential/unit write.
+RETENTION_SET=${AIVOICEBUS_NODE_LEASE_RETENTION_ARGS+x}
+RETENTION_ARGS=${AIVOICEBUS_NODE_LEASE_RETENTION_ARGS:-}
+if [ "$RETENTION_SET" = x ]; then deploy/lease-retention.sh validate "$RETENTION_ARGS"; fi
+retention_config() {
+  ssh "$1" 'bash -s -- check-env /etc/aivoicebus/node.env' <deploy/lease-retention.sh
+}
+
 APPLY=0; ONLY=""; PEERS_ONLY=0; TOKENS_ONLY=0
 for a in "$@"; do
   case "$a" in
@@ -137,6 +149,15 @@ else
 fi
 [ -z "$BIN" ] || echo "  sha256 $(shasum -a 256 "$BIN" | cut -c1-16)  size $(wc -c < "$BIN")"
 
+# Refuse malformed retained values on every currently reachable selected target
+# before staging any node's credential or unit. Recheck each node before its writes.
+if [ "$APPLY" = 1 ]; then
+  for n in "${NODES[@]}"; do IFS=: read -r name alias _ <<<"$n"
+    [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || continue
+    if ssh_ok "$alias"; then retention_config "$alias" >/dev/null; fi
+  done
+fi
+
 SKIPPED=()
 for n in "${NODES[@]}"; do IFS=: read -r name alias ip <<<"$n"
   [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || continue
@@ -172,6 +193,9 @@ for n in "${NODES[@]}"; do IFS=: read -r name alias ip <<<"$n"
     fi
   fi
 
+  keepret=$(retention_config "$alias")
+  if [ "$RETENTION_SET" = x ]; then keepret="LEASE_RETENTION_ARGS=$RETENTION_ARGS"; fi
+
   TOKSTEP=':'; TOKFAIL=':'
   if [ "$PEERS_ONLY" = 0 ] || [ "$TOKENS_ONLY" = 1 ]; then
     # the new token file is staged, then moved into place just before the restart; if the node
@@ -201,6 +225,7 @@ for n in "${NODES[@]}"; do IFS=: read -r name alias ip <<<"$n"
     keepsig=\$(grep '^AIVOICEBUS_REQUIRE_SIGNED=' /etc/aivoicebus/node.env 2>/dev/null || true)
     printf 'NODE=%s\nADDR=%s\nPEERS=%s\nRELEASE_ARGS=--release-dir /srv/aivoicebus-release\n' '$name' '$ip:$PORT' '$peers' > /etc/aivoicebus/node.env
     [ -z \"\$keep\" ] || echo \"\$keep\" >> /etc/aivoicebus/node.env
+    [ -z '$keepret' ] || printf '%s\n' '$keepret' >> /etc/aivoicebus/node.env
     case '$REQSIG' in   # signed messages only: set, taken out, or kept as the node has it
       1) echo 'AIVOICEBUS_REQUIRE_SIGNED=1' >> /etc/aivoicebus/node.env ;;
       0) ;;

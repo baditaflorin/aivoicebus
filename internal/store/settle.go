@@ -41,7 +41,11 @@ func (s *Store) Settled(id string) map[string]time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[string]time.Time{}
-	for h, at := range s.settles[id] {
+	states := s.settles[id]
+	if s.leaseOnLocked() {
+		states = s.managedAcksLocked(id).settles
+	}
+	for h, at := range states {
 		out[h] = at
 	}
 	return out
@@ -57,7 +61,7 @@ var ErrMustAnswer = errors.New("that message must be answered (an approval reque
 // msg/settle.go). It is refused for a message this node does not hold (ErrUnknown: the client asks
 // another node), for one that must be answered, and for an identity that is not a machine's person.
 // A second settle by the same machine is a no-op.
-func (s *Store) Settle(id, by string) error {
+func (s *Store) Settle(id, by string) (err error) {
 	if !msg.ValidRetractID(id) || !msg.ValidIdentity(by) || by == QuarantineBy {
 		return ErrBadSettle
 	}
@@ -66,6 +70,14 @@ func (s *Store) Settle(id, by string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() {
+		if s.historyErr != nil {
+			err = s.historyErr
+		}
+	}()
+	if s.historyErr != nil {
+		return s.historyErr
+	}
 	m, ok := s.byIDLocked(id)
 	if !ok {
 		return ErrUnknown
@@ -73,7 +85,11 @@ func (s *Store) Settle(id, by string) error {
 	if !msg.Settleable(m) {
 		return ErrMustAnswer
 	}
-	if _, done := s.settles[id][msg.HostOf(by)]; done {
+	settled := s.settles[id]
+	if s.leaseOnLocked() && s.internalIDLocked(id) {
+		settled = s.managedAcksLocked(id).settles
+	}
+	if _, done := settled[msg.HostOf(by)]; done {
 		return nil
 	}
 	return s.commitLocked(msg.Record{Ack: &msg.Ack{ID: msg.SettlePrefix + id, By: by, At: s.now().UTC()}})

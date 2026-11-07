@@ -16,6 +16,9 @@
 # reason: AIVOICEBUS_SKIP_COMPAT="<at least 10 characters>". That warns loudly and is written to
 # <outdir>/OVERRIDES, and `github` puts it at the top of the release notes. `github` itself refuses
 # unless a passing record or a recorded waiver for the commit is in <outdir>.
+# Indexed lease releases additionally require a complete compat-on-pass.txt for the
+# same source/tree/Linux binary, at sign and publish; neither lane can be waived.
+# COMPAT_ON_RECORD selects an alternate path to that additive proof.
 #
 # then:  deploy/publish-release.sh <outdir> --apply   # put it on the mesh nodes
 #
@@ -28,6 +31,7 @@ START=$PWD
 cd "$(dirname "$0")/.."
 # COMPAT_RECORD, like compat.sh --record, means where the person running this is, not the repo root
 case ${COMPAT_RECORD:-} in "" | /*) ;; *) COMPAT_RECORD=$START/$COMPAT_RECORD ;; esac
+case ${COMPAT_ON_RECORD:-} in "" | /*) ;; *) COMPAT_ON_RECORD=$START/$COMPAT_ON_RECORD ;; esac
 STAGE="${1:?usage: release.sh build|sums|sign|github|attach|stamp <outdir>}"
 OUT="${2:?usage: release.sh build|sums|sign|github|attach|stamp <outdir>}"
 PUBLISH_FLAG="${3:-}"
@@ -114,6 +118,57 @@ compat_ok() {
   scripts/compat-record.sh check "$rec" "$COMMIT" "$tree" "$sha" $req
 }
 
+# Indexed releases need an additional On lane. Presence in the stamped source,
+# rather than the signer's working tree or VERSION, decides this requirement.
+retention_required() {
+  git cat-file -e "$COMMIT:internal/store/lease_history.go" 2>/dev/null
+}
+
+# Refuse duplicate/missing fields instead of accepting the first conflicting value.
+retention_field() {
+  [ "$(grep -c "^$2=" "$1" || true)" = 1 ] || return 1
+  sed -n "s/^$2=//p" "$1"
+}
+
+retention_compat_ok() {
+  local rec=${COMPAT_ON_RECORD:-$OUT/compat-on-pass.txt} tree sha req expected key value old checks scenarios count
+  [ -f "$rec" ] && [ -s "$rec" ] && [ "$(wc -c <"$rec")" -le 65536 ] || return 1
+  tree=$(git rev-parse --verify --quiet "$COMMIT^{tree}") || return 1
+  sha=$(scripts/compat-record.sh sha "$OUT/aivoicebus-linux-amd64") || return 1
+  req=$(compat_required) || return 1
+  [ "$(retention_field "$rec" format)" = aivoicebus-compat-on-v1 ] || return 1
+  [ "$(retention_field "$rec" mode)" = on ] || return 1
+  [ "$(retention_field "$rec" result)" = pass ] || return 1
+  [ "$(retention_field "$rec" commit)" = "$COMMIT" ] || return 1
+  [ "$(retention_field "$rec" tree)" = "$tree" ] || return 1
+  [ "$(retention_field "$rec" binary_sha256)" = "$sha" ] || return 1
+  expected=$(printf '%s\n' "$req" | sed '/^$/d' | sort -uV | tr '\n' ' ' | sed 's/ $//')
+  old=$(retention_field "$rec" old) || return 1
+  [ "$old" = "$expected" ] || return 1
+  count=$(printf '%s\n' "$req" | sed '/^$/d' | wc -l | tr -d ' ')
+  checks=$(retention_field "$rec" checks) || return 1
+  scenarios=$(retention_field "$rec" scenarios) || return 1
+  [[ "$checks" =~ ^[0-9]{1,9}$ ]] && [ "$checks" -ge $((8 * (count + 1))) ] || return 1
+  [[ "$scenarios" =~ ^[0-9]{1,9}$ ]] && [ "$scenarios" -ge 10 ] || return 1
+  for key in old_readonly_exports raw_log_preserved vv_preserved no_tombstone_or_quarantine by_id_truth live_lease_renew_release strict_signed_new_writes rollback_old_new_on; do
+    [ "$(retention_field "$rec" "$key")" = pass ] || return 1
+  done
+  for key in aged_managed active_managed; do
+    value=$(retention_field "$rec" "$key") || return 1
+    [[ "$value" =~ ^[0-9]{1,9}$ ]] && [ "$value" -gt 0 ] || return 1
+  done
+  [ "$(retention_field "$rec" ordinary)" = 16 ] || return 1
+}
+
+# There is no compatibility waiver for a release containing the indexed path.
+# The existing Off record is still mandatory; an On record cannot replace it.
+retention_gate() {
+  retention_required || return 0
+  [ -z "${AIVOICEBUS_SKIP_COMPAT:-}" ] || die "indexed releases require both Off and On compatibility proofs; no waiver"
+  compat_ok || die "indexed release is missing a current Off compatibility proof"
+  retention_compat_ok || die "indexed release is missing a complete On compatibility proof for this source, tree and Linux binary (compat-on-pass.txt)"
+}
+
 # compat_override: AIVOICEBUS_SKIP_COMPAT is a reason, not a switch: at least 10 printable
 # characters once control characters and edge spaces are gone, so 0, false or a space do not count.
 # It prints the reason sanitised, or fails.
@@ -129,6 +184,7 @@ compat_override() {
 # written into $OUT/OVERRIDES (and so into the release notes by `github`). Needs COMMIT (from stamp).
 compat_gate() {
   local reason
+  retention_gate
   if [ -n "${AIVOICEBUS_SKIP_COMPAT:-}" ]; then
     reason=$(compat_override) || die "AIVOICEBUS_SKIP_COMPAT is a reason, at least 10 characters with a letter in it (not 0, false, or a space): say why the mixed-version gate is skipped"
     {
@@ -153,6 +209,7 @@ compat_gate() {
 # compat_note (github): refuses unless the release dir carries a passing record for this code or a
 # recorded waiver for this commit, and sets COMPAT_NOTE, the line the release notes start with.
 compat_note() {
+  retention_gate
   if compat_na 2>/dev/null; then
     COMPAT_NOTE="Mixed-version gate: not applicable (no older release)."
   elif compat_ok 2>/dev/null; then
@@ -225,6 +282,7 @@ case "$STAGE" in
       die "SHA256SUMS on the draft differ from the one made from the binaries you signed: you signed something other than what CI built. Download the draft's binaries (gh release download v$VER -D $OUT) and sign those"
     extra=()
     [ ! -s "${COMPAT_RECORD:-$OUT/compat-pass.txt}" ] || extra+=("${COMPAT_RECORD:-$OUT/compat-pass.txt}")
+    if retention_required; then extra+=("${COMPAT_ON_RECORD:-$OUT/compat-on-pass.txt}"); fi
     [ ! -s "$OUT/OVERRIDES" ] || extra+=("$OUT/OVERRIDES")
     echo "attaching the signature to the draft v$VER (commit $SHORT) on $REPO"
     gh release upload "v$VER" --repo "$REPO" "$OUT/manifest.json" "$OUT/manifest.sig" ${extra[@]+"${extra[@]}"}
@@ -266,6 +324,7 @@ case "$STAGE" in
     # the gate's evidence goes with the release: the pass record, and the waiver when there is one
     extra=()
     [ ! -s "${COMPAT_RECORD:-$OUT/compat-pass.txt}" ] || extra+=("${COMPAT_RECORD:-$OUT/compat-pass.txt}")
+    if retention_required; then extra+=("${COMPAT_ON_RECORD:-$OUT/compat-on-pass.txt}"); fi
     [ ! -s "$OUT/OVERRIDES" ] || extra+=("$OUT/OVERRIDES")
     gh release create "v$VER" --repo "$REPO" --target "$COMMIT" --title "aivoicebus $VER" --notes-file "$notes" \
       "$OUT"/aivoicebus-* "$OUT/manifest.json" "$OUT/manifest.sig" "$OUT/SHA256SUMS" ${extra[@]+"${extra[@]}"}

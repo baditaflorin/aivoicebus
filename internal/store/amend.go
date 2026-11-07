@@ -196,12 +196,20 @@ func (e *ErrNotAmender) Error() string {
 // other, and takes effect on this node at once. It is refused for a message this node does not hold,
 // or whose original it does not hold (ErrUnknown: the client asks another node), for one that is no
 // amendment (ErrNotAmendment) and for an identity not on the machine that sent it (*ErrNotAmender).
-func (s *Store) Amend(aid, by string) error {
+func (s *Store) Amend(aid, by string) (err error) {
 	if !msg.ValidRetractID(aid) || !msg.ValidIdentity(by) || by == QuarantineBy {
 		return ErrBadAmend
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() {
+		if s.historyErr != nil {
+			err = s.historyErr
+		}
+	}()
+	if s.historyErr != nil {
+		return s.historyErr
+	}
 	a, ok := s.byIDLocked(aid)
 	if !ok {
 		return ErrUnknown

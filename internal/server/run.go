@@ -31,13 +31,17 @@ type Options struct {
 	BootstrapFile   string
 	BootstrapKey    string
 	BootstrapMaxAge time.Duration
-	ReleaseDir      string    // serve this release directory at /v1/release/ (optional)
-	RequireSigned   bool      // refuse messages without a valid signature
-	Out             io.Writer // progress lines; nil discards them
+	ReleaseDir      string                      // serve this release directory at /v1/release/ (optional)
+	RequireSigned   bool                        // refuse messages without a valid signature
+	LeaseRetention  store.LeaseRetentionOptions // off unless explicitly configured
+	Out             io.Writer                   // progress lines; nil discards them
 }
 
 // Run starts the node and blocks until the listener fails.
-func Run(o Options) error {
+func Run(o Options) (runErr error) {
+	if err := o.LeaseRetention.Validate(); err != nil {
+		return err
+	}
 	out := o.Out
 	if out == nil {
 		out = io.Discard
@@ -53,10 +57,23 @@ func Run(o Options) error {
 	if observer != "" && tokens.Has(observer) {
 		return errors.New("the observer token must differ from every shared token: make a new one with `deploy/install.sh --gen-observer-token` (from the root of an aivoicebus checkout), then try again")
 	}
-	st, err := store.Open(o.DataDir, o.Node, store.WithLog(out))
+	st, err := store.Open(o.DataDir, o.Node, store.WithLog(out), store.WithLeaseRetention(o.LeaseRetention))
 	if err != nil {
 		return err
 	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	var drainDone chan struct{}
+	defer func() {
+		cancel()
+		if drainDone != nil {
+			select {
+			case <-drainDone:
+			case <-time.After(4 * time.Second):
+				runErr = errors.Join(runErr, errors.New("server shutdown did not finish: check the node log with `journalctl -u aivoicebus.service` before restarting"))
+			}
+		}
+		runErr = errors.Join(runErr, st.Close())
+	}()
 	var peers []string
 	for _, p := range o.Peers {
 		if p = strings.TrimRight(strings.TrimSpace(p), "/"); p != "" {
@@ -72,7 +89,7 @@ func Run(o Options) error {
 		}
 	}
 	board := NewPeerBoard(peers)
-	go Replicate(context.Background(), st, peers, tok, o.SyncEvery, board)
+	go Replicate(runCtx, st, peers, tok, o.SyncEvery, board)
 	sh, err := sharestore.Open(filepath.Join(o.DataDir, "share"), o.Node, sharestore.DefaultLimits(), ThreadActivity(st), sharestore.WithLog(out))
 	if err != nil {
 		return fmt.Errorf("shared spaces in %s: %v", filepath.Join(o.DataDir, "share"), err)
@@ -86,7 +103,7 @@ func Run(o Options) error {
 			}
 		}
 	}
-	go ReplicateShares(context.Background(), sh, peers, tok, o.SyncEvery, shBoard, out)
+	go ReplicateShares(runCtx, sh, peers, tok, o.SyncEvery, shBoard, out)
 	fmt.Fprintf(out, "node %s listening on %s, %d peer(s)\n", o.Node, o.Addr, len(peers))
 	if o.BootstrapFile != "" && len(o.BootstrapKey) < 24 {
 		return errors.New("--bootstrap-key must be at least 24 chars: run it again with a longer one (`openssl rand -hex 24` makes one)")
@@ -100,14 +117,10 @@ func Run(o Options) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, os.Interrupt)
 	drained := make(chan struct{})
-	go func() {
-		<-stop
-		st.FlushPresence()
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
-		close(drained)
-	}()
+	drainDone = drained
+	defer signal.Stop(stop)
+	go drainOnSignal(runCtx, stop, srv, st, drained)
+
 	ln, err := net.Listen("tcp", o.Addr)
 	if err != nil {
 		return err
@@ -160,4 +173,20 @@ func loadNodeTokens(file string) (*TokenSet, error) {
 		return nil, fmt.Errorf("token file: %v", err)
 	}
 	return ParseTokens(string(b))
+}
+
+func drainOnSignal(runCtx context.Context, stop <-chan os.Signal, srv *http.Server, st *store.Store, drained chan<- struct{}) {
+	defer close(drained)
+	select {
+	case <-runCtx.Done():
+		return
+	case <-stop:
+	}
+	if runCtx.Err() != nil {
+		return
+	}
+	st.FlushPresence()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }

@@ -126,14 +126,12 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 		return msg.Receipts{}, false
 	}
 	r := msg.Receipts{ID: m.ID, From: m.From, To: m.To, Kind: m.Kind, At: m.At, Reach: m.Reach, Reads: []msg.Receipt{}, Expired: m.Expired(s.now().UTC())}
-	for by := range s.acks[id] {
+	readers := s.receiptViewLocked(id)
+	for by, summary := range readers {
 		if by == m.From {
 			continue
 		}
-		rc, known := s.ackAt[id][by]
-		if !known {
-			rc = msg.Receipt{By: by}
-		}
+		rc := summary.Receipt
 		r.Reads = append(r.Reads, rc)
 	}
 	sort.Slice(r.Reads, func(i, j int) bool {
@@ -169,7 +167,7 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 		}
 		// Answering a message means it got through, even when the reader never acknowledged it
 		// (`reply --re` without --ack): count the first answer as that session's read.
-		if t.From != m.From && !s.acks[id][t.From] && !hasReader(r.Reads, t.From) {
+		if t.From != m.From && readers[t.From].Receipt.By == "" && !hasReader(r.Reads, t.From) {
 			r.Reads = append(r.Reads, msg.Receipt{By: t.From, At: t.At, Via: msg.ViaReply})
 		}
 	}
@@ -179,18 +177,6 @@ func (s *Store) Receipts(id string) (msg.Receipts, bool) {
 
 // Leases lists the live leases: not withdrawn, not expired, not forged. msg.Holders says who holds what.
 func (s *Store) Leases() []msg.Lease {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := s.now().UTC()
-	out := []msg.Lease{}
-	for _, i := range s.leases {
-		m := s.msgs[i]
-		if s.forged[m.ID] || m.Expired(now) || s.retractedLocked(m.ID, m.From) {
-			continue
-		}
-		if l, ok := msg.LeaseOf(m); ok {
-			out = append(out, l)
-		}
-	}
+	out, _ := s.LeasesChecked()
 	return out
 }

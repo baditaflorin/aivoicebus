@@ -161,7 +161,11 @@ func (s *Store) noticeIDLocked(mid string, c *claims) string {
 		s.noticeIDs[c.nid] = true
 	}
 	for {
-		if _, taken := s.idx[c.nid]; !taken {
+		_, taken := s.idx[c.nid]
+		if s.leaseOnLocked() {
+			_, taken = s.byIDLocked(c.nid)
+		}
+		if !taken {
 			return c.nid
 		}
 		c.probe++

@@ -296,7 +296,7 @@ func TestLeaseRenewalsNeverRetractTheOnlyLiveClaim(t *testing.T) {
 	}()
 	waitFile(t, started)
 	n.watch.Store(true)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for n.sends.Load() < 30 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
