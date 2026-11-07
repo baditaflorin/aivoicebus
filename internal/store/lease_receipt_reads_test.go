@@ -148,3 +148,42 @@ func TestLeaseIteratorExpiryIntegrityFailureLatchesBeforePinClose(t *testing.T) 
 		t.Fatal("closing the failed request pin hid a real integrity error")
 	}
 }
+
+func TestLeaseReceiptIndependentRelationsRefuseSingleTableLoss(t *testing.T) {
+	for _, table := range []string{"summary", "reverse"} {
+		t.Run(table, func(t *testing.T) {
+			now := onViewsNow
+			m := projectionLease(0, now, now.Add(time.Hour))
+			a := msg.Ack{ID: m.ID, By: "reader/session", At: now, Via: msg.ViaInbox}
+			s := onStateStore(t, LeaseRetentionOn, []msg.Record{{Origin: "peer", Seq: 1, Msg: &m}, {Origin: "peer", Seq: 2, Ack: &a}}, &now)
+			before := s.history.db.Stats().TxStats
+			for i := 0; i < 100; i++ {
+				_, found, err := s.history.exactReceipt(m.ID, "unseen/session")
+				if err != nil || found {
+					t.Fatal("normal absence refused", err)
+				}
+			}
+			if after := s.history.db.Stats().TxStats; after.GetWrite() != before.GetWrite() {
+				t.Fatal("normal absent-reader queries wrote metadata")
+			}
+			if err := s.history.db.Update(func(tx *bolt.Tx) error {
+				if table == "summary" {
+					return tx.Bucket(historyReceipts).Delete([]byte(m.ID + "\x00" + a.By))
+				}
+				return tx.Bucket(historyReaderTargets).Delete([]byte(a.By + "\x00" + m.ID))
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.history.exactReceipt(m.ID, a.By); err == nil {
+				t.Fatal("missing one receipt relation became valid absence")
+			}
+			if err := s.history.visitReceipts(m.ID, func(string, receiptSummary) {}); err == nil {
+				t.Fatal("missing receipt relation became complete valid count")
+			}
+			_ = s.Readers(m.ID)
+			if s.HealthChecked() == nil {
+				t.Fatal("corrupt reader projection did not latch unhealthy")
+			}
+		})
+	}
+}

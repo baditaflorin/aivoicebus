@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -57,6 +58,17 @@ func (h *leaseHistory) exactReceipt(id, by string) (receiptSummary, bool, error)
 			return errors.New("lease history: receipt summary index missing")
 		}
 		v := b.Get([]byte(id + "\x00" + by))
+		reverse := tx.Bucket(historyReaderTargets)
+		if reverse == nil {
+			return errors.New("lease history: reader target index missing")
+		}
+		relation := reverse.Get([]byte(by + "\x00" + id))
+		if (v == nil) != (relation == nil) {
+			return errors.New("lease history: receipt/reverse relation differ")
+		}
+		if relation != nil && !bytes.Equal(relation, []byte{1}) {
+			return errors.New("lease history: reader relation malformed")
+		}
 		if v == nil {
 			return nil
 		}
@@ -70,6 +82,24 @@ func (h *leaseHistory) exactReceipt(id, by string) (receiptSummary, bool, error)
 }
 func (h *leaseHistory) visitReceipts(id string, visit func(string, receiptSummary)) error {
 	prefix := []byte(id + "\x00")
+	var expected uint64
+	err := h.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(historyReceiptCounts)
+		if b == nil {
+			return errors.New("lease history: target receipt count index missing")
+		}
+		if value := b.Get([]byte(id)); value != nil {
+			if len(value) != 8 {
+				return errors.New("lease history: target receipt count malformed")
+			}
+			expected = binary.BigEndian.Uint64(value)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	var visited uint64
 	var after []byte
 	for {
 		type row struct {
@@ -96,7 +126,12 @@ func (h *leaseHistory) visitReceipts(id string, visit func(string, receiptSummar
 				if err := json.Unmarshal(v, &state); err != nil {
 					return err
 				}
-				rows = append(rows, row{string(k[len(prefix):]), state})
+				by := string(k[len(prefix):])
+				reverse := tx.Bucket(historyReaderTargets)
+				if reverse == nil || !bytes.Equal(reverse.Get([]byte(by+"\x00"+id)), []byte{1}) {
+					return errors.New("lease history: receipt reverse proof missing")
+				}
+				rows = append(rows, row{by, state})
 				if len(rows) == 256 {
 					next = bytes.Clone(k)
 					break
@@ -111,9 +146,16 @@ func (h *leaseHistory) visitReceipts(id string, visit func(string, receiptSummar
 			if err := h.verifyReceipt(id, row.by, row.state); err != nil {
 				return err
 			}
+			visited++
+			if visited > expected {
+				return errors.New("lease history: receipt count exceeds independent target count")
+			}
 			visit(row.by, row.state)
 		}
 		if next == nil {
+			if visited != expected {
+				return errors.New("lease history: receipt count differs from independent target count")
+			}
 			return nil
 		}
 		after = next

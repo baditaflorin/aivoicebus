@@ -12,7 +12,7 @@ var requiredHistoryBuckets = [][]byte{
 	historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets,
 	historyLeaseLive, historyLeaseWindow, historyReceipts, historyTestReceipts,
 	historyRetractionBy, historyManagedRetracted, historyManagedInert, historyDeferredTargets,
-	historyArrivalTape, historyArrivalMeta, historyNoticeStates, historyNoticeReserved, historyReaderTargets, historyClaimDue,
+	historyReceiptCounts, historyArrivalTape, historyArrivalMeta, historyNoticeStates, historyNoticeReserved, historyReaderTargets, historyClaimDue,
 }
 
 func requireHistoryBuckets(tx *bolt.Tx) error {

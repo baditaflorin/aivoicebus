@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"time"
@@ -11,6 +12,7 @@ import (
 )
 
 var (
+	historyReceiptCounts    = []byte("receipt-counts-by-target")
 	historyReceipts         = []byte("receipt-summaries")
 	historyTestReceipts     = []byte("test-receipt-count")
 	historyRetractionBy     = []byte("retraction-identities")
@@ -88,6 +90,10 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack, position []byte) error {
 	var state receiptSummary
 	value := b.Get(key)
 	first := value == nil
+	reverse := tx.Bucket(historyReaderTargets).Get([]byte(a.By + "\x00" + a.ID))
+	if first != (reverse == nil) {
+		return errors.New("lease history: receipt/reverse relation differ")
+	}
 	if !first {
 		if err := json.Unmarshal(value, &state); err != nil {
 			return err
@@ -120,6 +126,23 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack, position []byte) error {
 		return err
 	}
 	if first {
+		counts := tx.Bucket(historyReceiptCounts)
+		value := counts.Get([]byte(a.ID))
+		var count uint64
+		if value != nil {
+			if len(value) != 8 {
+				return errors.New("lease history: target receipt count malformed")
+			}
+			count = binary.BigEndian.Uint64(value)
+		}
+		if count == ^uint64(0) {
+			return errors.New("lease history: target receipt count overflow")
+		}
+		var encoded [8]byte
+		binary.BigEndian.PutUint64(encoded[:], count+1)
+		if err := counts.Put([]byte(a.ID), encoded[:]); err != nil {
+			return err
+		}
 		if err := b.SetSequence(b.Sequence() + 1); err != nil {
 			return err
 		}
