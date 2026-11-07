@@ -69,7 +69,7 @@ func Run(o Options) (runErr error) {
 			select {
 			case <-drainDone:
 			case <-time.After(4 * time.Second):
-				runErr = errors.Join(runErr, errors.New("server stop handler did not drain"))
+				runErr = errors.Join(runErr, errors.New("server shutdown did not finish: check the node log with `journalctl -u aivoicebus.service` before restarting"))
 			}
 		}
 		runErr = errors.Join(runErr, st.Close())
