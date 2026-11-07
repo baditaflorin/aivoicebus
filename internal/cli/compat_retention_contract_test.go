@@ -94,6 +94,11 @@ def refused(f):
  raise SystemExit('unsafe proof or altered history accepted')
 with tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir())) as d:
  p=pathlib.Path(d);binary=p/'binary';binary.write_bytes(b'exact candidate')
+ expiry=ns['expiry']
+ if expiry('2026-11-07T03:00:00.1+01:00')!=expiry('2026-11-07T02:00:00.100000000Z'):raise SystemExit('expiry timezone/precision mismatch')
+ if not expiry('2026-11-07T02:00:00.000000001Z')>expiry('2026-11-07T02:00:00Z'):raise SystemExit('expiry nanoseconds lost')
+ if not expiry('2026-11-07T02:02:00Z')>expiry('2026-11-07T03:01:00.999999999+01:00'):raise SystemExit('extended mixed-zone expiry failed')
+ refused(lambda:expiry('2026-11-07T02:00:00'))
  records=[{'origin':'x','seq':1,'msg':{'id':'0000000001','body':'raw'}}]
  ns['check_records'](records,records)
  refused(lambda:ns['check_records']([{'origin':'x','seq':1,'msg':{'id':'0000000001','body':'stub'}}],records))

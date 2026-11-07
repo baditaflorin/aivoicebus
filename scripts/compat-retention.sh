@@ -39,6 +39,14 @@ def digest(path):
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
 
+def expiry(value):
+    match=re.fullmatch(r'(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?(Z|[+-]\d\d:\d\d)',value)
+    require(match is not None,'fixture expiry is not RFC3339')
+    whole=datetime.datetime.fromisoformat(match[1]+match[3].replace('Z','+00:00'))
+    delta=whole-datetime.datetime(1970,1,1,tzinfo=datetime.timezone.utc)
+    return delta.days*86400+delta.seconds,int((match[2] or '').ljust(9,'0'))
+
+
 def stop(process):
     if process is None or process.returncode is not None:
         return
@@ -300,11 +308,11 @@ class Fixture:
         acquisitions=lambda:[r['msg'] for r in map(json.loads,self.raw.read_text().splitlines()) if r.get('msg',{}).get('from')==who and r['msg'].get('body','').split('\n',1)[0]==key]
         initial=acquisitions();require(initial,'first acquisition absent from raw history')
         first_ids={m['id'] for m in initial}
-        self.client(binary,who,['lease','take','--ttl','1m','--note','compat renewal '+str(number),key])
+        self.client(binary,who,['lease','take','--ttl','2m','--note','compat renewal '+str(number),key])
         renewed=self.leases(key)
         new_claims=[m for m in acquisitions() if m['id'] not in first_ids]
-        require(renewed and new_claims and max(m['exp'] for m in new_claims)>max(m['exp'] for m in initial), 'renewal did not append a fresh extended acquisition')
-        require(max(l['until'] for l in renewed)>max(l['until'] for l in first),'holder expiry did not extend')
+        require(renewed and new_claims and max(expiry(m['exp']) for m in new_claims)>max(expiry(m['exp']) for m in initial), 'renewal did not append a fresh extended acquisition')
+        require(max(expiry(l['until']) for l in renewed)>max(expiry(l['until']) for l in first),'holder expiry did not extend')
         self.client(binary,who,['lease','release',key])
         require(not self.leases(key),'old client release left a live lease')
 
