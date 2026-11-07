@@ -602,6 +602,10 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 	case !errors.Is(err, errNoTerminal):
 		return "", err
 	}
+	// Arm before any observable approval request, waiting output or callback:
+	// the caller may stop this installer as soon as it sees any of them.
+	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
+	defer stop()
 	key, kerr := config.ApproverPublic()
 	nu := notifyURL()
 	if kerr != nil && nu == "" {
@@ -645,8 +649,6 @@ var approveInstall = func(c *client.Client, me, what string, within time.Duratio
 	if waiting != nil {
 		waiting(req.ID, how)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
-	defer stop()
 	deadline := time.Now().Add(within)
 	for time.Until(deadline) > time.Second {
 		got, err := tasks.Wait(ctx, c, me, tasks.Filter{Thread: req.Thread}, time.Until(deadline), 3*time.Second)
