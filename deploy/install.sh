@@ -12,9 +12,10 @@
 # The binary: set AIVOICEBUS_BIN to a prebuilt linux/amd64 aivoicebus (the one from the
 # signed release, so the nodes run exactly what was released). Without it the script
 # builds one on THIS machine, which belongs on a build host, not a laptop.
-# Each node keeps its previous binary as /usr/local/bin/aivoicebus.prev; to roll back:
-#   ssh <node> 'install -m 755 /usr/local/bin/aivoicebus.prev /usr/local/bin/aivoicebus && systemctl restart aivoicebus'
-# (install, not cp: it replaces the file, so a running binary does not fail with "Text file busy"; or use deploy/rollout.sh, which rolls back by itself)
+# Each node keeps its previous binary and paired service unit. Use deploy/rollout.sh
+# for automatic rollback, or restore BOTH previous binary and previous unit, then
+# daemon-reload before restarting. A binary-only rollback can feed unsupported
+# retention flags to the old binary. Use install, not cp, to replace a running binary.
 # Observers (a dashboard or exporter): if ~/.config/aivoicebus/observer-token exists (make it with
 # --gen-observer-token), every node also accepts that second, READ-ONLY token (replication
 # feed, roster, threads; it cannot send, ack, read an inbox or fetch a release). Without the
