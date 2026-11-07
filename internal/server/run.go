@@ -62,7 +62,18 @@ func Run(o Options) (runErr error) {
 		return err
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	defer func() { cancel(); runErr = errors.Join(runErr, st.Close()) }()
+	var drainDone chan struct{}
+	defer func() {
+		cancel()
+		if drainDone != nil {
+			select {
+			case <-drainDone:
+			case <-time.After(4 * time.Second):
+				runErr = errors.Join(runErr, errors.New("server stop handler did not drain"))
+			}
+		}
+		runErr = errors.Join(runErr, st.Close())
+	}()
 	var peers []string
 	for _, p := range o.Peers {
 		if p = strings.TrimRight(strings.TrimSpace(p), "/"); p != "" {
@@ -106,14 +117,10 @@ func Run(o Options) (runErr error) {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, os.Interrupt)
 	drained := make(chan struct{})
-	go func() {
-		<-stop
-		st.FlushPresence()
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
-		close(drained)
-	}()
+	drainDone = drained
+	defer signal.Stop(stop)
+	go drainOnSignal(runCtx, stop, srv, st, drained)
+
 	ln, err := net.Listen("tcp", o.Addr)
 	if err != nil {
 		return err
@@ -166,4 +173,20 @@ func loadNodeTokens(file string) (*TokenSet, error) {
 		return nil, fmt.Errorf("token file: %v", err)
 	}
 	return ParseTokens(string(b))
+}
+
+func drainOnSignal(runCtx context.Context, stop <-chan os.Signal, srv *http.Server, st *store.Store, drained chan<- struct{}) {
+	defer close(drained)
+	select {
+	case <-runCtx.Done():
+		return
+	case <-stop:
+	}
+	if runCtx.Err() != nil {
+		return
+	}
+	st.FlushPresence()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }

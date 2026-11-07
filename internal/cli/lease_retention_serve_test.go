@@ -23,7 +23,7 @@ func TestServeLeaseRetentionOptionsDefaultOffAndExplicitAllowlist(t *testing.T) 
 	for _, test := range []struct {
 		mode, hosts string
 		keep        time.Duration
-	}{{"bad", "", 720 * time.Hour}, {"on", "", 720 * time.Hour}, {"on", "*", 720 * time.Hour}, {"on", "builder/a", 720 * time.Hour}, {"on", "builder,", 720 * time.Hour}, {"on", "bad host", 720 * time.Hour}, {"on", "builder", time.Hour}} {
+	}{{"bad", "", 720 * time.Hour}, {"on", "", 720 * time.Hour}, {"on", "*", 720 * time.Hour}, {"observe", "*", 720 * time.Hour}, {"off", "bad host", 720 * time.Hour}, {"on", "builder/a", 720 * time.Hour}, {"on", "builder,", 720 * time.Hour}, {"on", "bad host", 720 * time.Hour}, {"on", "builder", time.Hour}} {
 		if _, err := leaseRetentionOptions(test.mode, test.hosts, test.keep); err == nil {
 			t.Fatal("unsafe retention options accepted", test)
 		}

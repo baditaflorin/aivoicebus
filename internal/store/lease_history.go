@@ -81,17 +81,12 @@ func (s *Store) configureLeaseRetention() error {
 	if o.MaxHotRecords < 1 || o.MaxHotBytes < 1 || o.CacheBytes < 1 {
 		return errors.New("lease retention: budgets must be positive")
 	}
-	if o.Mode == LeaseRetentionOff {
-		return nil
+	if o.Mode == LeaseRetentionOn && len(o.Hosts) == 0 {
+		return errors.New("lease retention: on requires explicit host allowlist")
 	}
-	if o.Mode == LeaseRetentionOn {
-		if len(o.Hosts) == 0 {
-			return errors.New("lease retention: on requires explicit host allowlist")
-		}
-		for _, host := range o.Hosts {
-			if host == "" || !msg.ValidIdentity(host+"/fleet-runner") || strings.ContainsAny(host, "/*\\, \t\r\n") {
-				return errors.New("lease retention: invalid explicit host")
-			}
+	for _, host := range o.Hosts {
+		if host == "" || !msg.ValidIdentity(host+"/fleet-runner") || strings.ContainsAny(host, "/*\\, \t\r\n") {
+			return errors.New("lease retention: invalid explicit host")
 		}
 	}
 	return nil
