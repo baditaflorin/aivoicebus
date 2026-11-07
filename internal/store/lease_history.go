@@ -47,6 +47,8 @@ type LeaseRetentionStatus struct {
 	IndexHealthy          bool
 	ManagedMessages       uint64 // scoped logical messages, including physically offloaded active/recent ones
 	IndexBytes            int64
+	IndexFreePages        int
+	IndexPendingPages     int
 	ArrivalBufferSegments int
 }
 
@@ -163,6 +165,9 @@ func (s *Store) LeaseRetentionStats() LeaseRetentionStatus {
 			return out
 		}
 		out.IndexBytes = info.Size()
+		stats := s.history.db.Stats()
+		out.IndexFreePages = stats.FreePageN
+		out.IndexPendingPages = stats.PendingPageN
 	}
 	// IndexedRecords includes ordinary audit history; managed payload metrics
 	// are separate. On physically retains no managed payload or read cache.

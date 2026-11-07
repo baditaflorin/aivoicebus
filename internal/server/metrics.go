@@ -172,6 +172,8 @@ func writeLeaseRetentionMetrics(w io.Writer, st store.LeaseRetentionStatus) {
 		value      uint64
 	}{
 		{"aivoicebus_lease_index_records", "Raw records indexed or retained by the current mode.", st.IndexedRecords},
+		{"aivoicebus_lease_index_free_pages", "Derived index pages available for reuse.", uint64(st.IndexFreePages)},
+		{"aivoicebus_lease_index_pending_pages", "Derived index pages waiting for short readers before reuse.", uint64(st.IndexPendingPages)},
 		{"aivoicebus_lease_index_bytes", "Derived index file bytes; raw audit history is separate.", uint64(st.IndexBytes)},
 		{"aivoicebus_lease_managed_messages", "Scoped messages known to the optional derived index, including active/recent physical offload.", st.ManagedMessages},
 		{"aivoicebus_lease_read_cache_bytes", "Retained managed payload read cache bytes; selected caller-owned outputs are separate.", uint64(st.CacheBytes)},
