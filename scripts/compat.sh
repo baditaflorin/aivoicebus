@@ -7,6 +7,8 @@
 #   scripts/compat.sh --dir /path/to/releases --keep   # release-X dirs elsewhere; keep the scratch dir
 #   scripts/compat.sh --new dist/release/aivoicebus-linux-amd64 --record dist/release/compat-pass.txt
 #       # test the RELEASE binary (not a fresh go build) and, on a full pass, write the record `release.sh sign` demands
+#   scripts/compat.sh --new BINARY --new-retention-mode on --retention-record compat-on-pass.txt
+#       # additional On mesh/indexed-reader proof; default-Off --record is still required separately
 #   (--dir, --new and --record are relative to where you run it)
 #
 # For each old VERSION it takes DIR/release-VERSION (a signed release dir as release.sh writes it)
@@ -27,7 +29,7 @@ cd "$(dirname "$0")/.." || exit 2
 REPO=baditaflorin/aivoicebus
 
 die() { echo "compat: $*" >&2; exit 2; }
-DIR=dist; KEEP=; OLDV=(); RECORD=; NEWBIN=
+DIR=dist; KEEP=; OLDV=(); RECORD=; NEWBIN=; NEW_RETENTION_MODE=off; RETENTION_RECORD=
 abs() { case $1 in /*) echo "$1" ;; *) echo "$START/$1" ;; esac; } # the user's paths mean where they ran it
 while [ $# -gt 0 ]; do
   case $1 in
@@ -36,10 +38,19 @@ while [ $# -gt 0 ]; do
     --keep) KEEP=1; shift ;;
     --record) [ $# -ge 2 ] || die "--record needs a file"; RECORD=$(abs "$2"); shift 2 ;;
     --new) [ $# -ge 2 ] || die "--new needs a binary"; NEWBIN=$(abs "$2"); shift 2 ;;
+    --new-retention-mode) [ $# -ge 2 ] || die "--new-retention-mode needs off or on"; NEW_RETENTION_MODE=$2; shift 2 ;;
+    --retention-record) [ $# -ge 2 ] || die "--retention-record needs a file"; RETENTION_RECORD=$(abs "$2"); shift 2 ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) die "unknown argument $1 (see --help)" ;;
   esac
 done
+case $NEW_RETENTION_MODE in off|on) ;; *) die "--new-retention-mode must be off or on" ;; esac
+if [ "$NEW_RETENTION_MODE" = on ]; then
+  [ -z "$RECORD" ] || die "On is an additional gate: use --retention-record, and retain the separate default-Off --record"
+else
+  [ -z "$RETENTION_RECORD" ] || die "--retention-record requires --new-retention-mode on"
+fi
+[ -z "$RETENTION_RECORD" ] || scripts/compat-retention.sh begin "$RETENTION_RECORD" || exit 2
 [ -z "$RECORD" ] || scripts/compat-record.sh begin "$RECORD" || exit 2 # a stale pass must never outlive a run that did not pass
 [ "$(uname -s)" = Linux ] || die "Linux only: run it on a build host (see docs/releasing.md), never on a laptop"
 for t in curl python3; do command -v "$t" >/dev/null 2>&1 || die "$t is not installed"; done
@@ -133,10 +144,16 @@ up() { # PORT
 }
 start() { # INDEX [BINARY]: a node keeps its data dir whichever binary runs on it
   local i=$1 bin=${2:-${BIN[$1]}} peers="" j
+  local retention_flags=()
+  # Old binaries never receive unknown flags, including rollback starts. The
+  # copied NEW path also identifies in-place upgrades, rather than version text.
+  if [ "$NEW_RETENTION_MODE" = on ] && [ "$bin" = "$NEW" ]; then
+    retention_flags=(--lease-retention on --lease-retention-hosts fixture-builder)
+  fi
   for j in "${!NAME[@]}"; do [ "$j" != "$i" ] && peers="$peers,http://127.0.0.1:${PORT[$j]}"; done
   mkdir -p "$W/d$i"
   "$bin" serve --addr "127.0.0.1:${PORT[$i]}" --data "$W/d$i" --token-file "$W/tok" --node "${NAME[$i]}" \
-    --peers "${peers#,}" >>"$W/${NAME[$i]}.log" 2>&1 &
+    --peers "${peers#,}" "${retention_flags[@]}" >>"$W/${NAME[$i]}.log" 2>&1 &
   PID[$i]=$!
   up "${PORT[$i]}" || { echo "compat: node ${NAME[$i]} did not come up; its log:"; tail -20 "$W/${NAME[$i]}.log"; exit 1; }
 }
@@ -648,6 +665,13 @@ printf '  %-46s %5s %5s\n' scenario pass fail
 for s in "${ORDER[@]}"; do printf '  %-46s %5s %5s  %s\n' "$s" "${SP[$s]}" "${SF[$s]}" "$([ "${SF[$s]}" = 0 ] && echo PASS || echo FAIL)"; done
 echo "compat: $PASSES passed, $FAILS failed"
 [ "$FAILS" = 0 ] || exit 1
+if [ "$NEW_RETENTION_MODE" = on ]; then
+  retention_args=(--new "$NEW" --checks "$PASSES" --scenarios "${#ORDER[@]}")
+  for v in "${OLDV[@]}"; do retention_args+=(--old "$v=$DIR/release-$v/aivoicebus-linux-amd64"); done
+  [ -z "$RETENTION_RECORD" ] || retention_args+=(--record "$RETENTION_RECORD")
+  scripts/compat-retention.sh "${retention_args[@]}" || exit 1
+  echo "compat: indexed retention historical-reader and rollback gate passed"
+fi
 if [ -n "$RECORD" ]; then
   scripts/compat-record.sh finish "$RECORD" "$FAILS" "$PASSES" "${#ORDER[@]}" "$NEW" "${OLDV[@]}" || { echo "compat: passed, but no record was written (see above)" >&2; exit 1; }
   cp scripts/compat-releases.txt "$(dirname "$RECORD")/compat-releases.txt" # the list this run was held to, for a signer with no git history
