@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
@@ -17,15 +18,7 @@ type historyPosition struct {
 // history of every receipt on the lease. Older snapshots fall back to their
 // captured VV only when the first withdrawal arrived after they began.
 func (h *leaseHistory) withdrawnAt(id, from string, vv map[string]uint64, read func(string, uint64) (msg.Record, error)) (bool, error) {
-	var proof []byte
-	err := h.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(historyManagedRetracted)
-		if b == nil {
-			return errors.New("lease history: withdrawal proof index is missing")
-		}
-		proof = bytes.Clone(b.Get([]byte(id)))
-		return nil
-	})
+	proof, err := h.withdrawalProof(id, from)
 	if err != nil || proof == nil {
 		return false, err
 	}
@@ -49,6 +42,29 @@ func (h *leaseHistory) withdrawnAt(id, from string, vv map[string]uint64, read f
 		return false, errors.New("lease history: withdrawal proof differs from raw authority")
 	}
 	return true, nil
+}
+
+func (h *leaseHistory) withdrawalProof(id, from string) ([]byte, error) {
+	var proof []byte
+	err := h.db.View(func(tx *bolt.Tx) error {
+		leases, proofs := tx.Bucket(historyLeases), tx.Bucket(historyManagedRetracted)
+		if leases == nil || proofs == nil {
+			return errors.New("lease history: withdrawal state indexes are missing")
+		}
+		var ref internalLeaseRef
+		if value := leases.Get([]byte(id)); value == nil || json.Unmarshal(value, &ref) != nil || ref.ID != id || ref.From != from {
+			return errors.New("lease history: withdrawal state owner differs")
+		}
+		proof = bytes.Clone(proofs.Get([]byte(id)))
+		if ref.Withdrawn != (proof != nil) {
+			return errors.New("lease history: expected withdrawal proof is missing or inconsistent")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return proof, nil
 }
 
 func (h *leaseHistory) ackPage(id string, after []byte, limit int) ([]historyPosition, []byte, error) {
@@ -100,6 +116,13 @@ func (h *leaseHistory) ackPage(id string, after []byte, limit int) ([]historyPos
 // No reader/retractor identity is retained in a Store heap map. The effective
 // retraction is constant-sized and uses the existing protocol's authority/ties.
 func (h *leaseHistory) foldedRetraction(id, from string, vv map[string]uint64, read func(string, uint64) (msg.Record, error)) (retraction, bool, error) {
+	if _, managed, err := h.internalLease(id); err != nil {
+		return retraction{}, false, err
+	} else if managed {
+		if _, err := h.withdrawalProof(id, from); err != nil {
+			return retraction{}, false, err
+		}
+	}
 	var effective retraction
 	found := false
 	var cursor []byte

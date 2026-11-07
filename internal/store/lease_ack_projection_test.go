@@ -70,3 +70,40 @@ func TestLeaseAckProjectionSupportsClaimsBeforeMessagesAndFailsOnBadReferences(t
 		t.Fatal("bad relation became a successful retraction result", err)
 	}
 }
+
+func TestLeaseAckProjectionMissingWithdrawalProofRefusesInsteadOfResurrecting(t *testing.T) {
+	now := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	m := projectionLease(0, now, now.Add(time.Hour))
+	s, _ := projectionFixture(t, []msg.Record{{Origin: "peer", Seq: 1, Msg: &m}}, now)
+	before := s.history.db.Stats().TxStats
+	for i := 0; i < 100; i++ {
+		if gone, err := s.history.withdrawnAt(m.ID, m.From, s.VV(), s.history.read); err != nil || gone {
+			t.Fatal("normal unwithdrawn absence was not a healthy fast path", err)
+		}
+	}
+	after := s.history.db.Stats().TxStats
+	if before.GetWrite() != after.GetWrite() {
+		t.Fatal("unwithdrawn absence caused metadata writes")
+	}
+	if err := s.Ack(msg.RetractPrefix+m.ID, m.From); err != nil {
+		t.Fatal(err)
+	}
+	if gone, err := s.history.withdrawnAt(m.ID, m.From, s.VV(), s.history.read); err != nil || !gone {
+		t.Fatal("healthy withdrawal control", err)
+	}
+	if err := s.history.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(historyManagedRetracted).Delete([]byte(m.ID)) }); err != nil {
+		t.Fatal(err)
+	}
+	if gone, err := s.history.withdrawnAt(m.ID, m.From, s.VV(), s.history.read); err == nil || gone {
+		t.Fatal("a missing expected proof became a healthy result", err)
+	}
+	if _, _, err := s.history.foldedRetraction(m.ID, m.From, s.VV(), s.history.read); err == nil {
+		t.Fatal("history fold silently bypassed the damaged proof guard")
+	}
+	if got, err := s.LeasesChecked(); err == nil || got != nil {
+		t.Fatal("public query resurrected a withdrawn hold after index damage", err)
+	}
+	if s.HealthChecked() == nil {
+		t.Fatal("proof loss was not latched unhealthy")
+	}
+}

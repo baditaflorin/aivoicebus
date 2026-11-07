@@ -24,13 +24,14 @@ var (
 )
 
 type internalLeaseRef struct {
-	ID     string
-	Origin string
-	Seq    uint64
-	Offset int64
-	From   string
-	At     time.Time
-	Expiry time.Time
+	ID        string
+	Origin    string
+	Seq       uint64
+	Offset    int64
+	From      string
+	At        time.Time
+	Expiry    time.Time
+	Withdrawn bool `json:",omitempty"`
 }
 
 func internalLeaseEligible(m msg.Message, o LeaseRetentionOptions) bool {

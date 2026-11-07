@@ -125,12 +125,29 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack, position []byte) error {
 }
 
 func countManagedRetraction(tx *bolt.Tx, id, from, by string, proof []byte) error {
+	leases := tx.Bucket(historyLeases)
+	var ref internalLeaseRef
+	if value := leases.Get([]byte(id)); value == nil || json.Unmarshal(value, &ref) != nil || ref.ID != id || ref.From != from {
+		return errors.New("lease history: withdrawal state owner differs")
+	}
+	proofs := tx.Bucket(historyManagedRetracted)
+	if ref.Withdrawn != (proofs.Get([]byte(id)) != nil) {
+		return errors.New("lease history: withdrawal state/proof differ")
+	}
 	if msg.MayRetract(by, from) {
-		b := tx.Bucket(historyManagedRetracted)
+		b := proofs
 		if b.Get([]byte(id)) != nil {
 			return nil
 		}
 		if err := b.Put([]byte(id), proof); err != nil {
+			return err
+		}
+		ref.Withdrawn = true
+		value, err := json.Marshal(ref)
+		if err != nil {
+			return err
+		}
+		if err := leases.Put([]byte(id), value); err != nil {
 			return err
 		}
 		return b.SetSequence(b.Sequence() + 1)
