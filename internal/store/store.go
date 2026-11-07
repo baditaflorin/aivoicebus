@@ -1145,8 +1145,10 @@ func (s *Store) Send(m msg.Message) (sent msg.Message, err error) {
 	} else if s.reservedNoticeLocked(m.ID) {
 		return msg.Message{}, ErrReservedID
 	}
-	if _, held := s.idx[m.Re]; m.Re != "" && !held && s.reservedNoticeLocked(m.Re) {
-		return msg.Message{}, ErrReplyToNotice
+	if m.Re != "" {
+		if _, held := s.byIDLocked(m.Re); !held && s.reservedNoticeLocked(m.Re) {
+			return msg.Message{}, ErrReplyToNotice
+		}
 	}
 	now := s.now().UTC()
 	s.sweepLocked(now)
@@ -1623,6 +1625,9 @@ func (s *Store) retract(id, by string, leak, dry bool) (result msg.RetractResult
 // sender, the one retracting it and the quarantine placeholder: the sessions that may have acted
 // on it. Receipts written to other nodes may not have arrived, so it is a lower bound.
 func (s *Store) readByLocked(m msg.Message, retractor string) int {
+	if s.leaseOnLocked() {
+		return s.receiptCountLocked(m.ID, m.From, retractor, QuarantineBy)
+	}
 	n := 0
 	for by := range s.receiptViewLocked(m.ID) {
 		if by != m.From && by != retractor && by != QuarantineBy {
@@ -1899,6 +1904,12 @@ func (s *Store) Readers(id string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, ok := s.byIDLocked(id)
+	if s.leaseOnLocked() {
+		if ok {
+			return s.receiptCountLocked(id, m.From)
+		}
+		return s.receiptCountLocked(id)
+	}
 	n := 0
 	for by := range s.receiptViewLocked(id) {
 		if !ok || by != m.From {

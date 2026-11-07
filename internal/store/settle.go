@@ -85,7 +85,11 @@ func (s *Store) Settle(id, by string) (err error) {
 	if !msg.Settleable(m) {
 		return ErrMustAnswer
 	}
-	if _, done := s.settles[id][msg.HostOf(by)]; done {
+	settled := s.settles[id]
+	if s.leaseOnLocked() && s.internalIDLocked(id) {
+		settled = s.managedAcksLocked(id).settles
+	}
+	if _, done := settled[msg.HostOf(by)]; done {
 		return nil
 	}
 	return s.commitLocked(msg.Record{Ack: &msg.Ack{ID: msg.SettlePrefix + id, By: by, At: s.now().UTC()}})

@@ -22,6 +22,8 @@ var (
 type receiptSummary struct {
 	Receipt   msg.Receipt
 	CountOnly bool
+	Proof     []byte
+	FullProof []byte
 }
 
 type retractionSummary struct {
@@ -98,12 +100,14 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack, position []byte) error {
 			at = cur.At
 		}
 		state.Receipt = msg.Receipt{By: a.By, At: at, Via: a.Via}
+		state.Proof = bytes.Clone(position)
 	}
 	if first && a.Via == msg.ViaHookCount {
 		state.CountOnly = true
 	}
 	if a.Via != msg.ViaHookCount {
 		state.CountOnly = false
+		state.FullProof = bytes.Clone(position)
 	}
 	encoded, err := json.Marshal(state)
 	if err != nil {

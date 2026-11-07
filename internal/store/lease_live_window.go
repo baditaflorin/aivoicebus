@@ -6,6 +6,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -75,6 +76,9 @@ func putLiveLease(tx *bolt.Tx, ref internalLeaseRef, add bool) error {
 }
 
 func (h *leaseHistory) refreshLiveWindow(now time.Time) error {
+	return h.refreshLiveWindowContext(context.Background(), now)
+}
+func (h *leaseHistory) refreshLiveWindowContext(ctx context.Context, now time.Time) error {
 	wanted := h.minimumSelectionTime(now)
 	var floor time.Time
 	err := h.db.View(func(tx *bolt.Tx) error { var err error; floor, err = leaseWindowFloor(tx); return err })
@@ -89,12 +93,18 @@ func (h *leaseHistory) refreshLiveWindow(now time.Time) error {
 	finished := false
 	changed := false
 	for !finished {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		page, next, err := h.internalLeasePage(start, cursor, 256)
 		if err != nil {
 			return err
 		}
 		var changes []internalLeaseRef
 		for _, ref := range page {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if ref.Expiry.After(end) {
 				finished = true
 				break

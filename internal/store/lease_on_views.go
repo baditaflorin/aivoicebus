@@ -75,7 +75,7 @@ func (s *Store) receiptViewLocked(id string) map[string]receiptSummary {
 		if !ok {
 			rc = msg.Receipt{By: by}
 		}
-		out[by] = receiptSummary{rc, s.countOnly[id][by]}
+		out[by] = receiptSummary{Receipt: rc, CountOnly: s.countOnly[id][by]}
 	}
 	return out
 }
@@ -123,8 +123,9 @@ func (s *Store) transientSentLocked() map[string]time.Time {
 		out[from] = at
 	}
 	if s.leaseOnLocked() {
-		s.visitManagedLocked(s.now().UTC().Add(-s.leaseRetention.Keep), func(ref internalLeaseRef, m msg.Message) {
-			if ref.Expiry.After(s.now().UTC().Add(-s.leaseRetention.Keep)) && m.At.After(out[m.From]) {
+		cutoff := s.now().UTC().Add(-s.leaseRetention.Keep)
+		s.visitManagedLocked(cutoff, func(ref internalLeaseRef, m msg.Message) {
+			if ref.Expiry.After(cutoff) && m.At.After(out[m.From]) {
 				out[m.From] = m.At
 			}
 		})

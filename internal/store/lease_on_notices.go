@@ -168,6 +168,11 @@ func (s *Store) managedClaimDueLocked(key string, at time.Time, record bool) (ti
 	if err != nil {
 		return time.Time{}, err
 	}
+	// Absence after apply means the claim was not future-dated on arrival.
+	// A later clock rollback must not reclamp its due time during a read.
+	if !record {
+		return due, nil
+	}
 	if !at.After(due) && at.After(s.now().UTC()) {
 		due = s.claimDueLocked(key, at)
 		if record {
@@ -189,8 +194,11 @@ func (s *Store) managedNoticeLocked(me, mid string, now time.Time) (msg.Message,
 	if !held || m.From == me {
 		return msg.Message{}, false
 	}
-	view := s.managedAcksLocked(mid)
-	receipt, read := view.receipts[me]
+	receipt, read, receiptErr := s.history.exactReceipt(mid, me)
+	if receiptErr != nil {
+		s.historyErr = receiptErr
+		return msg.Message{}, false
+	}
 	if !read {
 		return msg.Message{}, false
 	}
@@ -230,7 +238,12 @@ func (s *Store) managedNoticeLocked(me, mid string, now time.Time) (msg.Message,
 		s.historyErr = err
 		return msg.Message{}, false
 	}
-	if _, acked := s.managedAcksLocked(nid).receipts[me]; acked {
+	_, acked, ackErr := s.history.exactReceipt(nid, me)
+	if ackErr != nil {
+		s.historyErr = ackErr
+		return msg.Message{}, false
+	}
+	if acked {
 		return msg.Message{}, false
 	}
 	exp := due.Add(msg.RetractNoticeWindow)

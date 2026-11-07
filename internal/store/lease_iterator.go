@@ -56,9 +56,12 @@ func (s *Store) NewLeaseIterator(ctx context.Context) (*LeaseIterator, error) {
 			return nil, err
 		}
 		it.pin, it.ctx, it.rawEnd = pin, pin.ctx, s.history.rawEnd
-		if err := s.history.refreshLiveWindow(now); err != nil {
+		if err := s.history.refreshLiveWindowContext(it.ctx, now); err != nil {
+			cancelled := it.ctx.Err() != nil
 			_ = pin.Close()
-			s.historyErr = err
+			if !cancelled {
+				s.historyErr = err
+			}
 			return nil, err
 		}
 		if err := it.prepareCountLocked(); err != nil {
