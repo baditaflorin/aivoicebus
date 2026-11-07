@@ -27,7 +27,11 @@ go test -race -count=1 ./...
 
 D=$(mktemp -d); trap 'rm -rf "$D"' EXIT
 scripts/build.sh "$(go env GOOS)" "$(go env GOARCH)" "$D/aivoicebus"
-scripts/smoke.sh "$D/aivoicebus" 2>/dev/null >"$D/smoke.txt"
+if ! scripts/smoke.sh "$D/aivoicebus" 2>"$D/smoke.err" >"$D/smoke.txt"; then
+  cat "$D/smoke.err" >&2
+  echo "smoke could not start or complete" >&2
+  exit 1
+fi
 
 # The mesh lab (scripts/lab.sh): real processes and the real deploy scripts. Linux only.
 if [ "${1:-}" != "--update" ] && [ -z "${AIVOICEBUS_SKIP_LAB:-}" ]; then

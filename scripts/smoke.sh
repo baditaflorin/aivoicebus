@@ -11,16 +11,55 @@ set -euo pipefail
 BIN=$(cd "$(dirname "${1:?usage: smoke.sh <aivoicebus binary>}")" && pwd)/$(basename "$1")
 T=$(mktemp -d)
 PID=""
-trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
+PID2=""
+PID3=""
+SMOKE_PID=""
+cleanup() {
+  local pid
+  for pid in "$SMOKE_PID" "$PID3" "$PID2" "$PID"; do
+    [ -z "$pid" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+  done
+  rm -rf "$T"
+}
+trap cleanup EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 unset AIVOICEBUS_AGENT AIVOICEBUS_ME AIVOICEBUS_HOST AIVOICEBUS_TOKEN_FILE CLAUDE_ENV_FILE AIVOICEBUS_LABELS # a session's pinned repo would turn on the collision radar
 
-PORT=$((20000 + RANDOM % 20000))
-TOKEN=smoke-token-0123456789-0123456789
+TOKEN="smoke-token-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 printf '%s' "$TOKEN" >"$T/token"
-"$BIN" serve --addr "127.0.0.1:$PORT" --data "$T/data" --token-file "$T/token" --node smoke >"$T/serve.log" 2>&1 &
-PID=$!
-for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
+
+# The port next to a busy node can already belong to an outbound connection or
+# another CI job. Retry bind collisions, and never drive an unrelated listener
+# which happens to answer /healthz: verify our token and the expected node name.
+smoke_port() { echo $((20000 + RANDOM % 20000)); }
+smoke_start_node() { # NODE DATA LOG [extra serve arguments]
+  local node=$1 data=$2 log=$3 attempt reply _
+  shift 3
+  for attempt in $(seq 1 10); do
+    SMOKE_PORT=$(smoke_port "$attempt")
+    "$BIN" serve --addr "127.0.0.1:$SMOKE_PORT" --data "$data" --token-file "$T/token" --node "$node" "$@" >"$log" 2>&1 &
+    SMOKE_PID=$!
+    for _ in $(seq 1 100); do
+      kill -0 "$SMOKE_PID" 2>/dev/null || break
+      reply=$(curl -fsS --max-time 1 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$SMOKE_PORT/v1/health" 2>/dev/null) || reply=""
+      if [[ $reply == *"\"node\":\"$node\""* ]] && kill -0 "$SMOKE_PID" 2>/dev/null; then return 0; fi
+      sleep 0.1
+    done
+    kill "$SMOKE_PID" 2>/dev/null || true
+    wait "$SMOKE_PID" 2>/dev/null || true
+    SMOKE_PID=""
+    if grep -q 'address already in use' "$log"; then continue; fi
+    echo "smoke: node $node failed to start on port $SMOKE_PORT:" >&2
+    cat "$log" >&2
+    return 1
+  done
+  echo "smoke: node $node could not bind after 10 attempts:" >&2
+  cat "$log" >&2
+  return 1
+}
+
+smoke_start_node smoke "$T/data" "$T/serve.log"
+PID=$SMOKE_PID; PORT=$SMOKE_PORT; SMOKE_PID=""
 export AIVOICEBUS_URL="http://127.0.0.1:$PORT" AIVOICEBUS_TOKEN="$TOKEN"
 cd "$T" # a non-git directory: the labels in the transcript must not depend on where this runs
 
@@ -347,14 +386,11 @@ ago_iso() { # SECONDS: that long ago in UTC, by GNU date or BSD date
   now=$(date +%s); s=$((now - $1))
   date -u -d "@$s" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$s" +%Y-%m-%dT%H:%M:%SZ
 }
-mkdir -p "$T/quiet"
+(umask 077; mkdir -p "$T/quiet")
 printf '{"lap/claude.q1":{"at":"%s","labels":{"repo":"quiet"},"labels_at":"%s"},"air/codex.q2":{"at":"%s","labels":{"repo":"quiet"}},"lap/claude.q3":{"at":"%s","labels":{"repo":"other"}},"air/claude.q3":{"at":"%s"},"lap/claude.q4":{"at":"%s"}}' \
   "$(ago_iso 7200)" "$(ago_iso 7200)" "$(ago_iso 18000)" "$(ago_iso 1)" "$(ago_iso 1)" "$(ago_iso 1)" >"$T/quiet/presence.json"
-PORT2=$((PORT + 1))
-"$BIN" serve --addr "127.0.0.1:$PORT2" --data "$T/quiet" --token-file "$T/token" --node quiet >"$T/serve2.log" 2>&1 &
-PID2=$!
-trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; kill "$PID2" 2>/dev/null || true; rm -rf "$T"' EXIT
-for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$PORT2/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
+smoke_start_node quiet "$T/quiet" "$T/serve2.log"
+PID2=$SMOKE_PID; PORT2=$SMOKE_PORT; SMOKE_PID=""
 MAIN_URL=$AIVOICEBUS_URL
 export AIVOICEBUS_URL="http://127.0.0.1:$PORT2"
 as imac/claude.qx
@@ -371,7 +407,7 @@ as imac/claude.qx
 step send --to lap/claude.q1 "pause before the deploy"
 step send --to lap/claude.q1 --read-within 3h "pause before the deploy, please"
 kill "$PID2" 2>/dev/null || true; wait "$PID2" 2>/dev/null || true
-trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
+PID2=""
 export AIVOICEBUS_URL=$MAIN_URL
 echo "# what a machine has: each client works out a few facts about its own machine (yes/no, alias names, versions, never a file's contents) and declares them with its labels, so who --has answers without a task to every machine; a machine that said nothing is unknown, never a no"
 mkdir -p "$T/keyhome/.config/aivoicebus" "$T/keyhome/.fleet-guard"
@@ -392,11 +428,8 @@ echo "\$ GET /v1/roster | grep -c not-for-anyone   # the key file was looked at,
 curl -sS -H "Authorization: Bearer $TOKEN" "$AIVOICEBUS_URL/v1/roster?all=1" | grep -c not-for-anyone || true
 echo "# a machine behind the release the nodes hold: one line for the person at session start, at most once a day, and in status; no task goes out (fleet update sends nothing, --apply included); auto-update stays off until the person turns it on in their own terminal, and an agent's session is refused"
 mkdir -p "$T/rel"; printf '{"schema":1,"version":"99.0.0","files":{}}' >"$T/rel/manifest.json" # a node that holds a newer release (announced, never installed here)
-PORT3=$((20000 + RANDOM % 20000)); [ "$PORT3" != "$PORT" ] || PORT3=$((PORT3 + 1))
-"$BIN" serve --addr "127.0.0.1:$PORT3" --data "$T/data3" --token-file "$T/token" --node smoke3 --release-dir "$T/rel" >"$T/serve3.log" 2>&1 &
-PID3=$!
-trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; kill "$PID3" 2>/dev/null || true; rm -rf "$T"' EXIT
-for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$PORT3/healthz" >/dev/null 2>&1 && break; sleep 0.1; done
+smoke_start_node smoke3 "$T/data3" "$T/serve3.log" --release-dir "$T/rel"
+PID3=$SMOKE_PID; PORT3=$SMOKE_PORT; SMOKE_PID=""
 MAIN_URL=$AIVOICEBUS_URL
 export AIVOICEBUS_URL="http://127.0.0.1:$PORT3"
 vnorm() { norm | sed -E -e 's/runs [0-9]+\.[0-9]+\.[0-9]+/runs <VER>/g' -e 's/[0-9]+\.[0-9]+\.[0-9]+ here; nodes run [0-9]+\.[0-9]+\.[0-9]+/<VER> here; nodes run <VER>/' -e 's/\(this is [0-9]+\.[0-9]+\.[0-9]+\)/(this is <VER>)/' -e 's/; 99\.0\.0 is available/; <VER> is available/'; }
@@ -413,7 +446,7 @@ step update --auto off
 step update --auto on --force
 step fleet update --apply
 kill "$PID3" 2>/dev/null || true; wait "$PID3" 2>/dev/null || true
-trap '[ -n "$PID" ] && kill "$PID" 2>/dev/null; rm -rf "$T"' EXIT
+PID3=""
 export AIVOICEBUS_URL=$MAIN_URL
 echo "# a task to a machine is offered to one session there at a time; decline passes it on at once and tells the sender why; the last decline tells the person, and a new session is offered it"
 for s in ofr/claude.a1 ofr/claude.b2; do as "$s"; "$BIN" inbox >/dev/null 2>&1; done # two sessions are about on ofr
