@@ -866,6 +866,44 @@ has "mesh --signed-check says which node already refuses them" "already refuses 
 AIVOICEBUS_NODE_REQUIRE_SIGNED=0 deploy/install.sh --apply --peers-only n1 >/dev/null 2>&1
 [ "$(unsigned 1 four)" = 200 ] && pass "AIVOICEBUS_NODE_REQUIRE_SIGNED=0 switches it off again" || fail "n1 still refuses unsigned messages"
 
+
+section "scoped lease retention: canonical args, preservation and paired unit rollback"
+retention_mode() { grep -Fq "aivoicebus_lease_retention_mode{mode=\"$1\"} 1" <<<"$(http "$TOKEN_FILE" "$(url 1)/metrics")"; }
+ok "retention is Off with no configured args" retention_mode off
+out=$(AIVOICEBUS_NODE_LEASE_RETENTION_ARGS='--lease-retention observe' AIVOICEBUS_BIN="$NEW" deploy/install.sh --apply n1 2>&1); rc=$?
+[ $rc = 0 ] && ok "canonical observe args reach the actual CLI" retention_mode observe || fail "observe install failed: $out"
+out=$(AIVOICEBUS_NODE_LEASE_RETENTION_ARGS='--lease-retention on --lease-retention-hosts lab-builder' AIVOICEBUS_BIN="$NEW" deploy/install.sh --apply n1 2>&1); rc=$?
+[ $rc = 0 ] && ok "canonical On args reach the actual CLI" retention_mode on || fail "On install failed: $out"
+deploy/install.sh --apply --tokens-only n1 >/dev/null 2>&1
+ok "a subsequent install preserves the enabled configuration" retention_mode on
+cp "$LAB/nodes/lab_n1/etc/aivoicebus/node.env" "$LAB/retention.env"
+retention_files() { sha256sum "$LAB/nodes/lab_n1/etc/aivoicebus/token" "$LAB/nodes/lab_n1/etc/aivoicebus/observer-token" "$LAB/nodes/lab_n1/etc/systemd/system/aivoicebus.service"; }
+retention_before=$(retention_files)
+for bad in 'LEASE_RETENTION_ARGS=--lease-retention on --addr 0.0.0.0:22' 'LEASE_RETENTION_ARGS=$(touch /tmp/retention-injection)' 'LEASE_RETENTION_ARGS=--lease-retention observe'; do
+  cp "$LAB/retention.env" "$LAB/nodes/lab_n1/etc/aivoicebus/node.env"
+  printf '%s\n' "$bad" >>"$LAB/nodes/lab_n1/etc/aivoicebus/node.env"
+  env_before=$(sha256sum "$LAB/nodes/lab_n1/etc/aivoicebus/node.env")
+  out=$(deploy/install.sh --apply --tokens-only n1 2>&1); rc=$?
+  [ $rc != 0 ] && [ "$(retention_files)" = "$retention_before" ] && [ "$(sha256sum "$LAB/nodes/lab_n1/etc/aivoicebus/node.env")" = "$env_before" ] && pass "invalid/injected/duplicate retained args refuse before credential or unit writes" || fail "bad retained args mutated installation: $out"
+done
+cp "$LAB/retention.env" "$LAB/nodes/lab_n1/etc/aivoicebus/node.env"
+cp "$LAB/nodes/lab_n1/etc/systemd/system/aivoicebus.service" "$LAB/retention.new-unit"
+cp "$LAB/nodes/lab_n1/usr/local/bin/aivoicebus" "$LAB/retention.new-bin"
+# The paired old unit never expands the new variable. Retained node.env bytes can
+# therefore survive restoration without feeding unsupported flags to an old CLI.
+sed 's/ \$LEASE_RETENTION_ARGS//' "$LAB/retention.new-unit" >"$LAB/retention.old-unit"
+install -m 755 "$OLD" "$LAB/nodes/lab_n1/usr/local/bin/aivoicebus"
+install -m 644 "$LAB/retention.old-unit" "$LAB/nodes/lab_n1/etc/systemd/system/aivoicebus.service"
+nodectl 1 daemon-reload; nodectl 1 restart
+ok "paired old-unit restoration suppresses new args despite retained On value" retention_mode off
+cmp -s "$LAB/retention.env" "$LAB/nodes/lab_n1/etc/aivoicebus/node.env" && pass "paired restoration preserves the exact environment file" || fail "paired restoration rewrote node.env"
+install -m 755 "$LAB/retention.new-bin" "$LAB/nodes/lab_n1/usr/local/bin/aivoicebus"
+install -m 644 "$LAB/retention.new-unit" "$LAB/nodes/lab_n1/etc/systemd/system/aivoicebus.service"
+nodectl 1 daemon-reload; nodectl 1 restart
+ok "restored new unit again expands the preserved On value" retention_mode on
+AIVOICEBUS_NODE_LEASE_RETENTION_ARGS='' AIVOICEBUS_BIN="$NEW" deploy/install.sh --apply n1 >/dev/null 2>&1
+ok "explicit empty args return to Off" retention_mode off
+
 echo
 if [ "$FAILED" = 0 ]; then echo "lab passed"; else echo "LAB FAILED"; fi
 exit "$FAILED"

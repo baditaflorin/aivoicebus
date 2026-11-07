@@ -5,11 +5,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=LEASE_RETENTION_ARGS=
 EnvironmentFile=/etc/aivoicebus/node.env
 # Token is delivered as a systemd credential: root-only file, readable by the
 # service only through $CREDENTIALS_DIRECTORY, never on the command line.
 LoadCredential=token:/etc/aivoicebus/token
-ExecStart=/usr/local/bin/aivoicebus serve --node ${NODE} --addr ${ADDR} --data /var/lib/aivoicebus --token-file %d/token --peers ${PEERS} $BOOTSTRAP_ARGS $RELEASE_ARGS $OBSERVER_ARGS
+ExecStart=/usr/local/bin/aivoicebus serve --node ${NODE} --addr ${ADDR} --data /var/lib/aivoicebus --token-file %d/token --peers ${PEERS} $BOOTSTRAP_ARGS $RELEASE_ARGS $OBSERVER_ARGS $LEASE_RETENTION_ARGS
 Restart=always
 RestartSec=5
 

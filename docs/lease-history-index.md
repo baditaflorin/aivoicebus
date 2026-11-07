@@ -116,3 +116,31 @@ cache bytes and fixed arrival-buffer segment count. It never labels series with
 a lease resource, agent nonce or message ID. These metrics exclude caller-owned
 outputs and ordinary resident history. A failed checked store returns HTTP 503;
 monitor scrape failure as well as the enabled mode's resource trends.
+
+## Canonical service configuration
+
+The service has an explicit empty `LEASE_RETENTION_ARGS` default. The installer
+accepts an explicit `AIVOICEBUS_NODE_LEASE_RETENTION_ARGS` value of
+`--lease-retention observe`, or `--lease-retention on --lease-retention-hosts
+builder-name` (comma-separated machine token hosts). Unset preserves the node's
+validated assignment; an explicit empty value clears it. The installer accepts
+only this canonical argument grammar and the default 720-hour keep interval,
+rejects duplicate assignments and checks reachable selected targets before
+staging credentials or units. Direct serve callers can use the validated keep
+flag. The installer also manages credentials; it is only appropriate on the
+authoritative administrative controller. A binary-only rollout must preserve
+existing token, identity, observer and profile bytes.
+
+A rollback must restore the previous unit before restarting the previous binary.
+The previous unit does not expand this new variable, so a retained node.env
+assignment cannot feed unsupported flags to an older binary.
+
+## Write cost
+
+On mode adds durable raw-before-index syncing and derived-index transaction
+writes. Rebuilding that index on startup or reopen also writes proportional to
+the preserved history. These costs can exceed the existing buffered Off path;
+this feature is a scoped resident-memory fix, not an overall SSD-write reduction.
+Quiet healthy queries avoid new index updates or syncs. Resource receipts report
+startup, initial Stats flushing, quiet reads and append/renewal costs separately;
+guest block-I/O counters are not direct physical NAND-write measurements.
