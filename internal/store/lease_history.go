@@ -57,8 +57,8 @@ func (s *Store) initLeaseRetention() error {
 	if o.Mode == "" {
 		o.Mode = LeaseRetentionOff
 	}
-	if o.Mode != LeaseRetentionOff && o.Mode != LeaseRetentionObserve {
-		return errors.New("lease retention: only off and observe modes are available in this increment")
+	if o.Mode != LeaseRetentionOff && o.Mode != LeaseRetentionObserve && o.Mode != LeaseRetentionOn {
+		return errors.New("lease retention: mode must be off, observe, or on")
 	}
 	if o.Keep == 0 {
 		o.Keep = 30 * 24 * time.Hour
@@ -80,6 +80,16 @@ func (s *Store) initLeaseRetention() error {
 	}
 	if o.Mode == LeaseRetentionOff {
 		return nil
+	}
+	if o.Mode == LeaseRetentionOn {
+		if len(o.Hosts) == 0 {
+			return errors.New("lease retention: on requires explicit host allowlist")
+		}
+		for _, host := range o.Hosts {
+			if host == "" || !msg.ValidIdentity(host+"/fleet-runner") || strings.ContainsAny(host, "/*\\") {
+				return errors.New("lease retention: invalid explicit host")
+			}
+		}
 	}
 	s.historyScope = newHistoryScope()
 	dir, err := s.privateHistoryDir()
@@ -124,8 +134,19 @@ func (s *Store) LeaseRetentionStats() LeaseRetentionStatus {
 	for _, n := range s.logCounts {
 		out.IndexedRecords += n
 	}
-	// Observe deliberately retains every resident view; it is not a memory cap.
-	out.HotRecords = out.IndexedRecords
+	// IndexedRecords includes ordinary audit history; managed payload metrics
+	// are separate. On physically retains no managed payload or read cache.
+	if s.leaseOnLocked() {
+		counters, err := s.history.counters()
+		if err != nil {
+			s.historyErr = err
+			out.IndexHealthy = false
+			return out
+		}
+		out.ColdRecords = counters.messages
+	} else {
+		out.HotRecords = out.IndexedRecords
+	}
 	return out
 }
 
@@ -266,7 +287,10 @@ func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length i
 			return err
 		}
 	}
-	return putLeaseProjection(tx, r, offset, retention)
+	if err := putLeaseProjection(tx, r, offset, retention); err != nil {
+		return err
+	}
+	return putManagedNoticeProjection(tx, r)
 }
 
 func (h *leaseHistory) read(origin string, seq uint64) (msg.Record, error) {
@@ -497,7 +521,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		if err := tx.Bucket(historyLeaseWindow).Put(historyWindowFloor, value); err != nil {
 			return err
 		}
-		return nil
+		return putArrivalCount(tx, 0)
 	}); err != nil {
 		return err
 	}
@@ -555,6 +579,12 @@ func (s *Store) rebuildLeaseHistory() error {
 		return err
 	}
 	batch = nil
+	if err := copyArrivalTape(s.history, h); err != nil {
+		return err
+	}
+	if err := copyLocalHistoryBuckets(s.history, h); err != nil {
+		return err
+	}
 	if err := db.Sync(); err != nil {
 		return err
 	}

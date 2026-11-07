@@ -143,7 +143,12 @@ func putLeaseProjection(tx *bolt.Tx, r msg.Record, offset int64, o LeaseRetentio
 		if id := ackTarget(*a); id != "" {
 			// Keep all target relations on disk, including a claim that arrived
 			// before its message. No unknown target needs a permanent heap slot.
-			if err := tx.Bucket(historyAckTargets).Put(append([]byte(id+"\x00"), key...), key); err != nil {
+			relation := append([]byte(id+"\x00"), make([]byte, 8)...)
+			if offset < 0 {
+				return errors.New("lease history: acknowledgement arrival offset is invalid")
+			}
+			binary.BigEndian.PutUint64(relation[len(relation)-8:], uint64(offset))
+			if err := tx.Bucket(historyAckTargets).Put(relation, key); err != nil {
 				return err
 			}
 		}

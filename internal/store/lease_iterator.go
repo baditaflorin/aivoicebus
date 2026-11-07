@@ -71,6 +71,12 @@ func (s *Store) NewLeaseIterator(ctx context.Context) (*LeaseIterator, error) {
 		}
 	}
 	for _, index := range s.leases {
+		if err := it.ctx.Err(); err != nil {
+			if it.pin != nil {
+				_ = it.pin.Close()
+			}
+			return nil, err
+		}
 		m := s.msgs[index]
 		if s.forged[m.ID] || m.Expired(now) || s.retractedLocked(m.ID, m.From) {
 			continue

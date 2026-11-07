@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 
@@ -12,6 +13,35 @@ import (
 type historyPosition struct {
 	origin string
 	seq    uint64
+}
+
+func (h *leaseHistory) visitAcks(id string, vv map[string]uint64, read func(string, uint64) (msg.Record, error), visit func(msg.Record) error) error {
+	var cursor []byte
+	for {
+		page, next, err := h.ackPage(id, cursor, 256)
+		if err != nil {
+			return err
+		}
+		for _, position := range page {
+			if vv != nil && position.seq > vv[position.origin] {
+				continue
+			}
+			r, err := read(position.origin, position.seq)
+			if err != nil {
+				return err
+			}
+			if r.Ack == nil || ackTarget(*r.Ack) != id {
+				return errors.New("lease history: acknowledgement target differs from raw authority")
+			}
+			if err := visit(r); err != nil {
+				return err
+			}
+		}
+		if next == nil {
+			return nil
+		}
+		cursor = next
+	}
 }
 
 // A current lease GET needs one authenticated withdrawal proof, not the full
@@ -91,12 +121,16 @@ func (h *leaseHistory) ackPage(id string, after []byte, limit int) ([]historyPos
 			}
 		}
 		for ; bytes.HasPrefix(key, prefix); key, value = c.Next() {
-			if !bytes.Equal(key[len(prefix):], value) {
+			if len(key) != len(prefix)+8 {
 				return errors.New("lease history: acknowledgement reference differs")
 			}
 			origin, seq, err := decodeHistoryKey(value)
 			if err != nil {
 				return err
+			}
+			ref, err := historyReference(tx, origin, seq)
+			if err != nil || ref.Offset < 0 || uint64(ref.Offset) != binary.BigEndian.Uint64(key[len(prefix):]) {
+				return errors.New("lease history: acknowledgement arrival order differs")
 			}
 			out = append(out, historyPosition{origin, seq})
 			if len(out) == limit {

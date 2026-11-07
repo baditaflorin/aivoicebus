@@ -112,6 +112,9 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack, position []byte) error {
 	if err := b.Put(key, encoded); err != nil {
 		return err
 	}
+	if err := tx.Bucket(historyReaderTargets).Put([]byte(a.By+"\x00"+a.ID), []byte{1}); err != nil {
+		return err
+	}
 	if first {
 		if err := b.SetSequence(b.Sequence() + 1); err != nil {
 			return err
