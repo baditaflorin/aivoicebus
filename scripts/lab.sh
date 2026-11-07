@@ -895,12 +895,12 @@ sed 's/ \$LEASE_RETENTION_ARGS//' "$LAB/retention.new-unit" >"$LAB/retention.old
 install -m 755 "$OLD" "$LAB/nodes/lab_n1/usr/local/bin/aivoicebus"
 install -m 644 "$LAB/retention.old-unit" "$LAB/nodes/lab_n1/etc/systemd/system/aivoicebus.service"
 nodectl 1 daemon-reload; nodectl 1 restart
-ok "paired old-unit restoration suppresses new args despite retained On value" retention_mode off
+eventually "paired old-unit restoration suppresses new args despite retained On value" 15 retention_mode off
 cmp -s "$LAB/retention.env" "$LAB/nodes/lab_n1/etc/aivoicebus/node.env" && pass "paired restoration preserves the exact environment file" || fail "paired restoration rewrote node.env"
 install -m 755 "$LAB/retention.new-bin" "$LAB/nodes/lab_n1/usr/local/bin/aivoicebus"
 install -m 644 "$LAB/retention.new-unit" "$LAB/nodes/lab_n1/etc/systemd/system/aivoicebus.service"
 nodectl 1 daemon-reload; nodectl 1 restart
-ok "restored new unit again expands the preserved On value" retention_mode on
+eventually "restored new unit again expands the preserved On value" 15 retention_mode on
 AIVOICEBUS_NODE_LEASE_RETENTION_ARGS='' AIVOICEBUS_BIN="$NEW" deploy/install.sh --apply n1 >/dev/null 2>&1
 ok "explicit empty args return to Off" retention_mode off
 
