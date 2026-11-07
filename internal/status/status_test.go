@@ -304,15 +304,18 @@ func TestEveryNodeFrozenIsUnknownNotAHang(t *testing.T) {
 // The budget counts from the command's start: time spent before Gather (the identity) is part of it.
 func TestBudgetCountsFromTheStart(t *testing.T) {
 	good, _ := node(t, "good", "0.10.4", "")
-	o := opts(frozen(t).URL, good.URL)
+	o := opts(good.URL)
+	block := make(chan struct{})
+	defer close(block)
+	o.Held = func() int { <-block; return 0 }
 	o.Budget = 1500 * time.Millisecond
 	o.Start = time.Now().Add(-time.Second)
 	r := Gather(o)
 	if took := time.Since(o.Start); took > 2*time.Second || r.TookMs < 1000 {
 		t.Errorf("took %s from the start (took_ms %d)", took, r.TookMs)
 	}
-	if r.Inbox == nil {
-		t.Errorf("what was left of the budget was enough for a hedged read: %v", r.Unknown)
+	if r.Inbox == nil || !slices.Contains(r.Unknown, "held") {
+		t.Errorf("healthy read or deadline-bound probe: %v", r.Unknown)
 	}
 	o.Start = time.Now().Add(-time.Hour) // never less than minLeft
 	if r = Gather(o); r.Inbox == nil {
