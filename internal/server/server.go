@@ -211,6 +211,7 @@ func NewHandler(s *store.Store, token string, opts ...Option) http.Handler {
 	mux.HandleFunc("/metrics", readonly(func(w http.ResponseWriter, r *http.Request, _ Principal) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		cfg.metrics.write(w, health(), s.Stats())
+		writeLeaseRetentionMetrics(w, s.LeaseRetentionStats())
 	}))
 	// What kind of token this is, so a script can tell a shared token from a machine's own before it
 	// pushes it somewhere. Says nothing about the token itself.

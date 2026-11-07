@@ -38,13 +38,16 @@ type LeaseRetentionOptions struct {
 }
 
 type LeaseRetentionStatus struct {
-	Mode           LeaseRetentionMode
-	IndexedRecords uint64
-	HotRecords     uint64
-	ColdRecords    uint64
-	HotBytes       int64
-	CacheBytes     int64
-	IndexHealthy   bool
+	Mode                  LeaseRetentionMode
+	IndexedRecords        uint64
+	HotRecords            uint64
+	ColdRecords           uint64
+	HotBytes              int64
+	CacheBytes            int64
+	IndexHealthy          bool
+	ManagedMessages       uint64 // scoped logical messages, including physically offloaded active/recent ones
+	IndexBytes            int64
+	ArrivalBufferSegments int
 }
 
 func WithLeaseRetention(o LeaseRetentionOptions) Option {
@@ -52,7 +55,7 @@ func WithLeaseRetention(o LeaseRetentionOptions) Option {
 	return func(s *Store) { s.leaseRetention = o }
 }
 
-func (s *Store) initLeaseRetention() error {
+func (s *Store) configureLeaseRetention() error {
 	o := &s.leaseRetention
 	if o.Mode == "" {
 		o.Mode = LeaseRetentionOff
@@ -86,10 +89,26 @@ func (s *Store) initLeaseRetention() error {
 			return errors.New("lease retention: on requires explicit host allowlist")
 		}
 		for _, host := range o.Hosts {
-			if host == "" || !msg.ValidIdentity(host+"/fleet-runner") || strings.ContainsAny(host, "/*\\") {
+			if host == "" || !msg.ValidIdentity(host+"/fleet-runner") || strings.ContainsAny(host, "/*\\, \t\r\n") {
 				return errors.New("lease retention: invalid explicit host")
 			}
 		}
+	}
+	return nil
+}
+
+// Validate checks options without opening files, loading credentials or starting a server.
+func (o LeaseRetentionOptions) Validate() error {
+	s := Store{leaseRetention: o}
+	return s.configureLeaseRetention()
+}
+
+func (s *Store) initLeaseRetention() error {
+	if err := s.configureLeaseRetention(); err != nil {
+		return err
+	}
+	if s.leaseRetention.Mode == LeaseRetentionOff {
+		return nil
 	}
 	s.historyScope = newHistoryScope()
 	dir, err := s.privateHistoryDir()
@@ -130,9 +149,25 @@ func (s *Store) initLeaseRetention() error {
 func (s *Store) LeaseRetentionStats() LeaseRetentionStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := LeaseRetentionStatus{Mode: s.leaseRetention.Mode, IndexHealthy: s.historyErr == nil}
+	out := LeaseRetentionStatus{Mode: s.leaseRetention.Mode, IndexHealthy: s.healthLocked() == nil, ArrivalBufferSegments: s.managedArrivalN}
 	for _, n := range s.logCounts {
 		out.IndexedRecords += n
+	}
+	if s.history != nil {
+		counters, err := s.history.counters()
+		if err != nil {
+			s.historyErr = err
+			out.IndexHealthy = false
+			return out
+		}
+		out.ManagedMessages = counters.messages
+		info, err := os.Stat(s.history.indexPath)
+		if err != nil {
+			s.historyErr = err
+			out.IndexHealthy = false
+			return out
+		}
+		out.IndexBytes = info.Size()
 	}
 	// IndexedRecords includes ordinary audit history; managed payload metrics
 	// are separate. On physically retains no managed payload or read cache.
@@ -210,6 +245,8 @@ type historyRef struct {
 
 type leaseHistory struct {
 	db        *bolt.DB
+	indexPath string
+	indexInfo os.FileInfo
 	raw       *os.File
 	rawPath   string
 	rawEnd    int64
@@ -501,7 +538,13 @@ func (s *Store) rebuildLeaseHistory() error {
 		raw.Close()
 		return err
 	}
-	h := &leaseHistory{db: db, raw: raw, rawPath: filepath.Join(dir, "log.jsonl"), retention: s.leaseRetention, life: historyLife{done: make(chan struct{})}}
+	indexInfo, err := os.Lstat(name)
+	if err != nil {
+		_ = db.Close()
+		_ = raw.Close()
+		return err
+	}
+	h := &leaseHistory{db: db, indexPath: path, indexInfo: indexInfo, raw: raw, rawPath: filepath.Join(dir, "log.jsonl"), retention: s.leaseRetention, life: historyLife{done: make(chan struct{})}}
 	keep := false
 	defer func() {
 		if !keep {

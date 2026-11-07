@@ -45,6 +45,10 @@ func (s *Store) healthLocked() error {
 }
 
 func (h *leaseHistory) authorityHealth() error {
+	index, indexErr := os.Lstat(h.indexPath)
+	if indexErr != nil || h.indexInfo == nil || !index.Mode().IsRegular() || index.Mode().Perm() != 0600 || !historyOwned(index) || !os.SameFile(index, h.indexInfo) {
+		return errors.New("lease history: current index generation changed")
+	}
 	fd, err := h.raw.Stat()
 	path, pathErr := os.Lstat(h.rawPath)
 	if err != nil || pathErr != nil || !path.Mode().IsRegular() || !historyOwned(path) || !os.SameFile(fd, path) || fd.Size() != h.rawEnd {
