@@ -36,7 +36,8 @@ func TestCompatRetentionFlagsOnlyReachTheNewBinary(t *testing.T) {
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\nprintf '%s\\0' \"$@\" >\"$COMPAT_CAPTURE\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	script := `W=$1
+	script := `umask 022
+W=$1
 NEW=$W/new
 cp "$W/fake" "$NEW"
 cp "$W/fake" "$W/old"
@@ -53,6 +54,12 @@ export COMPAT_CAPTURE=$W/new-off; start 0; wait "${PID[0]}"
 	cmd := exec.Command("bash", "-c", script, "fixture", w)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("real start function: %v %s", err, out)
+	}
+	for _, name := range []string{"d0", "d1"} {
+		info, err := os.Stat(filepath.Join(w, name))
+		if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+			t.Fatalf("%s must be private with umask 022: mode=%v err=%v", name, info, err)
+		}
 	}
 	for _, name := range []string{"new-on", "old-on", "upgrade-on", "new-off"} {
 		out, err := os.ReadFile(filepath.Join(w, name))
