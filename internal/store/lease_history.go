@@ -191,6 +191,7 @@ type leaseHistory struct {
 	db        *bolt.DB
 	raw       *os.File
 	rawPath   string
+	rawEnd    int64
 	retention LeaseRetentionOptions
 	life      historyLife
 }
@@ -225,7 +226,12 @@ func historyExtentDigest(f *os.File, offset, length int64) ([32]byte, error) {
 }
 
 func (h *leaseHistory) put(r msg.Record, offset, length int64, raw []byte) error {
-	return h.db.Update(func(tx *bolt.Tx) error { return putHistoryRef(tx, h.raw, r, offset, length, raw, h.retention) })
+	return h.db.Update(func(tx *bolt.Tx) error {
+		if err := requireHistoryBuckets(tx); err != nil {
+			return err
+		}
+		return putHistoryRef(tx, h.raw, r, offset, length, raw, h.retention)
+	})
 }
 
 func putHistoryRef(tx *bolt.Tx, rawFile *os.File, r msg.Record, offset, length int64, raw []byte, retention LeaseRetentionOptions) error {
@@ -339,6 +345,9 @@ func (h *leaseHistory) readReference(origin string, seq uint64, ref historyRef, 
 
 func (h *leaseHistory) replace(r msg.Record) error {
 	return h.db.Update(func(tx *bolt.Tx) error {
+		if err := requireHistoryBuckets(tx); err != nil {
+			return err
+		}
 		bucket := tx.Bucket(historyRecords)
 		key := historyKey(r.Origin, r.Seq)
 		var ref historyRef
@@ -476,7 +485,7 @@ func (s *Store) rebuildLeaseHistory() error {
 		}
 	}()
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range [][]byte{historyRecords, historyIDs, historyLeases, historyLeaseExpiry, historyAckTargets, historyLeaseLive, historyLeaseWindow, historyReceipts, historyTestReceipts, historyRetractionBy, historyManagedRetracted, historyManagedInert, historyDeferredTargets} {
+		for _, bucket := range requiredHistoryBuckets {
 			if _, err := tx.CreateBucket(bucket); err != nil {
 				return err
 			}
@@ -485,7 +494,10 @@ func (s *Store) rebuildLeaseHistory() error {
 		if err != nil {
 			return err
 		}
-		return tx.Bucket(historyLeaseWindow).Put(historyWindowFloor, value)
+		if err := tx.Bucket(historyLeaseWindow).Put(historyWindowFloor, value); err != nil {
+			return err
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -503,6 +515,7 @@ func (s *Store) rebuildLeaseHistory() error {
 	}()
 	batchN := 0
 	err = readLinesAt(filepath.Join(dir, "log.jsonl"), func(line []byte, over bool, offset, length int64) {
+		h.rawEnd = offset + length
 		if buildErr != nil {
 			return
 		}
@@ -534,6 +547,9 @@ func (s *Store) rebuildLeaseHistory() error {
 	}
 	if buildErr != nil {
 		return buildErr
+	}
+	if fi, err := raw.Stat(); err != nil || fi.Size() != h.rawEnd {
+		return errors.New("lease history: raw size changed during indexing")
 	}
 	if err := batch.Commit(); err != nil {
 		return err
@@ -649,6 +665,7 @@ func (s *Store) appendRecord(r msg.Record) error {
 			s.historyErr = err // raw remains authoritative; do not acknowledge an unindexed append
 			return err
 		}
+		s.history.rawEnd = fi.Size() + int64(len(b))
 	}
 	return nil
 }

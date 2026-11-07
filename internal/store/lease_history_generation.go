@@ -181,6 +181,9 @@ func (p *historyPin) Close() error {
 	p.mu.Unlock()
 	p.h.life.mu.Lock()
 	delete(p.h.life.pins, p)
+	if len(p.h.life.pins) == 0 {
+		p.h.life.pins = nil
+	}
 	p.h.life.mu.Unlock()
 	p.h.releasePin()
 	return nil
@@ -189,6 +192,10 @@ func (p *historyPin) Close() error {
 func (p *historyPin) read(origin string, seq uint64) (msg.Record, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.readLocked(origin, seq)
+}
+
+func (p *historyPin) readLocked(origin string, seq uint64) (msg.Record, error) {
 	if p.closed {
 		return msg.Record{}, errors.New("lease history: snapshot is closed")
 	}

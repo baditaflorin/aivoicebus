@@ -13,6 +13,44 @@ type historyPosition struct {
 	seq    uint64
 }
 
+// A current lease GET needs one authenticated withdrawal proof, not the full
+// history of every receipt on the lease. Older snapshots fall back to their
+// captured VV only when the first withdrawal arrived after they began.
+func (h *leaseHistory) withdrawnAt(id, from string, vv map[string]uint64, read func(string, uint64) (msg.Record, error)) (bool, error) {
+	var proof []byte
+	err := h.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(historyManagedRetracted)
+		if b == nil {
+			return errors.New("lease history: withdrawal proof index is missing")
+		}
+		proof = bytes.Clone(b.Get([]byte(id)))
+		return nil
+	})
+	if err != nil || proof == nil {
+		return false, err
+	}
+	origin, seq, err := decodeHistoryKey(proof)
+	if err != nil {
+		return false, err
+	}
+	if vv != nil && seq > vv[origin] {
+		_, found, err := h.foldedRetraction(id, from, vv, read)
+		return found, err
+	}
+	r, err := read(origin, seq)
+	if err != nil {
+		return false, err
+	}
+	if r.Ack == nil {
+		return false, errors.New("lease history: withdrawal proof is not an acknowledgement")
+	}
+	target, _, ok := msg.RetractedID(r.Ack.ID)
+	if !ok || target != id || !msg.MayRetract(r.Ack.By, from) {
+		return false, errors.New("lease history: withdrawal proof differs from raw authority")
+	}
+	return true, nil
+}
+
 func (h *leaseHistory) ackPage(id string, after []byte, limit int) ([]historyPosition, []byte, error) {
 	if limit < 1 || limit > 256 {
 		return nil, nil, errors.New("lease history: invalid acknowledgement page size")

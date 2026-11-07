@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestLeaseLiveWindowKeepsSnapshotCandidatesAndRestoresClockRollback(t *testing.T) {
@@ -73,6 +74,34 @@ func TestLeaseLiveWindowKeepsSnapshotCandidatesAndRestoresClockRollback(t *testi
 	}
 	if got, ok, err := s.history.messageByID(expired.ID); err != nil || !ok || got.ID != expired.ID {
 		t.Fatal("aging removed full ID history", err)
+	}
+}
+
+func TestLeaseLiveWindowNoOpReadsDoNotWriteOrSyncMetadata(t *testing.T) {
+	now := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	for _, empty := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active claim", true: "empty view"}[empty], func(t *testing.T) {
+			var records []msg.Record
+			if !empty {
+				m := projectionLease(0, now, now.Add(time.Hour))
+				records = []msg.Record{{Origin: "peer", Seq: 1, Msg: &m}}
+			}
+			s, _ := projectionFixture(t, records, now)
+			before := s.history.db.Stats().TxStats
+			for i := 1; i <= 100; i++ {
+				if err := s.history.refreshLiveWindow(now.Add(time.Duration(i) * time.Nanosecond)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			after := s.history.db.Stats().TxStats
+			if after.GetWrite() != before.GetWrite() {
+				t.Fatalf("100 healthy read preparations performed %d bbolt writes", after.GetWrite()-before.GetWrite())
+			}
+			var floor time.Time
+			if err := s.history.db.View(func(tx *bolt.Tx) error { var err error; floor, err = leaseWindowFloor(tx); return err }); err != nil || !floor.Equal(now) {
+				t.Fatal("no-op reader persisted clock changes", err)
+			}
+		})
 	}
 }
 

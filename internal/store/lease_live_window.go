@@ -87,6 +87,7 @@ func (h *leaseHistory) refreshLiveWindow(now time.Time) error {
 	}
 	var cursor []byte
 	finished := false
+	changed := false
 	for !finished {
 		page, next, err := h.internalLeasePage(start, cursor, 256)
 		if err != nil {
@@ -117,11 +118,18 @@ func (h *leaseHistory) refreshLiveWindow(now time.Time) error {
 			}); err != nil {
 				return err
 			}
+			changed = true
 		}
 		if next == nil {
 			break
 		}
 		cursor = next
+	}
+	// Advancing the wall clock alone is a read, not a metadata transaction.
+	// Keeping the earlier floor is conservative; a new imported historical
+	// candidate is validated/retired by a later preparation before it is served.
+	if !changed {
+		return nil
 	}
 	return h.db.Update(func(tx *bolt.Tx) error {
 		value, err := json.Marshal(wanted)

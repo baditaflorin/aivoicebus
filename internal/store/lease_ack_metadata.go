@@ -25,11 +25,12 @@ type receiptSummary struct {
 }
 
 type retractionSummary struct {
-	At   time.Time
-	Leak bool
+	At    time.Time
+	Leak  bool
+	Proof []byte
 }
 
-func putAckMetadata(tx *bolt.Tx, a msg.Ack) error {
+func putAckMetadata(tx *bolt.Tx, a msg.Ack, position []byte) error {
 	target := ackTarget(a)
 	if target != "" && tx.Bucket(historyIDs).Get([]byte(target)) == nil {
 		if err := tx.Bucket(historyDeferredTargets).Put([]byte(target), []byte{1}); err != nil {
@@ -46,6 +47,9 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack) error {
 			if err := json.Unmarshal(value, &old); err != nil {
 				return err
 			}
+		}
+		if first {
+			old.Proof = bytes.Clone(position)
 		}
 		if first || a.At.Before(old.At) {
 			old.At = a.At
@@ -64,7 +68,7 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack) error {
 				if err := json.Unmarshal(value, &ref); err != nil {
 					return err
 				}
-				return countManagedRetraction(tx, id, ref.From, a.By)
+				return countManagedRetraction(tx, id, ref.From, a.By, position)
 			}
 		}
 		return nil
@@ -120,13 +124,13 @@ func putAckMetadata(tx *bolt.Tx, a msg.Ack) error {
 	return nil
 }
 
-func countManagedRetraction(tx *bolt.Tx, id, from, by string) error {
+func countManagedRetraction(tx *bolt.Tx, id, from, by string, proof []byte) error {
 	if msg.MayRetract(by, from) {
 		b := tx.Bucket(historyManagedRetracted)
 		if b.Get([]byte(id)) != nil {
 			return nil
 		}
-		if err := b.Put([]byte(id), []byte{1}); err != nil {
+		if err := b.Put([]byte(id), proof); err != nil {
 			return err
 		}
 		return b.SetSequence(b.Sequence() + 1)
@@ -138,8 +142,12 @@ func countManagedRetraction(tx *bolt.Tx, id, from, by string) error {
 func seedManagedRetractionCounts(tx *bolt.Tx, ref internalLeaseRef) error {
 	prefix := []byte(ref.ID + "\x00")
 	c := tx.Bucket(historyRetractionBy).Cursor()
-	for key, _ := c.Seek(prefix); bytes.HasPrefix(key, prefix); key, _ = c.Next() {
-		if err := countManagedRetraction(tx, ref.ID, ref.From, string(key[len(prefix):])); err != nil {
+	for key, value := c.Seek(prefix); bytes.HasPrefix(key, prefix); key, value = c.Next() {
+		var summary retractionSummary
+		if err := json.Unmarshal(value, &summary); err != nil {
+			return err
+		}
+		if err := countManagedRetraction(tx, ref.ID, ref.From, string(key[len(prefix):]), summary.Proof); err != nil {
 			return err
 		}
 	}

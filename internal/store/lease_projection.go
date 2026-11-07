@@ -146,7 +146,7 @@ func putLeaseProjection(tx *bolt.Tx, r msg.Record, offset int64, o LeaseRetentio
 				return err
 			}
 		}
-		return putAckMetadata(tx, *a)
+		return putAckMetadata(tx, *a, key)
 	}
 	return nil
 }
@@ -161,7 +161,11 @@ func decodeHistoryKey(key []byte) (string, uint64, error) {
 func (h *leaseHistory) messageByID(id string) (msg.Message, bool, error) {
 	var key []byte
 	err := h.db.View(func(tx *bolt.Tx) error {
-		key = bytes.Clone(tx.Bucket(historyIDs).Get([]byte(id)))
+		b := tx.Bucket(historyIDs)
+		if b == nil {
+			return errors.New("lease history: ID index is missing")
+		}
+		key = bytes.Clone(b.Get([]byte(id)))
 		return nil
 	})
 	if err != nil || len(key) == 0 {
@@ -185,7 +189,11 @@ func (h *leaseHistory) internalLease(id string) (internalLeaseRef, bool, error) 
 	var ref internalLeaseRef
 	var found bool
 	err := h.db.View(func(tx *bolt.Tx) error {
-		value := tx.Bucket(historyLeases).Get([]byte(id))
+		b := tx.Bucket(historyLeases)
+		if b == nil {
+			return errors.New("lease history: internal index is missing")
+		}
+		value := b.Get([]byte(id))
 		if value == nil {
 			return nil
 		}
@@ -247,24 +255,35 @@ func (h *leaseHistory) internalLeasePage(minExpiry time.Time, after []byte, limi
 }
 
 func (h *leaseHistory) readInternalLease(ref internalLeaseRef) (msg.Message, error) {
-	err := h.db.View(func(tx *bolt.Tx) error {
-		key := historyKey(ref.Origin, ref.Seq)
-		if !bytes.Equal(tx.Bucket(historyIDs).Get([]byte(ref.ID)), key) {
-			return errors.New("lease history: internal metadata does not name the first ID")
-		}
-		var rawRef historyRef
-		if json.Unmarshal(tx.Bucket(historyRecords).Get(key), &rawRef) != nil || rawRef.Offset != ref.Offset {
-			return errors.New("lease history: internal ordering differs from raw reference")
-		}
-		return nil
-	})
-	if err != nil {
+	if err := h.checkInternalReference(ref); err != nil {
 		return msg.Message{}, err
 	}
 	r, err := h.read(ref.Origin, ref.Seq)
 	if err != nil {
 		return msg.Message{}, err
 	}
+	return h.internalPayload(ref, r)
+}
+
+func (h *leaseHistory) checkInternalReference(ref internalLeaseRef) error {
+	return h.db.View(func(tx *bolt.Tx) error {
+		key := historyKey(ref.Origin, ref.Seq)
+		ids, records := tx.Bucket(historyIDs), tx.Bucket(historyRecords)
+		if ids == nil || records == nil {
+			return errors.New("lease history: internal authority indexes are missing")
+		}
+		if !bytes.Equal(ids.Get([]byte(ref.ID)), key) {
+			return errors.New("lease history: internal metadata does not name the first ID")
+		}
+		var rawRef historyRef
+		if json.Unmarshal(records.Get(key), &rawRef) != nil || rawRef.Offset != ref.Offset {
+			return errors.New("lease history: internal ordering differs from raw reference")
+		}
+		return nil
+	})
+}
+
+func (h *leaseHistory) internalPayload(ref internalLeaseRef, r msg.Record) (msg.Message, error) {
 	if r.Msg == nil || r.Msg.ID != ref.ID || r.Msg.From != ref.From || !r.Msg.At.Equal(ref.At) ||
 		r.Msg.Exp == nil || !r.Msg.Exp.Equal(ref.Expiry) || !internalLeaseEligible(*r.Msg, h.retention) {
 		return msg.Message{}, fmt.Errorf("lease history: internal metadata differs from raw authority")
