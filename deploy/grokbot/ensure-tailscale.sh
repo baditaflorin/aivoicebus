@@ -5,6 +5,8 @@
 # before the ensure-aivoicebus-forward line, so the mesh is reachable when the forwarder starts.
 pgrep -x tailscaled >/dev/null && exit 0
 sudo mkdir -p /var/run/tailscale
+# The log is written by this user's shell on purpose (/tmp is writable), not by root.
+# shellcheck disable=SC2024
 sudo setsid nohup /usr/local/bin/tailscaled \
 	--state=/var/lib/tailscale/tailscaled.state \
 	--socket=/var/run/tailscale/tailscaled.sock >/tmp/tailscaled.log 2>&1 </dev/null &
