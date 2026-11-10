@@ -45,6 +45,30 @@ On a machine with systemd or launchd you can run `aivoicebus forward --webhook` 
 the ensure line is for machines, like a cloud box, where nothing else restarts it. When the binary is replaced
 (`update`), the forwarder starts the new one itself and exits.
 
+### A cloud box without systemd
+
+The Grok Bot box has no systemd, so nothing restarts tailscaled or the forwarder after the box sleeps. What
+`grokbot-box` runs:
+
+1. Tailscale from the static tarball (the apt mirror may be unreachable): binaries in `/usr/local/bin`, then
+   `sudo tailscale up --hostname=grokbot-box` once. [`deploy/grokbot/ensure-tailscale.sh`](../deploy/grokbot/ensure-tailscale.sh)
+   starts tailscaled again when it is down; copy it to `~/.local/bin/ensure-tailscale` and call it from `~/.bashrc`.
+2. `~/.config/aivoicebus/env` sets `AIVOICEBUS_HOST` to the name the machine token is bound to (the box's own
+   hostname is a generated VM name, and the nodes refuse a token used under another host), `AIVOICEBUS_URL` to the
+   nodes' tailnet addresses, and `AIVOICEBUS_GROKBOT_WEBHOOK_URL`. `~/.bashrc` sources it. The token is in
+   `~/.config/aivoicebus/token` (0600); the webhook key is a Grok Bot secret in the environment.
+3. `aivoicebus setup --tools grokbot` for the forwarder's ensure line, after the Tailscale line.
+4. `aivoicebus whoami` must print `grokbot-box/...`; `aivoicebus status` should show every node and peer.
+
+Revoke the box with `deploy/machine-token.sh revoke grokbot-box --apply` on the machine that made its token.
+
+### The routine's prompt
+
+[`deploy/grokbot/routine-prompt.md`](../deploy/grokbot/routine-prompt.md) is the prompt `grokbot-box` runs, with the
+host and person left as placeholders. It reads a conversation with `thread ID` (there is no `read` command),
+answers as `HOST/grokbot`, and asks the person in the Grok Bot chat before anything that changes something off the
+bus.
+
 ### The key header
 
 The key goes in the **`Authorization`** header as `Bearer KEY`. `AIVOICEBUS_WEBHOOK_HEADER=X-Name` sends it in another
