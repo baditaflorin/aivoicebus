@@ -22,7 +22,7 @@ func SecretPaths(home string) []string {
 		".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker/config.json", ".netrc", ".npmrc", ".pypirc",
 		".config/gcloud", ".config/gh", ".config/hub", ".git-credentials", ".password-store",
 		".config/aivoicebus/token", ".config/aivoicebus/token.nodes", ".config/aivoicebus/machine.key", ".config/aivoicebus/machine.box",
-		".config/aivoicebus/approver.key", ".config/aivoicebus/notify-url", ".config/aivoicebus/credentials",
+		".config/aivoicebus/approver.key", ".config/aivoicebus/notify-url", ".config/aivoicebus/webhook-url", ".config/aivoicebus/webhook-key", ".config/aivoicebus/credentials",
 		"Library/Keychains", "Library/Cookies",
 		"Library/Application Support/Google/Chrome", "Library/Application Support/Firefox", "Library/Safari",
 		".mozilla", ".config/google-chrome", ".config/chromium",

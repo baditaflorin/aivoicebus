@@ -162,6 +162,7 @@ func Setup(o Options) ([]Step, error) {
 	in.instructions()
 	in.mcpServers()
 	in.claudeStandby()
+	in.forwarder()
 	in.state()
 	for _, s := range in.steps {
 		if s.Status == Failed {

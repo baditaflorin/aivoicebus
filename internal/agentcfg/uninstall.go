@@ -40,6 +40,7 @@ func Uninstall(o RemoveOptions) ([]Step, error) {
 	in.removeClaudeStandby()
 	in.removeInstructions()
 	in.removeShell()
+	in.removeForwarder()
 	in.removeConfigFiles(o.Purge)
 	if o.Purge {
 		in.removeBinary()

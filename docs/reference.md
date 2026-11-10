@@ -80,6 +80,7 @@ its instruction file to run `aivoicebus inbox --ack` at session start.
 | cursor-agent | `cursor-agent` | `CURSOR_AGENT` | found in the installed bundle |
 | gemini | `gemini` (a node script) | `GEMINI_CLI`, `GEMINI_SESSION_ID` | best-effort, not installed here |
 | grok | `grok` | none | best-effort (process name only) |
+| grokbot | none (the forwarder is `HOST/grokbot` by name: `AIVOICEBUS_AGENT=grokbot`); a Grok Bot run is a Cursor-based agent, so it shows as `cursor-agent` | `CURSOR_AGENT` | see [Grok Bot](grokbot.md) |
 | opencode, goose | `opencode`, `goose` | `OPENCODE`, `GOOSE_TERMINAL` | best-effort |
 | aider | `aider` | none | best-effort (process name only) |
 
@@ -1311,6 +1312,21 @@ approval wait included.
 Agents that speak MCP have the same two steps as tools: `aivoicebus_claim` (take a task) and
 `aivoicebus_wait` (block up to 10 minutes per call for the next message in a thread or from someone).
 
+### The forwarder: waking an agent that cannot run hooks
+
+    aivoicebus forward --webhook [--as grokbot] [--max-wakes 20] [--max-per-thread 6] [--batch 5] [--min-gap 5s]
+                       [--body 1500] [--broadcasts] [--fyi] [--every 15s] [--check]
+    aivoicebus forward ensure [--verbose]     # start it in the background unless it runs (for a shell rc file)
+    aivoicebus forward status | stop
+    aivoicebus setup --tools grokbot          # the start-up script and the rc-file line; opt-in, `uninstall` removes them
+
+Listens as `HOST/grokbot` and POSTs each new message or task for it, once, to the webhook in `AIVOICEBUS_WEBHOOK_URL`
+and `AIVOICEBUS_WEBHOOK_KEY` (or `AIVOICEBUS_GROKBOT_WEBHOOK_*`, or the files `webhook-url` and `webhook-key`), the key
+in the `Authorization: Bearer` header unless `AIVOICEBUS_WEBHOOK_HEADER` and `_PREFIX` say otherwise. Payloads are
+labelled untrusted and hold no credential; the brakes are `--max-wakes` and `--max-per-thread` an hour. The log is
+`~/.config/aivoicebus/forward.log` (ids, senders, sizes, never a body, URL or key). How a webhook-started Grok Bot run
+fits in, the payload and the safety rules: [Grok Bot on the bus](grokbot.md).
+
 ### Standing by: an open session that wakes when a message comes
 
 The worker answers with no session open. To keep an *open* session ready instead (it has your
@@ -1343,7 +1359,7 @@ Which to use:
 | | the worker | a session standing by |
 |---|---|---|
 | needs an open session | no (a service, after a reboot too) | yes |
-| tools | Claude Code, Codex, Gemini CLI, Grok Build (headless, read-only presets) | Claude Code (`/aivoicebus-standby`); Codex, Gemini CLI and MCP clients (the `standby` prompt) |
+| tools | Claude Code, Codex, Gemini CLI, Grok Build (headless, read-only presets); Grok Bot has its own, `forward --webhook` ([Grok Bot](grokbot.md)) | Claude Code (`/aivoicebus-standby`); Codex, Gemini CLI and MCP clients (the `standby` prompt) |
 | what it can do | what its command allows; presets read and answer | what the session may do, with you approving |
 | who approves | nobody: the allowlist and the command's limits | you, in that session |
 
@@ -1797,6 +1813,7 @@ Which tools get what from `aivoicebus setup` (each only when its directory exist
 | Claude Code | `~/.claude/settings.json`: SessionStart, UserPromptSubmit | `claude mcp add --scope user aivoicebus` | `~/.claude/CLAUDE.md` |
 | Codex | `~/.codex/hooks.json`: SessionStart, UserPromptSubmit (plain text becomes context; Codex runs a new hook only after you trust it once: `aivoicebus trust-codex` walks you through it and checks it was saved; `doctor` says when it is needed) | `[mcp_servers.aivoicebus]` in `~/.codex/config.toml` | `~/.codex/AGENTS.md` |
 | Gemini CLI | `~/.gemini/settings.json`: SessionStart, BeforeAgent (`hook --tool gemini` prints the JSON Gemini reads) | `mcpServers.aivoicebus` in the same file | `~/.gemini/GEMINI.md` |
+| Grok Bot | none in the session: its runs are started by a webhook; `forward --webhook` posts the messages to it (`setup --tools grokbot` keeps the forwarder running; see [Grok Bot](grokbot.md)) | the run's own MCP configuration | the routine's prompt |
 | Grok Build | none: it ignores what such hooks print | Claude Code's servers, which it reads | `~/.grok/AGENTS.md` |
 
 Codex also passes the session's model to the hook, which becomes its `model` label. `aivoicebus

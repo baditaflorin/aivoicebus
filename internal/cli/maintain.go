@@ -47,7 +47,7 @@ func usageCmd(_ []string, s Streams) error {
 func setup(args []string, s Streams) error {
 	fs := newFlagSet("setup")
 	url := fs.String("url", "", "node URLs (comma-separated) to write to the env file")
-	tools := fs.String("tools", "", "tools to configure: claude,codex,gemini (default: all that are installed)")
+	tools := fs.String("tools", "", "tools to configure: claude,codex,gemini,grok (default: all that are installed); grokbot (only when named) sets up the webhook forwarder's start-up line, see `forward`")
 	dry := fs.Bool("dry-run", false, "show what would change; write nothing")
 	yes := fs.Bool("yes", false, "do not ask before the first setup changes files outside ~/.config/aivoicebus (the tools' settings and instruction files, ~/.zshrc)")
 	asJSON := fs.Bool("json", false, "print the steps as JSON")

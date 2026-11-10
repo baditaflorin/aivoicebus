@@ -11,7 +11,7 @@ import (
 // rotation is moving to, the per-node token list, the dashboard's observer token, the key that
 // guards the bootstrap link and the release signing key (a base64 seed). The tokens of single
 // machines are the files in the machine-tokens directory.
-var secretFiles = []string{"token", "token.next", "token.nodes", "observer-token", "bootstrap-key", "release-signing.key"}
+var secretFiles = []string{"token", "token.next", "token.nodes", "observer-token", "bootstrap-key", "release-signing.key", WebhookURLFile, WebhookKeyFile}
 
 // maxSecretFile bounds what is read from one file; none of them is larger than a few lines.
 const maxSecretFile = 64 << 10
@@ -29,6 +29,9 @@ func SecretValues() []string {
 	var out []string
 	if t := strings.TrimSpace(os.Getenv("AIVOICEBUS_TOKEN")); t != "" {
 		out = append(out, t)
+	}
+	if w, err := LoadWebhook(); err == nil || w.URL != "" { // the forwarder's endpoint and key: a capability and a credential
+		out = append(out, w.Secrets()...)
 	}
 	add := func(path string) {
 		for _, line := range splitLines(readSecretFile(path)) {

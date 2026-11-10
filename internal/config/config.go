@@ -14,7 +14,10 @@ import (
 // envFileKeys are the settings ~/.config/aivoicebus/env may provide.
 // The file and log services are here too, so a hook or an MCP server that does not inherit the
 // shell's environment still sends files the way the user set up.
-var envFileKeys = []string{"AIVOICEBUS_URL", "AIVOICEBUS_HOST", "AIVOICEBUS_CAPS", "AIVOICEBUS_PIPE_URL", "AIVOICEBUS_TAIL_URL", "AIVOICEBUS_FILE_VIA"}
+var envFileKeys = []string{"AIVOICEBUS_URL", "AIVOICEBUS_HOST", "AIVOICEBUS_CAPS", "AIVOICEBUS_PIPE_URL", "AIVOICEBUS_TAIL_URL", "AIVOICEBUS_FILE_VIA",
+	// the webhook forwarder's endpoint and header (not its key: that is a credential, kept in the environment or webhook-key)
+	"AIVOICEBUS_WEBHOOK_URL", "AIVOICEBUS_WEBHOOK_HEADER", "AIVOICEBUS_WEBHOOK_PREFIX",
+	"AIVOICEBUS_GROKBOT_WEBHOOK_URL", "AIVOICEBUS_GROKBOT_WEBHOOK_HEADER", "AIVOICEBUS_GROKBOT_WEBHOOK_PREFIX"}
 
 // Dir returns the per-user config directory, or "" when there is no home.
 func Dir() string {

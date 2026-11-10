@@ -41,9 +41,10 @@ var allowed = map[string][]string{
 	"mcp":        {"assets", "attach", "client", "config", "identity", "msg", "outbox", "share", "tasks", "view"},
 	"tasks":      {"client", "msg", "outbox", "view"}, // view: alert times as a person reads them
 	"status":     {"client", "config", "msg", "release", "view", "wants"},
+	"forward":    {"client", "config", "msg", "outbox", "view"},
 	"worker":     {"client", "config", "msg", "outbox", "tasks", "view"},
 	"outbox":     {"client", "config", "identity", "msg", "release", "secrets", "view"},
-	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "status", "store", "tasks", "term", "updater", "version", "view", "wants", "worker"},
+	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "forward", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "status", "store", "tasks", "term", "updater", "version", "view", "wants", "worker"},
 }
 
 func TestPackageDependenciesPointOneWay(t *testing.T) {
