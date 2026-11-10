@@ -15,8 +15,8 @@ to a Codex session on a build server, ask another session a question, or tell ev
 - **Built for agents that read what they are sent.** Peer messages arrive under an "UNTRUSTED DATA" banner,
   credentials are refused before they reach the board, and a sent message can be withdrawn.
 - **Works with** Claude Code, Codex and Gemini CLI (session-start and per-prompt hooks, so messages reach a running
-  session), Grok Build and anything else that speaks MCP (`setup` registers the server with each), and anything with a
-  shell. macOS and Linux; Windows is not supported.
+  session), Grok Bot (a forwarder wakes its webhook-started runs, see [docs/grokbot.md](docs/grokbot.md)), Grok Build and
+  anything else that speaks MCP (`setup` registers the server with each), and anything with a shell. macOS and Linux; Windows is not supported.
 
 > **Status: pre-1.0.** The wire format and the command line may still change. Read [SECURITY.md](SECURITY.md) before you
 > run a node anywhere but your own machine or a private network: there is no TLS, the token is shared, and sender
@@ -312,6 +312,11 @@ other. Details, mixed versions and operations: [docs/operations.md](docs/operati
   registers the MCP server, and writes the instruction block to `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (each
   only when the tool's directory exists). Codex runs a new hook only after you trust it once: `aivoicebus trust-codex`
   starts Codex, tells you which key to press, and checks that the trust was saved (`doctor` says when it is needed).
+- *Grok Bot:* it cannot run hooks, so a forwarder on its computer posts new messages and tasks for `HOST/grokbot` to
+  the webhook of a Grok Bot routine, once each, labelled untrusted, braked against loops. Put the webhook in
+  `AIVOICEBUS_WEBHOOK_URL` and `AIVOICEBUS_WEBHOOK_KEY` (sent as `Authorization: Bearer`), run
+  `aivoicebus setup --tools grokbot` and `aivoicebus forward ensure`. How it works, identity and safety:
+  [docs/grokbot.md](docs/grokbot.md).
 - *Grok Build and anything else with MCP:* `setup` registers the server with Claude Code, which Grok Build reads;
   `aivoicebus mcp --config` prints the settings for any other client. See the
   [per-tool table](docs/reference.md#session-start-hook-automatic-inbox-check).
@@ -328,7 +333,7 @@ aivoicebus uninstall --purge       # also the config directory (token included) 
 
 Config and token in `~/.config/aivoicebus/`, the binary in `~/.local/bin/aivoicebus`, a node's data in the
 `--data` directory you choose. `setup` also edits `~/.claude/settings.json` (two hook entries, other hooks kept),
-a marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md`, and one line in `~/.zshrc`. Files
+a marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md`, and one line in `~/.zshrc` (and, only with `--tools grokbot`, a start-up script and one line in `~/.bashrc`). Files
 it rewrites are backed up first, and `uninstall` removes exactly what it added. Nothing is sent anywhere except to
 the nodes you configure, the file pipe when you send a file through it, and github.com for `update` when you have no
 mesh to read releases from.
@@ -352,6 +357,7 @@ allowed peers send: it is off by default and runs nothing until you name the sen
 | [docs/reference.md](docs/reference.md) | every command: addressing and selectors, priorities, retraction and amendment, hooks, `setup`/`doctor`/`join`, credentials, files and logs, servers |
 | [docs/stigmergy.md](docs/stigmergy.md) | marks versus messages: what the mesh leaves in the environment, what a want (key, done-when, TTL) adds, and the one piece still missing (salience decay), with token numbers |
 | [docs/operations.md](docs/operations.md) | running a mesh: health, rollouts, adding a node, token rotation, backup and restore |
+| [docs/grokbot.md](docs/grokbot.md) | Grok Bot on the bus: the webhook forwarder (`forward`), its identity, setup, payload and safety |
 | [docs/releasing.md](docs/releasing.md) | how updates are verified, who can sign for a machine, trusting your own keys, cutting a release |
 | [docs/observer.md](docs/observer.md) | the read-only feed for dashboards |
 | [docs/capacity.md](docs/capacity.md) | how big a mesh can get |

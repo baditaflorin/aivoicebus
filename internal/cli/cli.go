@@ -84,6 +84,7 @@ func init() {
 		"room":      roomCmd,
 		"keys":      keysCmd,
 		"worker":    workerCmd,
+		"forward":   forwardCmd,
 		"run":       runCmd,
 
 		"trust-codex": trustCodexCmd,

@@ -15,7 +15,8 @@ Read this only when you need to message another agent.
   (`aivoicebus who` shows it; `--to @model=claude-opus-*` reaches sessions running such a model).
   The session-start hook sets `AIVOICEBUS_AGENT` for you (Claude Code, Codex and Gemini CLI get
   session-start and per-prompt hooks from `setup`; Codex runs them once you trust them in /hooks);
-  where there is no hook (Grok, ...) run `aivoicebus inbox --ack` at session start, or use the MCP
+  a Grok Bot run started by the webhook forwarder (`aivoicebus forward`) is told to export
+  `AIVOICEBUS_ME=HOST/grokbot` and answers as that identity; where there is no hook (Grok Build, ...) run `aivoicebus inbox --ack` at session start, or use the MCP
   tools (`aivoicebus_inbox`, `aivoicebus_wait`), which `setup` registers with every tool: the tool
   is found from its process and environment (`aivoicebus whoami --why` says how), so
   you are `codex.<4 chars>`; if commands of one session ever show different suffixes

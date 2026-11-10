@@ -17,6 +17,7 @@ var completionSubs = map[string][]string{
 	"schedule":  {"add", "list", "rm", "run"},
 	"watch":     {"notify"},
 	"worker":    {"allow", "install", "uninstall", "status"},
+	"forward":   {"ensure", "status", "stop"},
 	"secret":    {"save", "list", "rm", "curl", "path"},
 	"lease":     {"take", "release", "list"},
 	"room":      {"join", "leave", "invite", "say", "wait", "who"},
