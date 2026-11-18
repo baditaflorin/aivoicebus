@@ -153,8 +153,9 @@ func Update(o Options) (Result, error) {
 // Auto is the update a machine whose person turned on `aivoicebus update --auto` runs by itself.
 // It is Update with nothing forced and nothing only checked, from the release the installed binary
 // reports (a run started before another one's install may still be the older binary), leaving out
-// o.Skip and anything older; and when the new binary's setup fails it puts the previous binary back,
-// since nobody is there to repair it. A dev build is left alone.
+// o.Skip and anything older; and when the new binary's setup fails, or it then no longer runs or says
+// another release (the health check), it puts the previous binary back, since nobody is there to
+// repair it. A dev build is left alone.
 func Auto(o Options) (Result, error) {
 	run := o.Run
 	if run == nil {
@@ -169,8 +170,22 @@ func Auto(o Options) (Result, error) {
 	}
 	o.Current, o.Check, o.Force, o.Run = cur, false, false, run
 	res, err := Update(o)
-	if err != nil || !res.Updated || res.SetupErr == nil {
+	if err != nil || !res.Updated {
 		return res, err
+	}
+	if res.SetupErr == nil {
+		// The health check after the swap: the installed binary must still run and say the release
+		// it was installed as. Nobody is there to repair it, so a binary that does not is put back.
+		if got, verr := InstalledVersion(o.Bin, run); verr != nil || got != res.Latest {
+			why := "it says " + got
+			if verr != nil {
+				why = verr.Error()
+			}
+			res.SetupErr = fmt.Errorf("the installed release %s failed its health check (%s)", res.Latest, why)
+		}
+	}
+	if res.SetupErr == nil {
+		return res, nil
 	}
 	if rerr := Rollback(o.Bin, run, o.Out); rerr != nil {
 		return res, fmt.Errorf("%v, and putting %s back failed: %v", res.SetupErr, cur, rerr)

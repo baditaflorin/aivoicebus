@@ -45,7 +45,7 @@ func updateCmd(args []string, s Streams) error {
 	from := fs.String("from", "auto", "where to read the release: auto (the mesh when a node URL is configured, else GitHub) | mesh | github | dir:<path>")
 	bin := fs.String("bin", "", "the binary to replace (default ~/.local/bin/aivoicebus)")
 	rollback := fs.Bool("rollback", false, "restore the previous binary kept by the last update")
-	auto := fs.String("auto", "", "on | off | status | run: whether this machine installs newer signed releases by itself (on is the person's, typed in their own terminal; run is what the session-start hook starts)")
+	auto := fs.String("auto", "", "on | off | status | run | tick: whether this machine installs newer signed releases by itself (on is the person's, typed in their own terminal; run is what the session-start hook starts; tick is the periodic check, for cron or launchd)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}

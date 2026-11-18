@@ -442,6 +442,7 @@ export AIVOICEBUS_AGENT=claude.s1
 step update --auto on
 unset AIVOICEBUS_AGENT
 step update --auto run
+step update --auto tick
 step update --auto off
 step update --auto on --force
 step fleet update --apply
