@@ -47,6 +47,9 @@ func trustKeyList(args []string, s Streams) error {
 		if label == "" {
 			label = "-"
 		}
+		if k.Since != "" {
+			label += " (since " + k.Since + ")"
+		}
 		fmt.Fprintf(s.Out, "%s  %-22s %s\n", release.Fingerprint(k.Public), k.Source, label)
 	}
 	for _, n := range notes {

@@ -51,7 +51,7 @@ release out from then on, as it does for a release the person rolled back with
 
 | Key | Where it comes from | For |
 |---|---|---|
-| the project key | compiled into every official binary (`internal/release/keys.go`) | official releases |
+| the project's signers | compiled into every official binary (`internal/release/keys.go`), one key per signing machine; any one signature is enough (see [Signers](#signers)) | official releases |
 | a fork's key | `AIVOICEBUS_TRUST_KEY=<base64 public key> scripts/build.sh ...` sets it at build time (`-X ...internal/release.extraKey`); the official key stays trusted too | a company or fork that signs its own releases |
 | a user-added key | `aivoicebus trust-key add <key>` writes `~/.config/aivoicebus/trusted-keys` (mode 600) | a team running its own mesh with its own signed releases and node lists |
 
@@ -126,11 +126,11 @@ puts the waiver at the top of the release notes.
 
 ## Cutting a release
 
-The build and the signing key are on different machines on purpose. Other sessions (people and
+The build and the signing keys are on different machines on purpose. Other sessions (people and
 agents) merge to `main` while a release is in flight, so every step after the build works from
 the release itself, never from what `main` or your checkout says now.
 
-### Build on a build host, sign on the key machine
+### Build on a build host, sign on any signing machine
 
 1. Bump `VERSION`, merge to `main`. Note the merge commit: it is the release commit.
 2. **Build host**, in a checkout of exactly that commit:
@@ -144,8 +144,10 @@ the release itself, never from what `main` or your checkout says now.
    the pinned image into its own private temporary cache. Both actual builds run with no network,
    read-only source and cache, and module proxy/sumdb disabled; no shared host cache is used.
    A preparation failure stops before building and reports the archived commit to inspect.
-   Copy `dist/release` to the machine that holds the signing key.
-3. **Key machine:** `scripts/release.sh sign dist/release` packs, signs, verifies and writes
+   Copy `dist/release` to a signing machine: any machine `aivoicebus who --has release-key` lists
+   (see [Signers](#signers)). To hand the signing to an agent there, `aivoicebus task --needs
+   release-key,repo:baditaflorin/aivoicebus "..."` picks a live session on one of them.
+3. **Signing machine:** `scripts/release.sh sign dist/release` packs, signs, verifies and writes
    `SHA256SUMS`. It takes the release number and the commit **from the binaries**: it runs the one
    built for this machine (`aivoicebus version`) and checks every other binary carries the same
    release and commit. It never reads the checkout's `VERSION` for the manifest (it only notes a
@@ -207,25 +209,78 @@ the release itself, never from what `main` or your checkout says now.
    day while it is behind, and the ones with `update --auto on` install it by themselves
    (`aivoicebus fleet` shows who runs what).
 
-## The signing key
+## Signers
 
-`aivoicebus release keygen` writes the private key to
-`~/.config/aivoicebus/release-signing.key` (mode 600, never overwritten) and
-prints the public key, which is pasted into `internal/release/keys.go`. The
-private key never goes in the repo, on a node, or in a message. Keep the
-signing copy on a machine that does not build or serve anything, or on a hardware
-key, and back it up somewhere that is not the same disk. The key for the first
-public release was generated on 2026-10-15; move its private half off the machine
-that generated it before the first release is signed.
+Every official binary carries a list of trusted public keys in `internal/release/keys.go`, one per
+machine that may sign a release, each with the machine that holds its private half and the release that
+first carried it. A release has one signature (`manifest.sig`, a bare ed25519 signature: the format every
+release since 0.1.0 uses), and a client accepts it when **any one** of its built-in keys verifies it. So
+any signing machine can sign a release on its own, and losing or retiring one machine does not stop
+releases. The private keys never leave their machines, never go in the repo, on a node or in a message.
 
-- **Lost key:** nothing already installed breaks, but no further release can be
-  signed. Recovery is a new key pair, its public key in the source, and a fresh
-  client bundle installed by hand on each machine.
-- **Rotation:** release a build whose `builtinKeys` lists the new key as well as
-  the old one, signed with the old key. Once every machine runs it, sign with the
-  new key and drop the old one in a later release.
-- **Leaked key:** treat as lost, and rotate as above. Whoever holds the key can
-  sign a release every machine will accept.
+`aivoicebus trust-key list` shows the signers this binary trusts, `aivoicebus release verify --dir DIR`
+says which one signed a release, and `aivoicebus who --has release-key` lists the machines that hold a
+key the current binaries trust (the `release-key` fact, from the public half kept beside the private
+key; `signing-key` only says a key file exists, trusted or not).
+
+| Machine | Fingerprint | Since |
+|---|---|---|
+| pentests-macbook-air-m1-mba | `SHA256:bA42de4EOjIOfqrjW6Gt8vvtn/L2iRY/EVPmuW0CCfE` | 0.1.0 (signed 0.1.0 to 0.15.0, 0.16.0) |
+| florins-macbook-air-m4-mba | `SHA256:2H9Bvhbtz2mFmYYWdx5WH2+wHxk0HHo655c4GFmM1IQ` | 0.15.0 (signed 0.15.1, 0.15.2) |
+| imac-m1-imac | `SHA256:x27TB6u9pldlCT5MwMcRLKmAsJqjLvhqdgEipEV39t4` | 0.15.0 |
+| mac14-m1pro-mbp | `SHA256:2toi2aGfL814SEyj8JCeCNDDXjtCCH1fp1A21N9yxCA` | 0.15.0 |
+
+**The one rule:** a key may sign release X only if a release older than X already carried it, because
+a machine accepts only keys its own binary carries. `release pack` (so `scripts/release.sh sign`)
+refuses to sign X with a built-in key whose Since is X or later. A machine still on a release older than a
+key's Since cannot install a release signed by that key: while such machines exist (`aivoicebus fleet`),
+sign with a key they carry (the first key is carried by every release).
+
+### Making a machine a signer
+
+On the machine, in its own terminal (never in an agent's session, never by copying a key from another machine):
+
+    aivoicebus release keygen      # writes ~/.config/aivoicebus/release-signing.key (mode 600, never overwritten)
+                                   # and release-signing.pub; prints only the public key and its fingerprint
+
+On a machine that already has a key (made before `release-signing.pub` existed), `aivoicebus release
+pubkey` derives the public half, writes `release-signing.pub` and prints the public key, its
+fingerprint and whether this binary already trusts it; the private key is read, never printed. That
+`.pub` file is what makes the machine say `release-key`.
+
+Then, to add it:
+
+1. Send the public key to the maintainer, and the fingerprint by a second route (a different chat, or
+   read it out); the maintainer checks they match. A public key is not secret, but a swapped one would
+   give someone else the power to sign.
+2. A pull request adds one line to `builtinKeys` in `internal/release/keys.go`: the key, the machine's
+   name as `Label`, and the next release as `Since`. `TestBuiltinKeysAreWholeAndDistinct` checks the key
+   is whole, not listed twice, one per machine, and that Since is a release number no later than the next one.
+3. That release is signed by a signer that is already trusted (the rule above). Once it is out, the new
+   machine can sign every release after it, and `who --has release-key` lists it.
+4. Add the machine and fingerprint to the table above in the same pull request.
+
+### Retiring or revoking a signer
+
+Remove its line from `builtinKeys` (and the table) in a release signed by **another** key, and delete
+the key file on that machine (`rm ~/.config/aivoicebus/release-signing.key release-signing.pub`).
+Machines keep trusting the old key until they install that release, so:
+
+- **Retired machine (sold, wiped, replaced):** remove it in the next release; nothing is urgent.
+- **Lost key:** nothing already installed breaks, and any other signer signs the next release. Remove
+  the lost key in it. Only when *every* signer is lost does recovery need a new key pair and a fresh
+  client bundle installed by hand on each machine; that is why there are several.
+- **Leaked key:** whoever holds it can sign a release every machine will accept, until they run a
+  release that no longer lists it. Cut a release that removes it at once, signed by another key, have
+  every machine `aivoicebus update`, and check `aivoicebus fleet` until no machine runs an older release.
+  Say so on the bus and in the release notes.
+
+### Later: several signatures on one release
+
+Today one valid signature is enough. Requiring two of N (so one stolen laptop cannot ship a release)
+would add a second signature file next to `manifest.sig`, which 0.16.0 and older clients ignore, and a
+binary that insists on it; old clients would still accept a single signature until they update. It is
+not done yet: it makes every release need two machines awake, which is the problem this list solves.
 
 ## What is and is not protected
 
@@ -236,4 +291,5 @@ that generated it before the first release is signed.
   nothing, because only a strictly newer version installs.
 - A node can announce a version that does not exist; the effect is one line for
   the user, and `update` verifies before doing anything.
-- Anyone with the signing key can ship anything. That is the trust anchor.
+- Anyone with one signer's key can ship anything. The signers are the trust anchor: see
+  [Signers](#signers) for adding, retiring and revoking one.

@@ -168,9 +168,25 @@ func TestReleaseKeygenPackVerify(t *testing.T) {
 	if fi, err := os.Stat(keyPath); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("key file: %v", err)
 	}
-	pub := strings.TrimSpace(out[strings.LastIndex(out, ": ")+2:])
+	pub := publicKeyIn(t, out)
+	if b, err := os.ReadFile(keyPath + ".pub"); err != nil || strings.TrimSpace(string(b)) != pub {
+		t.Fatalf("the public half beside the key: %q %v", b, err)
+	}
+	if !strings.Contains(out, "fingerprint: SHA256:") || !strings.Contains(out, "does not trust it yet") {
+		t.Errorf("keygen says the fingerprint and that the key is not trusted yet:\n%s", out)
+	}
+	seed, _ := os.ReadFile(keyPath)
 	if code, _, e = run(t, "", "release", "keygen", "--out", keyPath); code != 1 || !strings.Contains(e, "exists") {
 		t.Fatalf("keygen must never overwrite a key: %d %q", code, e)
+	}
+	// pubkey derives the same public half from the private key, rewrites the .pub, and prints no secret
+	os.Remove(keyPath + ".pub")
+	code, out, e = run(t, "", "release", "pubkey", "--key", keyPath)
+	if code != 0 || publicKeyIn(t, out) != pub || strings.Contains(out+e, strings.TrimSpace(string(seed))) {
+		t.Fatalf("pubkey: %d\n%s\n%s", code, out, e)
+	}
+	if b, err := os.ReadFile(keyPath + ".pub"); err != nil || strings.TrimSpace(string(b)) != pub {
+		t.Fatalf("pubkey wrote %q %v", b, err)
 	}
 
 	os.WriteFile(filepath.Join(dir, "aivoicebus-linux-amd64"), fakeBinary("1.0.0"), 0o755)
@@ -183,6 +199,9 @@ func TestReleaseKeygenPackVerify(t *testing.T) {
 	if code, out, e = run(t, "", "release", "verify", "--dir", dir, "--pubkey", pub); code != 0 || !strings.Contains(out, "release 1.0.0 verified") {
 		t.Fatalf("verify: %d\n%s\n%s", code, out, e)
 	}
+	if !strings.Contains(out, "signed by --pubkey SHA256:") {
+		t.Errorf("verify names the key that signed:\n%s", out)
+	}
 	os.WriteFile(filepath.Join(dir, "aivoicebus-linux-amd64"), []byte("tampered"), 0o755)
 	if code, _, e = run(t, "", "release", "verify", "--dir", dir, "--pubkey", pub); code != 1 || !strings.Contains(e, "does not match the signed manifest") {
 		t.Errorf("tampered binary: %d %q", code, e)
@@ -194,9 +213,21 @@ func TestReleaseKeygenPackVerify(t *testing.T) {
 	}
 }
 
+// publicKeyIn is the key on the "public key (written to ...): KEY" line keygen and pubkey print.
+func publicKeyIn(t *testing.T, out string) string {
+	t.Helper()
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "public key (written to ") {
+			return strings.TrimSpace(l[strings.LastIndex(l, ": ")+2:])
+		}
+	}
+	t.Fatalf("no public key line in:\n%s", out)
+	return ""
+}
+
 func TestReleaseCommandErrors(t *testing.T) {
 	for args, want := range map[string]string{
-		"release":                  "usage: release keygen|pack|verify",
+		"release":                  "usage: release keygen|pubkey|pack|verify",
 		"release frob":             `unknown release command "frob"`,
 		"release pack":             "needs --dir",
 		"release verify":           "needs --dir",

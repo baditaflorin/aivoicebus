@@ -26,7 +26,7 @@ var allowed = map[string][]string{
 	"term":       {"view"}, // the one place that imports the colour library; only the program's own commands use it
 	"version":    {},
 	"release":    {"config"},
-	"identity":   {"config", "msg"},
+	"identity":   {"config", "msg", "release"},
 	"view":       {"attach", "msg"},
 	"store":      {"msg"},
 	"sharestore": {"msg"},

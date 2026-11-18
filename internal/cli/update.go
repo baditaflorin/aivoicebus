@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"flag"
 	"fmt"
@@ -115,19 +116,21 @@ func releaseSource(from string) (release.Source, error) {
 // releaseCmd is for whoever publishes releases: keygen, pack, verify, nodes.
 func releaseCmd(args []string, s Streams) error {
 	if len(args) == 0 {
-		return errors.New("usage: release keygen|pack|verify|nodes")
+		return errors.New("usage: release keygen|pubkey|pack|verify|nodes")
 	}
 	switch args[0] {
 	case "nodes":
 		return releaseNodes(args[1:], s)
 	case "keygen":
 		return releaseKeygen(args[1:], s)
+	case "pubkey":
+		return releasePubkey(args[1:], s)
 	case "pack":
 		return releasePack(args[1:], s)
 	case "verify":
 		return releaseVerify(args[1:], s)
 	}
-	return fmt.Errorf("unknown release command %q (keygen, pack, verify or nodes): `aivoicebus release -h` lists them", args[0])
+	return fmt.Errorf("unknown release command %q (keygen, pubkey, pack, verify or nodes): `aivoicebus release -h` lists them", args[0])
 }
 
 func defaultKeyPath() string {
@@ -140,7 +143,7 @@ func defaultKeyPath() string {
 
 func releaseKeygen(args []string, s Streams) error {
 	fs := newFlagSet("release keygen")
-	out := fs.String("out", defaultKeyPath(), "where to write the private signing key (mode 600; never overwritten)")
+	out := fs.String("out", defaultKeyPath(), "where to write the private signing key (mode 600; never overwritten); the public key goes beside it as .pub")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -154,8 +157,40 @@ func releaseKeygen(args []string, s Streams) error {
 	if err := release.SavePrivateKey(*out, priv); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.Out, "private key written to %s (mode 600): keep it off the repo and the nodes, and back it up\n", *out)
-	fmt.Fprintf(s.Out, "public key (put it in internal/release/keys.go): %s\n", release.EncodeKey(pub))
+	fmt.Fprintf(s.Out, "private key written to %s (mode 600): it never leaves this machine; keep it off the repo, the nodes and every message, and back it up\n", *out)
+	return printPublicKey(s, pub, *out)
+}
+
+// releasePubkey prints the public half of this machine's signing key and writes it beside the key as
+// .pub, which is what lets the machine advertise the release-key fact. The private key is read to
+// derive it and is never printed.
+func releasePubkey(args []string, s Streams) error {
+	fs := newFlagSet("release pubkey")
+	key := fs.String("key", defaultKeyPath(), "private signing key (read to derive its public half, never printed)")
+	if err := parseFlags(fs, args, s); err != nil {
+		return err
+	}
+	priv, err := release.LoadPrivateKey(*key)
+	if err != nil {
+		return err
+	}
+	return printPublicKey(s, priv.Public().(ed25519.PublicKey), *key)
+}
+
+// printPublicKey writes pub beside the private key at keyPath (release.PublicKeyPath) and prints it with
+// its fingerprint and whether this binary already trusts it.
+func printPublicKey(s Streams, pub ed25519.PublicKey, keyPath string) error {
+	pubPath := release.PublicKeyPath(keyPath)
+	if err := release.SavePublicKey(pubPath, pub); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.Out, "public key (written to %s): %s\n", pubPath, release.EncodeKey(pub))
+	fmt.Fprintf(s.Out, "fingerprint: %s\n", release.Fingerprint(pub))
+	if k, ok := release.Builtin(pub); ok {
+		fmt.Fprintf(s.Out, "this binary trusts it: built in for %s since release %s\n", k.Label, k.Since)
+		return nil
+	}
+	fmt.Fprintln(s.Out, "this binary does not trust it yet: send the public key and the fingerprint (by two different routes) to whoever adds signers in internal/release/keys.go (docs/releasing.md, \"Adding a signer\")")
 	return nil
 }
 
@@ -166,6 +201,7 @@ func releasePack(args []string, s Streams) error {
 	ver := fs.String("version", version.Release, "release number (MAJOR.MINOR.PATCH)")
 	commit := fs.String("commit", version.CommitOrBuildInfo(), "git commit the binaries were built from")
 	notes := fs.String("notes", "", "one-line release notes")
+	anySigner := fs.Bool("any-signer", false, "sign even with a built-in key that older releases do not carry yet (only for a rehearsal or a test: machines on those releases will refuse it)")
 	if err := parseFlags(fs, args, s); err != nil {
 		return err
 	}
@@ -175,6 +211,15 @@ func releasePack(args []string, s Streams) error {
 	priv, err := release.LoadPrivateKey(*key)
 	if err != nil {
 		return err
+	}
+	note, err := release.CheckSigner(priv.Public().(ed25519.PublicKey), *ver)
+	if err != nil && !*anySigner {
+		return err
+	} else if err != nil {
+		note = err.Error() + " (signed anyway: --any-signer)"
+	}
+	if note != "" {
+		fmt.Fprintln(s.Err, "note:", note)
 	}
 	cur := agentcfg.Current()
 	m, err := release.Pack(release.PackOptions{Dir: *dir, Version: *ver, Commit: *commit, Notes: *notes, Key: priv,
@@ -209,5 +254,33 @@ func releaseVerify(args []string, s Streams) error {
 		return err
 	}
 	fmt.Fprintf(s.Out, "release %s verified: signature valid, %d file(s) match their hashes\n", m.Version, len(m.Files))
+	if who := signedBy(*dir, *pub); who != "" {
+		fmt.Fprintf(s.Out, "signed by %s\n", who)
+	}
 	return nil
+}
+
+// signedBy names the key that signed the release in dir ("mac14-m1pro-mbp SHA256:..."), or "" when it
+// cannot tell. It is only said after VerifyDir passed, so it is information, not a check.
+func signedBy(dir, extra string) string {
+	keys, _ := release.Keys()
+	if extra != "" {
+		if k, err := release.ParseKey(extra); err == nil {
+			keys = append(keys, release.Key{Public: k, Source: "--pubkey"})
+		}
+	}
+	mb, err1 := os.ReadFile(filepath.Join(dir, release.ManifestName))
+	sb, err2 := os.ReadFile(filepath.Join(dir, release.SignatureName))
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	k, err := release.Signer(mb, sb, keys)
+	if err != nil {
+		return ""
+	}
+	label := k.Label
+	if label == "" {
+		label = k.Source
+	}
+	return label + " " + release.Fingerprint(k.Public)
 }

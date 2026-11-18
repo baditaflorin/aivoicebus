@@ -33,6 +33,7 @@ var FactLabels = []string{HasLabel, SSHLabel}
 // The facts a --has query names.
 const (
 	FactSigningKey  = "signing-key"
+	FactReleaseKey  = "release-key" // a signing key whose public half the project's binaries trust
 	FactDeployToken = "deploy-token"
 	FactFleetGuard  = "fleet-guard"
 	FactFleetCtx    = "fleet-ctx"
@@ -43,7 +44,7 @@ const (
 var FactTools = []string{FactFleetGuard, FactFleetCtx}
 
 // FactNames is every fact a --has query may name, for errors and usage.
-var FactNames = []string{FactSigningKey, FactDeployToken, FactFleetGuard + "[:VERSION]", FactFleetCtx + "[:VERSION]", FactSSH + ":ALIAS"}
+var FactNames = []string{FactSigningKey, FactReleaseKey, FactDeployToken, FactFleetGuard + "[:VERSION]", FactFleetCtx + "[:VERSION]", FactSSH + ":ALIAS"}
 
 var versionRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+){0,3}(-[0-9a-z.]{1,16})?$`)
 
@@ -106,6 +107,7 @@ func FactValue(words []string) string {
 type Facts struct {
 	Known       bool              `json:"known"`
 	SigningKey  bool              `json:"signing_key"`
+	ReleaseKey  bool              `json:"release_key,omitempty"` // the key is one the project's binaries trust`
 	DeployToken bool              `json:"deploy_token"`
 	Tools       map[string]string `json:"tools,omitempty"` // fleet-guard -> 0.3.13
 	SSH         []string          `json:"ssh,omitempty"`   // as advertised: 0own for 0own_bastion
@@ -122,6 +124,8 @@ func FactsOf(l Labels) Facts {
 		switch t, v := hasWord(w); t {
 		case FactSigningKey:
 			f.SigningKey = true
+		case FactReleaseKey:
+			f.ReleaseKey = true
 		case FactDeployToken:
 			f.DeployToken = true
 		case "":
@@ -144,7 +148,7 @@ func FactsOf(l Labels) Facts {
 // hasWord reads one word of the has label: the fact it names and, for a tool, its version.
 // "" for a word that is no fact.
 func hasWord(w string) (fact, version string) {
-	if w == FactSigningKey || w == FactDeployToken {
+	if w == FactSigningKey || w == FactReleaseKey || w == FactDeployToken {
 		return w, ""
 	}
 	for _, t := range FactTools {
@@ -185,6 +189,9 @@ func (f Facts) Words() []string {
 	if f.SigningKey {
 		out = append(out, FactSigningKey)
 	}
+	if f.ReleaseKey {
+		out = append(out, FactReleaseKey)
+	}
 	if f.DeployToken {
 		out = append(out, FactDeployToken)
 	}
@@ -206,7 +213,7 @@ type FactQuery struct {
 	Text    string // as typed, lower-cased: what the answer is shown under
 }
 
-// ParseFactQuery reads a --has: signing-key, deploy-token, fleet-guard, fleet-guard:0.3.*,
+// ParseFactQuery reads a --has: signing-key, release-key, deploy-token, fleet-guard, fleet-guard:0.3.*,
 // fleet-ctx:0.2.0, ssh:0own_bastion. Errors quote what was typed and list the facts.
 func ParseFactQuery(s string) (FactQuery, error) {
 	raw := s
@@ -219,7 +226,7 @@ func ParseFactQuery(s string) (FactQuery, error) {
 		name = FactSigningKey
 	}
 	switch name {
-	case FactSigningKey, FactDeployToken:
+	case FactSigningKey, FactReleaseKey, FactDeployToken:
 		if hasPat {
 			return bad("this fact is yes or no and takes no value")
 		}
@@ -259,6 +266,8 @@ func (q FactQuery) Match(f Facts) (bool, string) {
 	switch q.Name {
 	case FactSigningKey:
 		return f.SigningKey, ""
+	case FactReleaseKey:
+		return f.ReleaseKey, ""
 	case FactDeployToken:
 		return f.DeployToken, ""
 	case FactSSH:

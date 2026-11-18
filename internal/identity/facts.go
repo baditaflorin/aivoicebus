@@ -16,12 +16,16 @@ import (
 
 	"github.com/baditaflorin/aivoicebus/internal/config"
 	"github.com/baditaflorin/aivoicebus/internal/msg"
+	"github.com/baditaflorin/aivoicebus/internal/release"
 )
 
 // The facts this machine advertises (see msg/facts.go), worked out here from an allowlist and
 // nothing else:
 //
 //	signing-key   ~/.config/aivoicebus/release-signing.key is a regular file (stat only: never opened)
+//	release-key   that, and ~/.config/aivoicebus/release-signing.pub (the public half, written by
+//	              `release keygen` or `release pubkey`) is a key built into this binary: the machine
+//	              can sign a release the fleet accepts
 //	deploy-token  ~/.config/aivoicebus/deploy-token is a regular file (stat only: never opened)
 //	fleet-guard   the version in ~/.fleet-guard/VERSION (its first 64 bytes, kept only if it is a version)
 //	fleet-ctx     what `fleet-ctx --version` prints (kept only if it is a version)
@@ -57,7 +61,8 @@ type machineFacts struct {
 }
 
 // prober is everything working the facts out touches. A secret is only ever passed to stat:
-// readHead is for the two files that hold no secret (fleet-guard's VERSION, the ssh config), and
+// readHead is for the files that hold no secret (fleet-guard's VERSION, the ssh config, the public
+// half of the signing key), and
 // tests replace these to check exactly that.
 type prober struct {
 	home     string
@@ -155,6 +160,9 @@ func (p prober) facts(sshEnv string) (has, ssh string) {
 	cfg := filepath.Join(p.home, ".config", "aivoicebus")
 	if p.isFile(filepath.Join(cfg, "release-signing.key")) {
 		words = append(words, msg.FactSigningKey)
+		if p.trustedPublicKey(filepath.Join(cfg, "release-signing.pub")) {
+			words = append(words, msg.FactReleaseKey)
+		}
 	}
 	if p.isFile(filepath.Join(cfg, "deploy-token")) {
 		words = append(words, msg.FactDeployToken)
@@ -170,6 +178,22 @@ func (p prober) facts(sshEnv string) (has, ssh string) {
 		ssh = msg.FactValue(aliases)
 	}
 	return has, ssh
+}
+
+// trustedPublicKey is whether the public key file at path holds a key built into this binary. The file
+// is public (no secret is read); like every fact the answer is a hint: signing still checks the key.
+func (p prober) trustedPublicKey(path string) bool {
+	b, err := p.readHead(path, 128)
+	if err != nil {
+		return false
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	k, err := release.ParseKey(line)
+	if err != nil {
+		return false
+	}
+	_, ok := release.Builtin(k)
+	return ok
 }
 
 func (p prober) isFile(path string) bool {
