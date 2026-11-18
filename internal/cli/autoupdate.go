@@ -13,6 +13,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/outbox"
 	"github.com/baditaflorin/aivoicebus/internal/release"
 	"github.com/baditaflorin/aivoicebus/internal/updater"
+	"github.com/baditaflorin/aivoicebus/internal/version"
 	"github.com/baditaflorin/aivoicebus/internal/view"
 )
 
@@ -24,7 +25,7 @@ import (
 // `aivoicebus update`, never forced, rolled back when the new binary's setup fails, and never again
 // to a release the person rolled back from.
 
-const autoUsage = "usage: update --auto on|off|status|run   (on is the person's, typed at a terminal; run is what the session-start hook starts)"
+const autoUsage = "usage: update --auto on|off|status|run|tick   (on is the person's, typed at a terminal; run is what the session-start hook starts; tick is the periodic check, for cron or launchd)"
 
 // autoUpdateCmd is `update --auto WORD`.
 func autoUpdateCmd(word string, s Streams) error {
@@ -38,6 +39,8 @@ func autoUpdateCmd(word string, s Streams) error {
 		return nil
 	case "run":
 		return autoRun(s)
+	case "tick":
+		return autoTickCmd(s)
 	}
 	return outbox.Usagef(autoUsage)
 }
@@ -62,7 +65,7 @@ func autoOn(s Streams) error {
 		return err
 	}
 	config.Audit(identity.Me(), "update --auto on", "")
-	fmt.Fprintln(s.Out, "auto-update is on: a session start installs a newer signed release by itself, at most once a day (the same checks as aivoicebus update, the previous binary kept, put back if the new one's setup fails). aivoicebus update --auto off stops it.")
+	fmt.Fprintln(s.Out, "auto-update is on: a session start, a running worker or forwarder (about hourly), or `aivoicebus update --auto tick` installs a newer signed release by itself, at most once a day and after this machine's share of a six-hour fleet spread (the same checks as aivoicebus update, the previous binary kept, put back if the new one's setup or health check fails). aivoicebus update --auto off stops it.")
 	return nil
 }
 
@@ -99,6 +102,17 @@ func autoStatusText(a config.AutoUpdate, st config.AutoState, now time.Time) str
 	}
 	if st.Skip != "" {
 		s += "; leaves out release " + st.Skip + " (rolled back here)"
+	}
+	if !st.Checked.IsZero() {
+		s += "; last periodic check " + view.When(st.Checked, now)
+		if st.CheckedBy != "" {
+			s += " (" + st.CheckedBy + ")"
+		}
+	}
+	if st.SeenTo != "" && st.Tried.Before(st.Seen) && release.Newer(st.SeenTo, version.Release) {
+		if until := st.Seen.Add(machineHoldoff()); now.Before(until) {
+			s += "; waits until " + until.Local().Format("15:04") + " before it installs " + st.SeenTo + " (this machine's share of the fleet spread)"
+		}
 	}
 	return s
 }

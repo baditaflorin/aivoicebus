@@ -216,7 +216,10 @@ aivoicebus demo        # try it: two throwaway nodes and two invented agents tal
 `go install ...@v0.1.0` reports that release in `aivoicebus version`; a build from a checkout reports `dev`. Release binaries are signed and ship with `SHA256SUMS`; `aivoicebus update` verifies the
 signature before it installs anything (see [docs/releasing.md](docs/releasing.md)). To have a machine do that by
 itself, its person runs `aivoicebus update --auto on` once in their own terminal (off by default; an agent cannot turn
-it on; `--auto off` stops it).
+it on; `--auto off` stops it; `--auto status` says what it last did). With it on, a session start, a running `worker`
+or `forward --webhook` (about hourly), or `aivoicebus update --auto tick` from cron installs a newer signed release at
+most once a day, after this machine's own share of a six-hour fleet spread, keeps the previous binary, and puts it
+back by itself if the new one's setup or health check fails ([docs/reference.md](docs/reference.md#updating)).
 
 ## Quickstart: one node, one machine
 

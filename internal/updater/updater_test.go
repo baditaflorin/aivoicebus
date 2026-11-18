@@ -27,6 +27,9 @@ type harness struct {
 	bin   string // installed binary
 	calls []string
 	setup error // what a `setup` run returns
+	// broken is installed content that, once at the installed path, no longer runs (the health
+	// check after the swap fails); the same bytes staged run fine.
+	broken string
 }
 
 func newHarness(t *testing.T, installed, released string) *harness {
@@ -59,6 +62,9 @@ func (h *harness) runner(bin string, args ...string) (string, error) {
 		b, err := os.ReadFile(bin)
 		if err != nil {
 			return "", err
+		}
+		if h.broken != "" && bin == h.bin && string(b) == h.broken {
+			return "dyld: Library not loaded\n", errors.New("signal: abort trap")
 		}
 		return string(b) + " (commit x, linux/amd64)\n", nil
 	case "setup":
@@ -420,5 +426,32 @@ func TestAutoLeavesADevBuildOrNoBinaryAlone(t *testing.T) {
 	}
 	if _, err := os.Stat(h.bin); err == nil {
 		t.Error("nothing is installed where there was nothing")
+	}
+}
+
+// The health check after the swap: a release whose setup passed but whose installed binary then
+// does not run (or says another release) is put back too, and the run says why.
+func TestAutoPutsThePreviousBinaryBackWhenTheHealthCheckFails(t *testing.T) {
+	h := newHarness(t, "0.2.0", "0.3.0")
+	h.broken = "aivoicebus 0.3.0"
+	o, _ := h.options("")
+	res, err := Auto(o)
+	if err == nil || !strings.Contains(err.Error(), "failed its health check") || !res.RolledBack || res.Latest != "0.3.0" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if h.installed() != "aivoicebus 0.2.0" {
+		t.Errorf("the previous binary is back: %q", h.installed())
+	}
+	noStaging(t, h.bin)
+}
+
+// A manual update is not rolled back by the health check: the person is there to see it.
+func TestUpdateByHandHasNoAutomaticRollback(t *testing.T) {
+	h := newHarness(t, "0.2.0", "0.3.0")
+	h.broken = "aivoicebus 0.3.0"
+	o, _ := h.options("0.2.0")
+	res, err := Update(o)
+	if err != nil || !res.Updated || h.installed() != "aivoicebus 0.3.0" {
+		t.Fatalf("%+v %v, installed %q", res, err, h.installed())
 	}
 }

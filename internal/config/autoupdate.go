@@ -65,6 +65,14 @@ type AutoState struct {
 	// Skip is the last release rolled back from on this machine (by the person, or by a run whose
 	// setup failed): no run installs it, or anything older, by itself.
 	Skip string `json:"skip,omitempty"`
+	// Seen and SeenTo are when this machine's periodic check (a worker, a forwarder or
+	// `update --auto tick`) first saw the nodes announce release SeenTo: it waits this machine's
+	// share of the fleet spread after that before it installs, so the fleet does not update at once.
+	Seen   time.Time `json:"seen,omitempty"`
+	SeenTo string    `json:"seen_to,omitempty"`
+	// Checked and CheckedBy are the last periodic check and what made it (worker, forwarder, tick).
+	Checked   time.Time `json:"checked,omitempty"`
+	CheckedBy string    `json:"checked_by,omitempty"`
 }
 
 // Failed reports whether the last run ended without the release it went for.

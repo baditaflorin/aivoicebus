@@ -112,7 +112,8 @@ func forwardCmd(args []string, s Streams) error {
 	}
 	f := &forward.Forwarder{Bus: c, Me: me, Post: forward.NewHTTPPoster(w), Out: s.Err, Log: logf, Release: version.Release,
 		MaxWakes: *maxWakes, MaxPerThread: *perThread, Batch: *batch, BodyRunes: *body, MinGap: *gap, Broadcasts: *broadcasts, FYI: *fyi,
-		Quiet: func(t time.Time) bool { return config.LoadQuiet().Active(t) }, Replaced: binaryReplaced()}
+		Quiet: func(t time.Time) bool { return config.LoadQuiet().Active(t) }, Replaced: binaryReplaced(),
+		Tick: autoTicker(c, "forwarder", Streams{In: s.In, Out: s.Err, Err: s.Err})} // about hourly, only while auto-update is on
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	fmt.Fprintf(s.Err, "aivoicebus forwarder %s: new messages and tasks for it go to the webhook at %s (%s header), at most %d POSTs and %d messages per conversation an hour. Payloads are labelled untrusted and hold no credential. Log: %s\n",

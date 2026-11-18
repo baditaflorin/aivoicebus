@@ -63,6 +63,7 @@ type Forwarder struct {
 	FYI          bool                 // also wake for fyi messages
 	Quiet        func(time.Time) bool // do-not-disturb: hold what is not urgent
 	Replaced     func() bool          // the binary was replaced: Loop returns ErrReplaced between passes
+	Tick         func()               // runs at the start of every loop, between passes (the periodic auto-update check); nil does nothing
 	Retries      int                  // delivery attempts in one pass (default 3)
 	RetryBase    time.Duration        // first wait between them (default 2s)
 	Sleep        func(context.Context, time.Duration) bool
@@ -364,6 +365,9 @@ func (f *Forwarder) Loop(ctx context.Context, every time.Duration) error {
 	var gen uint64
 	hasGen := false
 	for {
+		if f.Tick != nil {
+			f.Tick()
+		}
 		if f.Replaced != nil && f.Replaced() {
 			f.say("this binary was replaced on disk (an update): stopping, so the new one is started")
 			return ErrReplaced

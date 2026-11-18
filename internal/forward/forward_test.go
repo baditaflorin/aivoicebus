@@ -372,3 +372,18 @@ func TestBuildGivesTheSameKeyForTheSameMessages(t *testing.T) {
 		t.Errorf("keys %s %s %s", k1, k2, k3)
 	}
 }
+
+// The periodic auto-update check runs between passes, before the replaced-binary check, so a run
+// that installed a release is followed by the new binary at once.
+func TestLoopTicksBeforeItLooksForAReplacedBinary(t *testing.T) {
+	f, _, _ := setup(t)
+	var order []string
+	f.Tick = func() { order = append(order, "tick") }
+	f.Replaced = func() bool { order = append(order, "replaced"); return true }
+	if err := f.Loop(context.Background(), time.Second); !errors.Is(err, ErrReplaced) {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Join(order, ",") != "tick,replaced" {
+		t.Errorf("order %v", order)
+	}
+}

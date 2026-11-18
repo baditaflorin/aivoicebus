@@ -255,7 +255,11 @@ func workerCmd(args []string, s Streams) error {
 			return err
 		}
 		var last time.Time
-		w.Tick = func() { // once a minute: scheduled tasks that are due, and (--watch) stuck ones
+		// About hourly, and only while auto-update is on: the periodic auto-update check (autotick.go).
+		autoCheck := autoTicker(wc, "worker", s)
+		// Once a minute: scheduled tasks that are due, and (--watch) stuck ones.
+		w.Tick = func() {
+			autoCheck()
 			if time.Since(last) < time.Minute {
 				return
 			}

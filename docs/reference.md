@@ -2141,6 +2141,7 @@ the two sides used.
     aivoicebus update --auto on     # the person, once, in their own terminal: install signed releases by itself
     aivoicebus update --auto status # is it on, and what did its last run do?
     aivoicebus update --auto off    # stop it (anyone may)
+    aivoicebus update --auto tick   # one periodic check now (for cron or launchd; a worker and a forwarder check by themselves)
 
 `update` installs only a release whose manifest is signed by a trusted key (the project's, compiled
 into the binary; plus any you added with `aivoicebus trust-key add`, or a fork built in), whose binary
@@ -2174,6 +2175,43 @@ itself ...", or for the person: "auto-update did not install release 0.14.0 (why
 the last run `auto-update-state.json` beside it. Like the other person-only commands this keeps agents
 from turning it on by mistake; an agent that writes that file by hand is not stopped by it, and still
 gets only what `update` would install.
+
+**The periodic check.** A session start is not the only trigger: a machine where nobody opens an agent
+session (a Mac that only runs `worker install`, a build host, the Grok Bot box with its `forward
+--webhook`) would otherwise never update by itself. With the setting on, the long-running `worker`
+and `forward --webhook` processes also check, about once an hour (give or take a quarter of an hour,
+the first check a few minutes after they start); with it off they ask the nodes nothing. On a
+machine that runs neither, `aivoicebus update --auto tick` is the same check, for cron or a launchd
+agent (cron and launchd do not read the shell's rc file, so give it the environment):
+
+    # crontab -e (Linux, or any machine with cron): once an hour, at a minute of your own
+    23 * * * * . "$HOME/.config/aivoicebus/env" 2>/dev/null; "$HOME/.local/bin/aivoicebus" update --auto tick >>"$HOME/.config/aivoicebus/auto-tick.log" 2>&1
+
+A box without systemd (the Grok Bot box) needs none of this while its forwarder runs.
+
+A check starts the same automatic run as the hook (signed by any trusted key, strictly newer, the
+hash checked, test-run before the swap, previous binary kept as `aivoicebus.prev`, never the release
+rolled back from, at most one try a day) with one more rule: **the fleet spread**. The first check
+that sees the nodes announce a newer release notes it (`seen`, `seen_to` in `auto-update-state.json`)
+and the machine waits its own share of six hours, fixed per machine from its host name, before it
+installs; so a bad release reaches a few machines first and a person can stop the rest (`update --auto
+off` on them, or `update --rollback` where it landed, which leaves that release out). A session start
+does not wait: a person is there. The run happens in the checking process; once it replaced the
+binary, the worker and the forwarder notice between passes and start the new one, as after a manual
+`update` (a worker service exits 75 and launchd or systemd restarts it; the forwarder starts its
+successor). Prereleases are never installed by itself: only `MAJOR.MINOR.PATCH` is a release.
+
+**Health check and rollback.** After the swap the run checks that the new binary's `setup` succeeds
+and that the installed binary still runs and says the release it was installed as (`aivoicebus
+version`). If either fails it puts the previous binary back, records `rolled back` with the reason,
+and leaves that release out from then on. A manual `update` does not roll back by itself: the person
+is there to read what failed.
+
+**Where to see it.** `aivoicebus update --auto status` (the setting, the last run, the last periodic
+check and what made it, and, while a release waits its share, until when), `aivoicebus status` (the
+last run), the next session start (one line), the audit log (`update --auto run`), and the worker's
+or the forwarder's own log, where each check that runs an update writes two lines: what it installs
+and what came of it. Nothing it writes holds a token or a key.
 
 ## Removing it
 
