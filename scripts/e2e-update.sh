@@ -90,7 +90,7 @@ mk; "$NEW" release keygen --out "$T/rogue.key" >/dev/null 2>&1
 out=$("$FM" update --from "dir:$T/relX" 2>&1); check "refused" "does not match any trusted key" "$out"; unchanged
 
 echo " d. replay of an older signed release (downgrade)"
-mk; "$NEW" release pack --dir "$T/relX" --key "$KEY" --version 0.0.1 >/dev/null 2>&1
+mk; "$NEW" release pack --dir "$T/relX" --key "$KEY" --version 0.0.1 --any-signer >/dev/null 2>&1
 out=$("$FM" update --from "dir:$T/relX" 2>&1); check "treated as up to date" "up to date" "$out"; unchanged
 
 echo " e. correctly signed, but the binary is for another OS (a maintainer mistake)"

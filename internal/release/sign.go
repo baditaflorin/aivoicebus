@@ -50,6 +50,22 @@ func SavePrivateKey(path string, priv ed25519.PrivateKey) error {
 	return werr
 }
 
+// PublicKeyPath is where the public half of the private key at keyPath is kept: the same name with
+// .pub in place of .key (release-signing.key -> release-signing.pub), or .pub appended.
+func PublicKeyPath(keyPath string) string {
+	return strings.TrimSuffix(keyPath, ".key") + ".pub"
+}
+
+// SavePublicKey writes pub (base64, one line) to path, mode 0644: it is public, and the facts probe
+// reads it to tell whether this machine holds a key the project's binaries trust.
+func SavePublicKey(path string, pub ed25519.PublicKey) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(EncodeKey(pub)+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 // LoadPrivateKey reads a key written by SavePrivateKey. It insists the file is
 // not readable by others.
 func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
@@ -80,17 +96,23 @@ func Sign(manifest []byte, priv ed25519.PrivateKey) string {
 // manifest.sig. Several keys are accepted so a key can be rotated: ship a
 // release, signed by the old key, whose binary also trusts the new one.
 func Verify(manifest, sig []byte, keys []ed25519.PublicKey) error {
+	_, err := verifyIndex(manifest, sig, keys)
+	return err
+}
+
+// verifyIndex is Verify that also says which key signed.
+func verifyIndex(manifest, sig []byte, keys []ed25519.PublicKey) (int, error) {
 	if len(keys) == 0 {
-		return ErrNoTrustedKeys
+		return -1, ErrNoTrustedKeys
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sig)))
 	if err != nil || len(raw) != ed25519.SignatureSize {
-		return ErrBadSignature
+		return -1, ErrBadSignature
 	}
-	for _, k := range keys {
+	for i, k := range keys {
 		if len(k) == ed25519.PublicKeySize && ed25519.Verify(k, manifest, raw) {
-			return nil
+			return i, nil
 		}
 	}
-	return ErrBadSignature
+	return -1, ErrBadSignature
 }

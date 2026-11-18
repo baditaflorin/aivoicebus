@@ -31,7 +31,7 @@ import (
 //	branch   its checked-out branch               feature/x
 //	role     the roles it claims (AIVOICEBUS_ROLE) build+review  (a send to @build finds it)
 //	test     on when AIVOICEBUS_TEST=1: opted in to the test lane (read on every call, never pinned)
-//	has      what the machine has: signing-key, deploy-token, fleet-guard-0.3.13, fleet-ctx-0.2.0, or none
+//	has      what the machine has: signing-key, release-key, deploy-token, fleet-guard-0.3.13, fleet-ctx-0.2.0, or none
 //	ssh      the node ssh aliases that resolve on it     0mcp+0own   (both from facts.go, never pinned)
 //
 // cwd is the directory the session works in ("" means the current one). A

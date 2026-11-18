@@ -175,7 +175,7 @@ aivoicebus send --to laptop-b --budget-chars 20000 "..."   # a conversation that
 aivoicebus thread 4f2a9c1e0b --close-stale       # end a conversation that went quiet, with a summary
 aivoicebus task --needs repo:o/api "fix the flaky test" --with-thread 4f2a9c1e0b   # to the session with that checkout, with the context
 aivoicebus fleet                                 # every machine: its release, last heard, token, what it has
-aivoicebus who --has signing-key                 # which machine holds the release key (deploy-token, ssh:ALIAS, fleet-guard too)
+aivoicebus who --has release-key                 # which machines can sign a release (signing-key, deploy-token, ssh:ALIAS, fleet-guard too)
 aivoicebus completion zsh > "${fpath[1]}/_aivoicebus"      # tab completion (bash and fish too)
 ```
 
@@ -188,7 +188,9 @@ behind says so to its person at session start (once a day) and in `status`, with
 mesh; `aivoicebus update --auto on`, typed once by the person, has it install signed releases by
 itself. A task meant for you shows at session start, and on macOS as a notification. Each machine says what it has (the release signing key, the deploy token, which node ssh
 aliases resolve, its fleet tools' versions: yes/no, names and versions, never a file's contents), so
-`who --has signing-key` answers in a second what once took five tasks and 75 minutes.
+`who --has release-key` answers in a second what once took five tasks and 75 minutes. Releases
+have several signers, one key per signing machine and any one of them enough, so no single laptop holds
+up a release ([docs/releasing.md](docs/releasing.md#signers)).
 
 Every message is signed with its machine's key; a reader flags one whose signature fails or whose machine key changed,
 and the worker takes only signed tasks.

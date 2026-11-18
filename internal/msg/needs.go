@@ -9,7 +9,8 @@ import (
 // What a session can do, read from its labels, so nobody has to declare the obvious: the
 // repository it has checked out (repo:OWNER/NAME, from its origin remote), the branch, the tool,
 // the model and the roles it claims, plus the words in its caps label (AIVOICEBUS_CAPS, and gpu
-// where the machine has one). A sender asks for them with --needs and the session that has all
+// where the machine has one) and the yes/no facts of its has label (signing-key, release-key,
+// deploy-token), so `task --needs release-key,repo:o/x` reaches a session on any machine that can sign. A sender asks for them with --needs and the session that has all
 // of them gets the work. Like every label they are self-declared hints, never proof.
 
 // NeedKeys are the capability kinds read from labels, as key:value.
@@ -26,6 +27,15 @@ func CapsOf(me string, l Labels) []string {
 	for _, w := range strings.Split(l[CapsLabel], "+") {
 		if w != "" {
 			out = append(out, w)
+		}
+	}
+	f := FactsOf(l)
+	for _, w := range []struct {
+		yes  bool
+		word string
+	}{{f.SigningKey, FactSigningKey}, {f.ReleaseKey, FactReleaseKey}, {f.DeployToken, FactDeployToken}} {
+		if w.yes && !slices.Contains(out, w.word) {
+			out = append(out, w.word)
 		}
 	}
 	add := func(k, v string) {

@@ -111,7 +111,7 @@ func TestWhoHasRefusesWhatIsNoFact(t *testing.T) {
 	factsMesh(t)
 	for _, args := range [][]string{{"who", "--has", "token"}, {"who", "--has", "ssh"}, {"who", "--has", "signing-key", "--tools"}} {
 		code, _, e := run(t, "", args...)
-		if code != 2 || !(strings.Contains(e, "the facts are signing-key, deploy-token") || strings.Contains(e, "do not go together")) {
+		if code != 2 || !(strings.Contains(e, "the facts are signing-key, release-key, deploy-token") || strings.Contains(e, "do not go together")) {
 			t.Errorf("%v: %d %s", args, code, e)
 		}
 	}

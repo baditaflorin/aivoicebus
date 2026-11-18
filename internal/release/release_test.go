@@ -67,9 +67,9 @@ func TestTrustedKeysCompiledInAllParse(t *testing.T) {
 	if len(builtinKeys) == 0 {
 		t.Fatal("no trusted key is compiled in: every update would be refused")
 	}
-	for _, s := range builtinKeys {
-		if _, err := ParseKey(s); err != nil {
-			t.Errorf("compiled-in key %q is invalid: %v", s, err)
+	for _, b := range builtinKeys {
+		if _, err := ParseKey(b.Key); err != nil {
+			t.Errorf("compiled-in key %q is invalid: %v", b.Key, err)
 		}
 	}
 	if len(TrustedKeys()) != len(builtinKeys) {
