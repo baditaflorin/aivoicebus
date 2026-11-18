@@ -367,7 +367,8 @@ reader (a withdrawn message's placeholder) says `UTC`, since the readers' zones 
 
 ### What a machine has: `who --has`
 
-    aivoicebus who --has signing-key        # which machine holds the release signing key
+    aivoicebus who --has release-key        # which machines can sign a release the fleet accepts
+    aivoicebus who --has signing-key        # which machines hold a release signing key file at all
     aivoicebus who --has deploy-token       # which holds the deploy token
     aivoicebus who --has ssh:0own_bastion   # where that ssh alias resolves (ssh:* any)
     aivoicebus who --has fleet-guard:0.3.*  # where fleet-guard 0.3.x is installed (fleet-ctx too)
@@ -379,6 +380,7 @@ and declares them with its labels, so the answer is in the roster:
 | fact | how it is found | label word |
 |---|---|---|
 | `signing-key` | `~/.config/aivoicebus/release-signing.key` is a regular file: looked at (stat), never opened | `signing-key` |
+| `release-key` | that, and the public half beside it, `release-signing.pub` (written by `release keygen` or `release pubkey`), is one of the signers built into this binary (`trust-key list`): the machine can sign a release every machine accepts | `release-key` |
 | `deploy-token` | `~/.config/aivoicebus/deploy-token` is a regular file: looked at, never opened | `deploy-token` |
 | `fleet-guard` | the first line of `~/.fleet-guard/VERSION`, kept only if it is a version | `fleet-guard-0.3.13` |
 | `fleet-ctx` | what `fleet-ctx --version` prints (PATH, else `~/.local/bin`), kept only if it is a version | `fleet-ctx-0.2.0` |
@@ -408,6 +410,10 @@ are full, or its sessions run under an `AIVOICEBUS_ME` identity (which says noth
 `{"fact", "machines": [{"machine", "answer", "value", "seen", "from"}], "hidden"}`; `--within`, `--all`
 and a selector (`who --has signing-key @repo=x`) narrow the sessions asked as for a plain `who`. Like
 every label, facts are self-declared hints, not proof: check before acting on one.
+
+The yes/no facts (`signing-key`, `release-key`, `deploy-token`) are capabilities for `--needs` too, so
+`aivoicebus task --needs release-key,repo:baditaflorin/aivoicebus "sign v0.17.0 ..."` goes to a session on
+whichever signing machine has the checkout and is live, instead of to a laptop guessed by name.
 
 ### The viewer: who is talking to whom
 
@@ -1609,7 +1615,7 @@ later are not shown it) and tells the sender once with `[done: condition met]`.
 | condition | true when |
 |---|---|
 | `release>=X.Y.Z` | the installed aivoicebus release is X.Y.Z or later (a build from source is never) |
-| `has:FACT` | the machine publishes the fact (`signing-key`, `deploy-token`, `fleet-guard[:VERSION]`, `ssh:ALIAS`: the `who --has` words) |
+| `has:FACT` | the machine publishes the fact (`signing-key`, `release-key`, `deploy-token`, `fleet-guard[:VERSION]`, `ssh:ALIAS`: the `who --has` words) |
 | `file:~/PATH` | the path exists under the home directory (never opened or read; not through `..` or a symlink out of it; never in `.ssh`, `.gnupg`, `.aws`, `.config/aivoicebus` and similar) |
 | `service:LABEL` | a launchd (macOS) or systemd (Linux) unit of that label is loaded, by one bounded local probe |
 

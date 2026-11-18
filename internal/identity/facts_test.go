@@ -414,3 +414,41 @@ func TestRealFilesAreLookedAtNeverReadOrSent(t *testing.T) {
 		}
 	}
 }
+
+// release-key says the machine's signing key is one the project's binaries trust, worked out from the
+// public half beside it; the private key is still only looked at. A public key the binary does not
+// carry, or one with no private key beside it, says nothing more than before.
+func TestReleaseKeyComesFromThePublicHalf(t *testing.T) {
+	const builtIn = "ifPkwhdAJPKrwwAQtxU8kZNRQhx/PXn8KWoS+EvzgVY=" // mac14-m1pro-mbp, in internal/release/keys.go
+	m := keyMachine(t)
+	m.files[".config/aivoicebus/release-signing.pub"] = builtIn + "\n"
+	has, _ := m.prober().facts("")
+	if !strings.HasPrefix(has, "signing-key+release-key+deploy-token") {
+		t.Errorf("a trusted public half: has %q", has)
+	}
+	for _, r := range m.reads {
+		if strings.HasSuffix(r, "release-signing.key") {
+			t.Errorf("the private key was opened: %v", m.reads)
+		}
+	}
+	if f := msg.FactsOf(msg.Labels{msg.HasLabel: has}); !f.ReleaseKey || !f.SigningKey {
+		t.Errorf("FactsOf(%q) = %+v", has, f)
+	}
+	if !msg.ValidFacts(has, "") {
+		t.Errorf("%q does not read back as facts", has)
+	}
+
+	m.files[".config/aivoicebus/release-signing.pub"] = "VZWMody5REXot6TMsPTVcgTgN8DBFmLmI3L+vd9MH4" + "\n" // cut short
+	if has, _ := m.prober().facts(""); strings.Contains(has, "release-key") {
+		t.Errorf("a garbled public key: %q", has)
+	}
+	m.files[".config/aivoicebus/release-signing.pub"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n" // a key no binary carries
+	if has, _ := m.prober().facts(""); strings.Contains(has, "release-key") || !strings.Contains(has, "signing-key") {
+		t.Errorf("an untrusted public key: %q", has)
+	}
+	m.files[".config/aivoicebus/release-signing.pub"] = builtIn
+	delete(m.files, ".config/aivoicebus/release-signing.key")
+	if has, _ := m.prober().facts(""); strings.Contains(has, "key") {
+		t.Errorf("a public half with no private key: %q", has)
+	}
+}

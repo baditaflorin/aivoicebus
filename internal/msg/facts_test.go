@@ -102,7 +102,7 @@ func TestParseFactQueryAcceptsTheFactsAndExplainsTheRest(t *testing.T) {
 	}
 	for _, in := range []string{"", "token", "signing-key:yes", "ssh", "ssh:", "ssh:a b", "fleet-guard:0.3;rm", "fleet-ctx:"} {
 		_, err := ParseFactQuery(in)
-		if err == nil || !strings.Contains(err.Error(), "the facts are signing-key, deploy-token") {
+		if err == nil || !strings.Contains(err.Error(), "the facts are signing-key, release-key, deploy-token") {
 			t.Errorf("ParseFactQuery(%q): %v", in, err)
 		}
 	}
@@ -144,5 +144,45 @@ func TestValidFactsAcceptsOnlyWhatCouldHaveBeenWorkedOut(t *testing.T) {
 		if ValidFacts(bad[0], bad[1]) {
 			t.Errorf("%q %q is not", bad[0], bad[1])
 		}
+	}
+}
+
+func TestReleaseKeyIsAFact(t *testing.T) {
+	q, err := ParseFactQuery("release-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseFactQuery("release-key:x"); err == nil {
+		t.Error("release-key is yes or no")
+	}
+	yes := FactsOf(Labels{HasLabel: "signing-key+release-key"})
+	no := FactsOf(Labels{HasLabel: "signing-key"})
+	if ok, _ := q.Match(yes); !ok {
+		t.Errorf("%+v does not match release-key", yes)
+	}
+	if ok, _ := q.Match(no); ok {
+		t.Errorf("%+v matches release-key", no)
+	}
+	if w := strings.Join(yes.Words(), " "); w != "signing-key release-key" {
+		t.Errorf("Words = %q", w)
+	}
+}
+
+// The yes/no facts are capabilities too, so a release task can go to any machine that can sign.
+func TestFactsAreNeeds(t *testing.T) {
+	signer := Labels{HasLabel: "signing-key+release-key+fleet-guard-0.3.13", "origin": "baditaflorin/aivoicebus"}
+	stale := Labels{HasLabel: "signing-key", "origin": "baditaflorin/aivoicebus"}
+	needs, err := ParseNeeds("release-key,repo:baditaflorin/aivoicebus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := Lacks("mac14/claude.a1", signer, needs); len(l) != 0 {
+		t.Errorf("a trusted signer lacks %v", l)
+	}
+	if l := Lacks("old/claude.a1", stale, needs); !slices.Equal(l, []string{"release-key"}) {
+		t.Errorf("a key no binary trusts: lacks %v", l)
+	}
+	if l := Lacks("old/claude.a1", stale, []string{"signing-key"}); len(l) != 0 {
+		t.Errorf("signing-key: lacks %v", l)
 	}
 }
