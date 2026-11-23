@@ -515,6 +515,9 @@ func (c *Client) SendOnce(m msg.Message) (msg.Message, error) {
 	if err == nil && idTaken(m, out, nil) { // an older node answers a held id with the message it holds
 		return out, &StatusError{Code: http.StatusConflict, Status: "409 Conflict", Text: "another message holds this id", Reason: msg.RefusedIDTaken}
 	}
+	if err == nil {
+		c.soundSent(m)
+	}
 	return out, err
 }
 
@@ -532,6 +535,9 @@ func IDTaken(err error) bool {
 func (c *Client) SendRedrawing(m msg.Message) (out, sent msg.Message, err error) {
 	out, err = c.send(m)
 	if !idTaken(m, out, err) {
+		if err == nil {
+			c.soundSent(m)
+		}
 		return out, m, err
 	}
 	m = redrawn(m)
@@ -542,6 +548,9 @@ func (c *Client) SendRedrawing(m msg.Message) (out, sent msg.Message, err error)
 			se = &StatusError{Code: http.StatusConflict, Status: "409 Conflict", Text: "a node of an older release answered with another message under this id", Reason: msg.RefusedIDTaken}
 		}
 		return msg.Message{}, m, se
+	}
+	if err == nil {
+		c.soundSent(m)
 	}
 	return out, m, err
 }
@@ -598,7 +607,17 @@ func (c *Client) send(m msg.Message) (msg.Message, error) {
 // those nodes take (id "retract:<id>"), which they replicate but do not apply. That result has State
 // "recorded" and ReadBy -1: nothing is known of what the node did with it. Any other refusal (the
 // sender's machine is another, a rate limit, a bad request) is final.
+//
+// A retraction that took (not a dry run) makes the retracted sound, if the person asked for sounds.
 func (c *Client) Retract(id, by string, leak, dryRun bool) (msg.RetractResult, error) {
+	res, err := c.retract(id, by, leak, dryRun)
+	if err == nil && !dryRun {
+		soundRetracted(by)
+	}
+	return res, err
+}
+
+func (c *Client) retract(id, by string, leak, dryRun bool) (msg.RetractResult, error) {
 	req := msg.RetractRequest{ID: id, By: by, Leak: leak, DryRun: dryRun}
 	var oldNode, unknown bool
 	var unknownText string
@@ -713,7 +732,11 @@ func (c *Client) Inbox(me string, all bool) ([]msg.Message, error) {
 	err := c.do(c.URLs, "GET", q, nil, &ms)
 	Check(ms)
 	markInherited(ms, me)
-	return c.keepLane(ms), err
+	ms = c.keepLane(ms)
+	if err == nil && !all && !c.Lane && !c.Raw {
+		soundReceived(me, ms)
+	}
+	return ms, err
 }
 
 // markInherited tells a reader whose mail it was given that was written to another session: a node
@@ -860,7 +883,11 @@ func (c *Client) InboxWaitFor(ctx context.Context, me string, scope msg.WaitScop
 		}
 		Check(ms)
 		markInherited(ms, me)
-		return c.keepLane(ms), g, nil
+		ms = c.keepLane(ms)
+		if !c.Lane && !c.Raw {
+			soundReceived(me, ms)
+		}
+		return ms, g, nil
 	}
 	return nil, 0, last
 }

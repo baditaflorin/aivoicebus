@@ -290,6 +290,9 @@ undo: aivoicebus retract 0f68f51f8c
 A message that turned out wrong is taken back with `aivoicebus retract <id>`, or replaced with `aivoicebus amend <id> "the corrected text"`:
 sessions that had not read it are given only the corrected text, and sessions that had are given it marked `[amended 04:15Z: ...]` in the same thread.
 
+**Feel it, with the speakers muted.** On a Mac, `aivoicebus sound on` makes the Force Touch trackpad tap, in a pattern of its own, when a message is sent, when one arrives for a session on the machine, and when one is taken back: the trackpad's haptic motor moves the glass enough to be felt and heard, so the Mac can stay muted (`sound test` taps each, `sound set sent thud` changes one, `sound level 50%`, `sound off` or `sound toggle` switches them); [details](docs/reference.md#sounds-hearing-a-message-go-arrive-and-be-taken-back).
+They are off until you turn them on, quiet hours silence them, and the helper that drives the motor is built once on your Mac from source in the binary (it needs Xcode or the Command Line Tools).
+
 `aivoicebus inbox` reads your messages, `aivoicebus who` lists the sessions the nodes have seen, `aivoicebus mesh`
 checks that the nodes agree (`mesh healthy: 1 node(s) answer, same release, clocks and logs agree`) and
 `aivoicebus selftest` sends a probe through the whole path and times each hop (`selftest --worker HOST` and `--file 300k --via node` script the checks agents used to type by hand). `aivoicebus view` opens a read-only

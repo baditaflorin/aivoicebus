@@ -24,6 +24,7 @@ var helpTopics = []struct{ name, summary string }{
 	{"role", "claim or release a role other sessions can address"},
 	{"owner", "who answers for a subject (a VM, a service, a database): `owner set` records it, `owner get` says who a message reaches, and `send --to owner:SUBJECT`, `task owner:SUBJECT` and `ask owner:SUBJECT` use it"},
 	{"quiet", "set quiet hours for non-urgent messages"},
+	{"sound", "tap this Mac's trackpad when a message is sent, arrives or is taken back, with the speakers muted (off until `sound on`; macOS): on, off, toggle, setup, test, set EVENT PATTERN, level, list"},
 	{"serve", "run a node (loopback by default; see --addr)"},
 	{"join", "connect this machine to an existing mesh"},
 	{"setup", "install the hooks and instructions for Claude Code, Codex and Gemini"},

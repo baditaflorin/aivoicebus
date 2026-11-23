@@ -54,6 +54,7 @@ func init() {
 		"mesh":    meshCmd,
 		"nodes":   nodesCmd,
 		"quiet":   quietCmd,
+		"sound":   soundCmd,
 		"reply":   reply,
 		"mcp":     mcpCmd,
 		"export":  exportCmd,

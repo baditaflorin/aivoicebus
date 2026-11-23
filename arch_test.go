@@ -22,6 +22,7 @@ var allowed = map[string][]string{
 	"secrets":    {},
 	"credstore":  {},
 	"config":     {},
+	"sound":      {"config"}, // config: the settings file, quiet hours, and where the trackpad helper is kept
 	"assets":     {},
 	"term":       {"view"}, // the one place that imports the colour library; only the program's own commands use it
 	"version":    {},
@@ -31,7 +32,7 @@ var allowed = map[string][]string{
 	"store":      {"msg"},
 	"sharestore": {"msg"},
 	"share":      {"attach", "client", "config", "msg", "outbox"},
-	"client":     {"config", "msg", "view"}, // view: a node's words reach callers only as safe lines
+	"client":     {"config", "msg", "sound", "view"}, // view: a node's words reach callers only as safe lines; sound: the person's trackpad taps for a send, an arrival and a retraction
 	"server":     {"client", "config", "msg", "release", "secrets", "sharestore", "store", "version"},
 	"wants":      {"identity", "msg", "release", "version"},
 	"hook":       {"client", "config", "discovery", "identity", "msg", "outbox", "release", "tasks", "version", "view", "wants"}, // tasks: telling the person about a task nobody took
@@ -44,7 +45,7 @@ var allowed = map[string][]string{
 	"forward":    {"client", "config", "msg", "outbox", "view"},
 	"worker":     {"client", "config", "msg", "outbox", "tasks", "view"},
 	"outbox":     {"client", "config", "identity", "msg", "release", "secrets", "view"},
-	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "forward", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "status", "store", "tasks", "term", "updater", "version", "view", "wants", "worker"},
+	"cli":        {"agentcfg", "assets", "attach", "client", "config", "credstore", "discovery", "forward", "hook", "identity", "mcp", "msg", "outbox", "release", "secrets", "server", "share", "sound", "status", "store", "tasks", "term", "updater", "version", "view", "wants", "worker"},
 }
 
 func TestPackageDependenciesPointOneWay(t *testing.T) {
