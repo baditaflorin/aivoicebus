@@ -76,6 +76,9 @@ type Settings struct {
 	On       bool             `json:"on"`
 	Patterns map[Event]string `json:"patterns,omitempty"` // per event: a pattern's name, Off or Default
 	Level    float64          `json:"level,omitempty"`    // MinLevel..MaxLevel; 0 is DefaultLevel
+	// IgnoreFocus turns off the stillness while a macOS Focus (Sleep, Personal, Do Not Disturb...) is on; by
+	// default taps wait for the Focus to end, whatever the hour and however urgent the message.
+	IgnoreFocus bool `json:"ignore_focus,omitempty"`
 }
 
 // Pattern is a short run of taps. Args are the helper's arguments (see haptic.c): bursts of a soft thump
@@ -223,11 +226,19 @@ var (
 )
 
 // Play taps the trackpad for e, in the background, when taps are on. Quiet hours (`aivoicebus quiet`)
-// silence it, except for urgent, which is what they let through for messages too. Several of one event
-// within a fraction of a second are one tap. It never reports a problem: see Test.
+// silence it, except for urgent, which is what they let through for messages too. A macOS Focus that is on
+// (Sleep, Personal, Do Not Disturb, ...) silences it whatever the message: the person asked not to be
+// disturbed, and unlike quiet hours that is said by the Mac itself, so nothing needs setting up. Several of
+// one event within a fraction of a second are one tap. It never reports a problem: see Test.
 func Play(e Event, urgent bool) {
 	if !Enabled() || (!urgent && config.LoadQuiet().Active(now())) {
 		return
+	}
+	s := Load()
+	if !s.IgnoreFocus {
+		if modes, _ := ActiveFocus(); len(modes) > 0 { // a state that cannot be read counts as none: `aivoicebus sound` says so
+			return
+		}
 	}
 	gapMu.Lock()
 	t := now()
@@ -237,7 +248,6 @@ func Play(e Event, urgent bool) {
 	}
 	played[e] = t
 	gapMu.Unlock()
-	s := Load()
 	if p, err := Resolve(s.Name(e), e); err == nil {
 		if cmd, err := command(s, p); err == nil {
 			_ = start(cmd)
