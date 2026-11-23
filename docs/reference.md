@@ -2014,6 +2014,44 @@ flags. The flags come from each command's own `-h`, so they never go out of date
 node). `help COMMAND` shows real examples for the commands people reach for first, and a test
 checks each example's flags against the command's parser.
 
+## Sounds: hearing a message go, arrive and be taken back
+
+    aivoicebus sound                    # on or off, the sound each event plays, the volume
+    aivoicebus sound on | off | toggle  # the master switch (saved; off until the person on this machine turns it on)
+    aivoicebus sound test [EVENT]       # play one event's sound, or all three, whatever the switch says
+    aivoicebus sound set EVENT NAME     # EVENT: sent, received, retracted. NAME: a system sound (`sound list`),
+                                        # /an/absolute/path/to/file.wav, `off` (silence this event) or `default`
+    aivoicebus sound volume 50%         # 0.05 to 1 (or 5% to 100%) of the system volume; `full` is the default
+    aivoicebus sound list               # the names a setting can use
+
+A person who wants to hear the bus works turns this on once, at a terminal. Nothing is on by default, and a node, a
+worker host or CI that nobody turned it on for stays silent.
+
+| Event | When it sounds | Default (macOS) |
+|---|---|---|
+| `sent` | a message of this machine went to the nodes (`send`, `reply`, `ask`, `task`, the MCP tools, a worker's answer) | Pop |
+| `received` | an unread message for a session of this machine was handed to it for the first time (a session start or per-prompt hook, `inbox`, `wait`, `aivoicebus_inbox`) | Glass |
+| `retracted` | `retract` (or `incident --apply`) took a message back | Funk |
+
+- **Once per message.** A machine makes one `received` sound for each message, however many sessions read it and however
+  many times it is read again before it is acked; several messages that arrive together are one sound. Several of
+  one event within 0.4 seconds (an incident retracting a dozen messages) are one sound. `inbox --all`, a dry run
+  (`retract --dry-run`) and a send a node refused make none.
+- **Quiet hours** (`aivoicebus quiet`) silence all of it, except that an urgent message arriving still sounds. A message that
+  arrived in quiet hours does not sound again when they end.
+- **The bus checking itself is silent**: the test lane (`selftest`), the throwaway probe `join` and `selftest` send, and the
+  protocol's own claims and leases.
+- **Per process:** `AIVOICEBUS_SOUND=0` (or `off`) silences one process whatever is saved, and `=1` (or `on`) turns it on
+  with the default sounds; `sound` says when the environment overrides the saved setting. The setting is one small JSON
+  file, `~/.config/aivoicebus/sound`.
+- **A sound is a name or a file, never text from a message.** A name is looked up (case does not matter) in
+  `~/Library/Sounds`, `/Library/Sounds` and `/System/Library/Sounds`; a path must be absolute and an `.aiff`, `.wav`,
+  `.caf`, `.mp3` or `.m4a` file that exists. `set` refuses anything else at once. The player is `afplay`, started in a
+  session of its own so a hook that ends does not cut the sound short, and a missing player or file never fails a send
+  or a hook (`sound test` says what is wrong).
+- **macOS only so far.** On another system `sound on` is refused with that reason. A hook run by an agent tool plays
+  the sound on the machine it runs on, which is what is wanted when it is the laptop in front of you.
+
 ## Colour in the terminal
 
 `queue`, `inbox`, `thread`, `who`, `status`, `get`, `claim` and `wait` draw what is the program's own in colour when
@@ -2314,11 +2352,12 @@ concern per package, the Go standard library plus one small colour library (impo
 | `identity` | who this process is: `host/agent` (the agent is the tool found from the process tree and environment, unless set), the Mac chip/product label, and the labels (repo, branch, tool...) it declares | config, msg |
 | `view` | text rendering of messages, the untrusted banner; what a writer can ask to have drawn (roles, no colour library) | msg |
 | `term` | whether the output is drawn in colour, and the palette: the only package that imports `github.com/fatih/color` and `go-isatty` | view |
+| `sound` | the sounds a person can ask for: the saved setting, which sound each event has, quiet hours, one sound per event at a time, the macOS player | config |
 | `credstore` | credentials a person hands to the agents on their machine: validated names, private files, an owner check, the curl config | none |
 | `secrets` | what a credential looks like: refuse strong shapes, warn about weak ones; exact secrets (a node's tokens, a machine's secret files) are refused wherever they appear | none |
 | `store` | one node's durable log: messages, acks, indexes, presence, inbox/thread/who | msg |
 | `sharestore` | one node's shared spaces: sealed chunks on disk and a log of versions and sealed keys, its own replication numbering, caps and expiry | msg |
-| `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call | config, msg |
+| `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call; asks for the person's sounds when a message is sent, arrives or is taken back | config, msg, sound, view |
 | `outbox` | a checked send: target expansion, credentials, reach, cost, guardrails; and `retract` with the memory of the last messages sent and of the deadlines asked for; shared by the CLI and MCP | client, config, identity, msg, release, secrets, view |
 | `tasks` | taking a task (the claim and the check that it stands) and waiting for an answer; judging a deadline from receipts and sending its reminders; shared by the CLI, MCP and the worker | client, msg, outbox |
 | `share` | a session's side of a thread's shared space: who is in, the thread key sealed for each machine, chunks sealed and signed here, versions read and judged | attach, client, config, msg, outbox |
