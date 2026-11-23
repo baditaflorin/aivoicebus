@@ -12,10 +12,12 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/sound"
 )
 
-const soundUsage = "usage: aivoicebus sound [on | off | toggle | test [EVENT] | set EVENT NAME|/path/to/file|off|default | volume 0.05-1|full | list]   (EVENT: sent, received, retracted)"
+const soundUsage = "usage: aivoicebus sound [on | off | toggle | setup | test [EVENT|PATTERN] | set EVENT PATTERN|off|default | level 0.1-1 | list]   (EVENT: sent, received, retracted)"
 
-// soundCmd shows or changes the one setting for the sounds a message makes on this machine: when it
-// is sent, when it arrives, when it is taken back. Off until the person turns it on (see internal/sound).
+// soundCmd shows or changes the one setting for what a message does to the trackpad of this Mac: it
+// taps when a message is sent, when one arrives, when one is taken back. The sound comes from the
+// Force Touch trackpad's motor, so the Mac can stay muted. Off until the person turns it on (see
+// internal/sound).
 func soundCmd(args []string, s Streams) error {
 	fs := newFlagSet("sound")
 	asJSON := fs.Bool("json", false, "print the setting as JSON")
@@ -32,20 +34,50 @@ func soundCmd(args []string, s Streams) error {
 		return soundStatus(s, *asJSON)
 	case "on", "off", "toggle":
 		return soundSwitch(word, s)
+	case "setup":
+		return soundSetup(s)
 	case "list":
-		if err := sound.Supported(); err != nil {
-			return outbox.Usagef("%v", err)
+		for _, p := range sound.Presets() {
+			fmt.Fprintf(s.Out, "%-7s %s\n", p.Name, p.Desc)
 		}
-		fmt.Fprintln(s.Out, strings.Join(sound.List(), "\n"))
 		return nil
 	case "test":
 		return soundTest(rest, s)
 	case "set":
 		return soundSet(rest, s)
-	case "volume":
-		return soundVolume(rest, s)
+	case "level":
+		return soundLevel(rest, s)
 	}
 	return outbox.Usagef("sound: %q is not a command here\n%s", word, soundUsage)
+}
+
+// soundReady builds the helper if need be and finds the trackpad: what has to be true before a tap can
+// happen. The error is what stands in the way, in words a person can act on.
+func soundReady() (trackpad string, built bool, err error) {
+	if err := sound.Supported(); err != nil {
+		return "", false, err
+	}
+	if _, built, err = sound.Setup(); err != nil {
+		return "", false, err
+	}
+	if trackpad, err = sound.Probe(); err != nil {
+		return "", built, err
+	}
+	return trackpad, built, nil
+}
+
+func soundSetup(s Streams) error {
+	trackpad, built, err := soundReady()
+	if err != nil {
+		return outbox.Usagef("sound setup: %v", err)
+	}
+	if built {
+		fmt.Fprintln(s.Out, "built the trackpad helper")
+	} else {
+		fmt.Fprintln(s.Out, "the trackpad helper is already built")
+	}
+	fmt.Fprintln(s.Out, trackpad)
+	return nil
 }
 
 // soundSwitch is the master switch: on, off, or the other of the two. Each event can also be silenced
@@ -55,9 +87,9 @@ func soundSwitch(word string, s Streams) error {
 	if word == "toggle" {
 		want = !sound.Load().On
 	}
-	if want {
-		if err := sound.Supported(); err != nil {
-			return outbox.Usagef("%v", err)
+	if want { // on needs the helper and a trackpad: refused now, not left silent
+		if _, _, err := soundReady(); err != nil {
+			return outbox.Usagef("sound: %v", err)
 		}
 	}
 	if err := sound.Update(func(st *sound.Settings) error { st.On = want; return nil }); err != nil {
@@ -66,7 +98,7 @@ func soundSwitch(word string, s Streams) error {
 	if !want {
 		fmt.Fprintln(s.Out, "sounds: off")
 	} else {
-		fmt.Fprintln(s.Out, "sounds: on. Hear them with `aivoicebus sound test`; quiet hours silence them (`aivoicebus quiet`)")
+		fmt.Fprintln(s.Out, "sounds: on. The trackpad taps, so the Mac can stay muted. Feel them with `aivoicebus sound test`; quiet hours silence them (`aivoicebus quiet`)")
 	}
 	if env := strings.TrimSpace(os.Getenv("AIVOICEBUS_SOUND")); env != "" && sound.Enabled() != want {
 		fmt.Fprintf(s.Out, "note: AIVOICEBUS_SOUND=%s in this environment overrides the saved setting\n", env)
@@ -75,19 +107,35 @@ func soundSwitch(word string, s Streams) error {
 }
 
 func soundTest(rest []string, s Streams) error {
-	events := sound.Events
 	if len(rest) > 1 {
 		return outbox.Usagef("%s", soundUsage)
 	}
-	if len(rest) == 1 {
-		e, ok := sound.ParseEvent(rest[0])
-		if !ok {
-			return outbox.Usagef("sound test: %q is not an event (sent, received, retracted)", rest[0])
-		}
-		events = []sound.Event{e}
+	if err := sound.Supported(); err != nil {
+		return outbox.Usagef("sound test: %v", err)
 	}
+	if _, _, err := sound.Setup(); err != nil { // a test is the first thing a person tries: build what it needs
+		return outbox.Usagef("sound test: %v", err)
+	}
+	if len(rest) == 1 {
+		if e, ok := sound.ParseEvent(rest[0]); ok {
+			return soundTapEvents(s, []sound.Event{e})
+		}
+		p, err := sound.Resolve(rest[0], sound.Sent)
+		if err != nil || strings.EqualFold(rest[0], sound.Off) || strings.EqualFold(rest[0], sound.Default) {
+			return outbox.Usagef("sound test: %q is not an event (sent, received, retracted) or a pattern (`aivoicebus sound list`)", rest[0])
+		}
+		fmt.Fprintf(s.Out, "%-9s %s\n", p.Name, p.Desc)
+		if err := sound.TestPattern(p); err != nil {
+			return fmt.Errorf("sound test: %v", err)
+		}
+		return nil
+	}
+	return soundTapEvents(s, sound.Events)
+}
+
+func soundTapEvents(s Streams, events []sound.Event) error {
 	for i, e := range events {
-		name, _, err := sound.Describe(sound.Load(), e)
+		name, desc, err := sound.Describe(sound.Load(), e)
 		if err != nil {
 			return outbox.Usagef("sound test: %s: %v", e, err)
 		}
@@ -95,12 +143,12 @@ func soundTest(rest []string, s Streams) error {
 			fmt.Fprintf(s.Out, "%-9s off\n", e)
 			continue
 		}
-		fmt.Fprintf(s.Out, "%-9s %s\n", e, name)
+		fmt.Fprintf(s.Out, "%-9s %s (%s)\n", e, name, desc)
 		if err := sound.Test(e); err != nil {
 			return fmt.Errorf("sound test: %s: %v", e, err)
 		}
 		if i < len(events)-1 {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(700 * time.Millisecond) // long enough to tell one from the next
 		}
 	}
 	return nil
@@ -114,23 +162,19 @@ func soundSet(rest []string, s Streams) error {
 	if !ok {
 		return outbox.Usagef("sound set: %q is not an event (sent, received, retracted)", rest[0])
 	}
-	name := rest[1]
-	if lower := strings.ToLower(name); lower == sound.Off || lower == sound.Default {
-		name = lower
-	} else if err := sound.Supported(); err != nil {
+	name := strings.ToLower(rest[1])
+	if _, err := sound.Resolve(name, e); err != nil && name != sound.Off { // a name that is not there is refused now, not felt as nothing later
 		return outbox.Usagef("sound set: %v", err)
-	} else if _, err := sound.Resolve(name, e); err != nil {
-		return outbox.Usagef("sound set: %v", err) // a name or path that is not there is refused now, not heard as silence later
 	}
 	err := sound.Update(func(st *sound.Settings) error {
 		if name == sound.Default {
-			delete(st.Sounds, e)
+			delete(st.Patterns, e)
 			return nil
 		}
-		if st.Sounds == nil {
-			st.Sounds = map[sound.Event]string{}
+		if st.Patterns == nil {
+			st.Patterns = map[sound.Event]string{}
 		}
-		st.Sounds[e] = name
+		st.Patterns[e] = name
 		return nil
 	})
 	if err != nil {
@@ -140,30 +184,30 @@ func soundSet(rest []string, s Streams) error {
 	return nil
 }
 
-func soundVolume(rest []string, s Streams) error {
+func soundLevel(rest []string, s Streams) error {
 	if len(rest) != 1 {
 		return outbox.Usagef("%s", soundUsage)
 	}
-	v := 0.0 // full
-	if arg := strings.ToLower(rest[0]); arg != "full" && arg != "1" {
+	v := 0.0 // the default
+	if arg := strings.ToLower(rest[0]); arg != "default" {
 		var err error
 		if v, err = strconv.ParseFloat(strings.TrimSuffix(arg, "%"), 64); err != nil {
-			return outbox.Usagef("sound volume: %q is not a number from 0.05 to 1 (or `full`)", rest[0])
+			return outbox.Usagef("sound level: %q is not a number from 0.1 to 1 (or `default`)", rest[0])
 		}
 		if strings.HasSuffix(arg, "%") {
 			v /= 100
 		}
-		if !sound.ValidVolume(v) {
-			return outbox.Usagef("sound volume: %q is out of range: from 0.05 to 1 (or `full`)", rest[0])
+		if !sound.ValidLevel(v) {
+			return outbox.Usagef("sound level: %q is out of range: from 0.1 to 1 (or `default`)", rest[0])
 		}
 	}
-	if err := sound.Update(func(st *sound.Settings) error { st.Volume = v; return nil }); err != nil {
+	if err := sound.Update(func(st *sound.Settings) error { st.Level = v; return nil }); err != nil {
 		return err
 	}
 	if v == 0 {
-		fmt.Fprintln(s.Out, "volume: full")
+		fmt.Fprintf(s.Out, "level: default (%.2f of the motor's normal strength)\n", sound.DefaultLevel)
 	} else {
-		fmt.Fprintf(s.Out, "volume: %.2f of the system volume\n", v)
+		fmt.Fprintf(s.Out, "level: %.2f of the motor's normal strength\n", v)
 	}
 	return nil
 }
@@ -172,30 +216,42 @@ func soundStatus(s Streams, asJSON bool) error {
 	st := sound.Load()
 	on := sound.Enabled()
 	type row struct {
-		Event string `json:"event"`
-		Sound string `json:"sound"`
-		File  string `json:"file,omitempty"`
-		Error string `json:"error,omitempty"`
+		Event   string `json:"event"`
+		Pattern string `json:"pattern"`          // what it taps: a name, or off
+		Chosen  bool   `json:"chosen,omitempty"` // the person picked it; false for the release's own
+		Desc    string `json:"desc,omitempty"`
+		Error   string `json:"error,omitempty"`
 	}
 	var rows []row
 	for _, e := range sound.Events {
-		name, path, err := sound.Describe(st, e)
-		r := row{Event: string(e), Sound: name, File: path}
+		name, desc, err := sound.Describe(st, e)
+		r := row{Event: string(e), Pattern: name, Chosen: st.Name(e) != sound.Default, Desc: desc}
 		if err != nil {
 			r.Error = err.Error()
 		}
 		rows = append(rows, r)
 	}
+	trackpad, probeErr := sound.Probe() // no tap: only which trackpad the helper finds
 	env := strings.TrimSpace(os.Getenv("AIVOICEBUS_SOUND"))
 	quiet := config.LoadQuiet().Active(time.Now())
+	level := st.Level
+	if level == 0 {
+		level = sound.DefaultLevel
+	}
 	if asJSON {
-		return writeJSON(s.Out, struct {
-			On     bool    `json:"on"`
-			Saved  bool    `json:"saved"` // the saved setting; on may differ when AIVOICEBUS_SOUND says so
-			Volume float64 `json:"volume"`
-			Quiet  bool    `json:"quiet_now"`
-			Events []row   `json:"events"`
-		}{on, st.On, volumeOrFull(st.Volume), quiet, rows})
+		v := struct {
+			On       bool    `json:"on"`
+			Saved    bool    `json:"saved"` // the saved setting; on may differ when AIVOICEBUS_SOUND says so
+			Level    float64 `json:"level"`
+			Quiet    bool    `json:"quiet_now"`
+			Trackpad string  `json:"trackpad,omitempty"`
+			Problem  string  `json:"problem,omitempty"`
+			Events   []row   `json:"events"`
+		}{on, st.On, level, quiet, trackpad, "", rows}
+		if probeErr != nil {
+			v.Problem = probeErr.Error()
+		}
+		return writeJSON(s.Out, v)
 	}
 	state := "off"
 	if on {
@@ -208,35 +264,33 @@ func soundStatus(s Streams, asJSON bool) error {
 	fmt.Fprintln(s.Out)
 	width := 0
 	for _, r := range rows {
-		width = max(width, len(r.Sound))
+		width = max(width, len(r.Pattern))
 	}
 	for _, r := range rows {
-		line := fmt.Sprintf("  %-9s %-*s", r.Event, width, r.Sound)
+		pattern := r.Pattern
+		if !r.Chosen {
+			pattern += " (default)"
+		}
+		line := fmt.Sprintf("  %-9s %-*s", r.Event, width+10, pattern)
 		switch {
 		case r.Error != "":
 			line += "   !! " + r.Error
-		case r.File != "":
-			line += "   " + r.File
+		case r.Desc != "":
+			line += "   " + r.Desc
 		}
 		fmt.Fprintln(s.Out, line)
 	}
-	if st.Volume > 0 {
-		fmt.Fprintf(s.Out, "volume: %.2f of the system volume\n", st.Volume)
+	fmt.Fprintf(s.Out, "level: %.2f of the motor's normal strength\n", level)
+	if probeErr != nil {
+		fmt.Fprintf(s.Out, "!! trackpad: %v\n", probeErr)
 	} else {
-		fmt.Fprintln(s.Out, "volume: full")
+		fmt.Fprintf(s.Out, "trackpad: %s\n", trackpad)
 	}
 	if quiet {
-		fmt.Fprintln(s.Out, "quiet hours are active now: only an urgent message arriving makes a sound")
+		fmt.Fprintln(s.Out, "quiet hours are active now: only an urgent message arriving makes a tap")
 	}
 	if !on {
-		fmt.Fprintln(s.Out, "turn them on with `aivoicebus sound on`; `aivoicebus sound test` plays each one first")
+		fmt.Fprintln(s.Out, "turn them on with `aivoicebus sound on`; `aivoicebus sound test` taps each one first")
 	}
 	return nil
-}
-
-func volumeOrFull(v float64) float64 {
-	if v <= 0 {
-		return 1
-	}
-	return v
 }

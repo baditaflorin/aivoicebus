@@ -2016,41 +2016,56 @@ checks each example's flags against the command's parser.
 
 ## Sounds: hearing a message go, arrive and be taken back
 
-    aivoicebus sound                    # on or off, the sound each event plays, the volume
+The sound comes from the **Force Touch trackpad**, not from the speakers. The trackpad has no speaker, only a small
+haptic motor that taps the glass; driven in short bursts of 100 Hz to 4 kHz it moves the glass enough to be felt and
+heard, so the Mac can stay **muted** and still tap. (The technique, which uses macOS's private `MultitouchSupport`
+framework, was found by [os6/nospeaker](https://github.com/os6/nospeaker) and used by
+[asadm/mechpad](https://github.com/asadm/mechpad), both MIT; aivoicebus has its own small implementation of the same
+calls.) A Mac on a hard desk is louder than one on a lap.
+
+    aivoicebus sound                    # on or off, the pattern each event taps, the level, the trackpad it found
     aivoicebus sound on | off | toggle  # the master switch (saved; off until the person on this machine turns it on)
-    aivoicebus sound test [EVENT]       # play one event's sound, or all three, whatever the switch says
-    aivoicebus sound set EVENT NAME     # EVENT: sent, received, retracted. NAME: a system sound (`sound list`),
-                                        # /an/absolute/path/to/file.wav, `off` (silence this event) or `default`
-    aivoicebus sound volume 50%         # 0.05 to 1 (or 5% to 100%) of the system volume; `full` is the default
-    aivoicebus sound list               # the names a setting can use
+    aivoicebus sound setup              # build the trackpad helper (`on` and `test` do it when it is missing)
+    aivoicebus sound test [EVENT|PATTERN]   # tap one event's pattern, a pattern by name, or all three events
+    aivoicebus sound set EVENT PATTERN  # EVENT: sent, received, retracted. PATTERN: a name from `sound list`, `off`, `default`
+    aivoicebus sound level 0.1-1        # how hard the motor is driven (default 0.8; `default` puts it back); 50% works too
+    aivoicebus sound list               # the patterns: tick, tock, double, rise, fall, thud, buzz
 
-A person who wants to hear the bus works turns this on once, at a terminal. Nothing is on by default, and a node, a
-worker host or CI that nobody turned it on for stays silent.
+A person who wants to feel the bus works turns this on once, at a terminal. Nothing is on by default, and a node, a
+worker host or CI that nobody turned it on for stays still.
 
-| Event | When it sounds | Default (macOS) |
+| Event | When it taps | Default pattern |
 |---|---|---|
-| `sent` | a message of this machine went to the nodes (`send`, `reply`, `ask`, `task`, the MCP tools, a worker's answer) | Pop |
-| `received` | an unread message for a session of this machine was handed to it for the first time (a session start or per-prompt hook, `inbox`, `wait`, `aivoicebus_inbox`) | Glass |
-| `retracted` | `retract` (or `incident --apply`) took a message back | Funk |
+| `sent` | a message of this machine went to the nodes (`send`, `reply`, `ask`, `task`, the MCP tools, a worker's answer) | `tick`: one short, light tap |
+| `received` | an unread message for a session of this machine was handed to it for the first time (a session start or per-prompt hook, `inbox`, `wait`, `aivoicebus_inbox`) | `double`: two quick taps, the second higher |
+| `retracted` | `retract` (or `incident --apply`) took a message back | `fall`: a tap that drops, then a low thump |
 
-- **Once per message.** A machine makes one `received` sound for each message, however many sessions read it and however
-  many times it is read again before it is acked; several messages that arrive together are one sound. Several of
-  one event within 0.4 seconds (an incident retracting a dozen messages) are one sound. `inbox --all`, a dry run
+- **One helper, built here.** aivoicebus is a static Go binary without cgo, and the motor is reached through a private
+  framework, so a small C program (`internal/sound/helper/haptic.c`, embedded in the binary) is compiled once, on the
+  Mac that uses it, into `~/.config/aivoicebus/bin/aivoicebus-haptic-<hash>` (mode 0700; a release with a changed
+  source builds its own and removes the old one). It needs the Mac's developer tools (Xcode, or `xcode-select
+  --install`); nothing is downloaded. aivoicebus asks for them only after checking they are there, so a Mac without them
+  never gets the installer dialog. The helper opens the built-in trackpad first, then a Magic Trackpad, and says so
+  when there is none or when it has no haptic motor (`aivoicebus sound` shows what it finds).
+- **Once per message.** A machine taps `received` once for each message, however many sessions read it and however
+  many times it is read again before it is acked; several messages that arrive together are one tap. Several of one
+  event within 0.4 seconds (an incident retracting a dozen messages) are one tap. `inbox --all`, a dry run
   (`retract --dry-run`) and a send a node refused make none.
-- **Quiet hours** (`aivoicebus quiet`) silence all of it, except that an urgent message arriving still sounds. A message that
-  arrived in quiet hours does not sound again when they end.
-- **The bus checking itself is silent**: the test lane (`selftest`), the throwaway probe `join` and `selftest` send, and the
+- **Quiet hours** (`aivoicebus quiet`) silence all of it, except that an urgent message arriving still taps. A message that
+  arrived in quiet hours does not tap again when they end.
+- **The bus checking itself is still**: the test lane (`selftest`), the throwaway probe `join` and `selftest` send, and the
   protocol's own claims and leases.
 - **Per process:** `AIVOICEBUS_SOUND=0` (or `off`) silences one process whatever is saved, and `=1` (or `on`) turns it on
-  with the default sounds; `sound` says when the environment overrides the saved setting. The setting is one small JSON
+  with the default patterns; `sound` says when the environment overrides the saved setting. The setting is one small JSON
   file, `~/.config/aivoicebus/sound`.
-- **A sound is a name or a file, never text from a message.** A name is looked up (case does not matter) in
-  `~/Library/Sounds`, `/Library/Sounds` and `/System/Library/Sounds`; a path must be absolute and an `.aiff`, `.wav`,
-  `.caf`, `.mp3` or `.m4a` file that exists. `set` refuses anything else at once. The player is `afplay`, started in a
-  session of its own so a hook that ends does not cut the sound short, and a missing player or file never fails a send
-  or a hook (`sound test` says what is wrong).
-- **macOS only so far.** On another system `sound on` is refused with that reason. A hook run by an agent tool plays
-  the sound on the machine it runs on, which is what is wanted when it is the laptop in front of you.
+- **A pattern is a name, never text from a message.** The patterns are fixed tables of tone frequencies, strengths and
+  lengths in the program (every one is checked by a test against the helper's limits and stays under a third of a
+  second); `set` refuses a name that is not there at once. The helper is started in a session of its own so a hook that
+  ends does not cut a tap short, and a missing helper or trackpad never fails a send or a hook (`sound test` says what is
+  wrong).
+- **macOS only.** On another system `sound on` is refused with that reason. A hook run by an agent tool taps the
+  trackpad of the machine it runs on, which is what is wanted when it is the laptop in front of you. Two taps at the
+  very same moment from two processes may lose one: the motor is opened by one at a time.
 
 ## Colour in the terminal
 
@@ -2352,12 +2367,12 @@ concern per package, the Go standard library plus one small colour library (impo
 | `identity` | who this process is: `host/agent` (the agent is the tool found from the process tree and environment, unless set), the Mac chip/product label, and the labels (repo, branch, tool...) it declares | config, msg |
 | `view` | text rendering of messages, the untrusted banner; what a writer can ask to have drawn (roles, no colour library) | msg |
 | `term` | whether the output is drawn in colour, and the palette: the only package that imports `github.com/fatih/color` and `go-isatty` | view |
-| `sound` | the sounds a person can ask for: the saved setting, which sound each event has, quiet hours, one sound per event at a time, the macOS player | config |
+| `sound` | the trackpad taps a person can ask for: the saved setting, which pattern each event has, quiet hours, one tap per event at a time, and the small helper (C, embedded) that is built on the Mac and drives the haptic motor | config |
 | `credstore` | credentials a person hands to the agents on their machine: validated names, private files, an owner check, the curl config | none |
 | `secrets` | what a credential looks like: refuse strong shapes, warn about weak ones; exact secrets (a node's tokens, a machine's secret files) are refused wherever they appear | none |
 | `store` | one node's durable log: messages, acks, indexes, presence, inbox/thread/who | msg |
 | `sharestore` | one node's shared spaces: sealed chunks on disk and a log of versions and sealed keys, its own replication numbering, caps and expiry | msg |
-| `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call; asks for the person's sounds when a message is sent, arrives or is taken back | config, msg, sound, view |
+| `client` | HTTP transport: node failover, hedged reads, quorum writes, one typed method per API call; asks for the person's trackpad taps when a message is sent, arrives or is taken back | config, msg, sound, view |
 | `outbox` | a checked send: target expansion, credentials, reach, cost, guardrails; and `retract` with the memory of the last messages sent and of the deadlines asked for; shared by the CLI and MCP | client, config, identity, msg, release, secrets, view |
 | `tasks` | taking a task (the claim and the check that it stands) and waiting for an answer; judging a deadline from receipts and sending its reminders; shared by the CLI, MCP and the worker | client, msg, outbox |
 | `share` | a session's side of a thread's shared space: who is in, the thread key sealed for each machine, chunks sealed and signed here, versions read and judged | attach, client, config, msg, outbox |

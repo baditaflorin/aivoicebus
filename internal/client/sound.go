@@ -6,19 +6,19 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/sound"
 )
 
-// The sounds a person can ask for (`aivoicebus sound`) are played here because every command, hook,
+// The taps a person can ask for on the trackpad (`aivoicebus sound`) are asked for here because every command, hook,
 // MCP tool and worker reaches the nodes through a Client: one place hears a send, a retraction and
 // the mail that arrives. All of it is a no-op until the person turned sounds on, and none of it can
 // fail a call.
 
-// The two calls into the sound package, variables so a test can listen instead of play.
+// The two calls into the sound package, variables so a test can listen instead of tap.
 var (
 	soundsOn  = sound.Enabled
 	playSound = sound.Play
 )
 
-// heardAs is the name the messages already announced by a sound are recorded under (config.Told):
-// one per machine, so two sessions reading one message make one sound.
+// heardAs is the name the messages already announced by a tap are recorded under (config.Told):
+// one per machine, so two sessions reading one message make one tap.
 const heardAs = "sound-received"
 
 // protocol reports whether m is the bus talking to itself (a claim, a lease), not a message a person

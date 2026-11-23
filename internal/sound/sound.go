@@ -1,13 +1,21 @@
-// Package sound plays the short sounds the person on a machine can ask for when a message is sent,
-// arrives or is taken back there (`aivoicebus sound`).
+// Package sound makes the trackpad of the Mac the person is working on tap, in a pattern of its own,
+// when a message is sent, arrives or is taken back there (`aivoicebus sound`).
 //
-// It is off until that person turns it on, and it never speaks for anyone else: the sounds are
-// fixed system files or a path the person chose, and nothing a sender wrote reaches a command line.
-// Playing never fails the caller: a hook or a send must not stop because the speakers are missing,
-// so Play says nothing about what went wrong (Test, which a person runs to try it, does).
+// The sound comes from the Force Touch trackpad's haptic motor, not from the speakers: the glass moves
+// fast enough to be heard and felt, so it works with the Mac muted. The motor is reached through a
+// private macOS framework that a static Go binary cannot call, so a tiny helper (helper/haptic.c, embedded
+// here) is built once on the Mac with its own compiler and run for each tap.
+//
+// It is off until the person on the machine turns it on, and it never speaks for anyone else: the
+// patterns are fixed tables of numbers, and nothing a sender wrote reaches the helper's command line.
+// Playing never fails the caller: a hook or a send must not stop because there is no trackpad, so Play
+// says nothing about what went wrong (Test, which a person runs to try it, does).
 package sound
 
 import (
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,11 +37,11 @@ type Event string
 
 const (
 	Sent      Event = "sent"      // a message of this machine went to the nodes
-	Received  Event = "received"  // a message arrived for a session of this machine and was not heard before
+	Received  Event = "received"  // a message arrived for a session of this machine and was not felt before
 	Retracted Event = "retracted" // a message of this machine was taken back
 )
 
-// Events lists every event, in the order a person hears them in `sound test`.
+// Events lists every event, in the order a person feels them in `sound test`.
 var Events = []Event{Sent, Received, Retracted}
 
 // ParseEvent reads an event name.
@@ -46,36 +54,97 @@ func ParseEvent(s string) (Event, bool) {
 	return "", false
 }
 
-// Names a setting may hold besides a sound's name or a path.
+// Names a setting may hold besides a pattern's name.
 const (
-	Off     = "off"     // no sound for this event
-	Default = "default" // the sound this release picks for it
+	Off     = "off"     // nothing for this event
+	Default = "default" // the pattern this release picks for it
 )
 
 const (
 	settingsFile = "sound"            // in the config directory
 	envName      = "AIVOICEBUS_SOUND" // 0/off or 1/on for this process, over the saved setting
 	minGap       = 400 * time.Millisecond
-	maxVolume    = 1.0
-	minVolume    = 0.05
+
+	// MinLevel and MaxLevel bound how hard the motor is driven, as a share of its normal maximum.
+	MinLevel     = 0.1
+	MaxLevel     = 1.0
+	DefaultLevel = 0.8
 )
 
 // Settings is what the person chose, saved in ~/.config/aivoicebus/sound.
 type Settings struct {
-	On     bool             `json:"on"`
-	Sounds map[Event]string `json:"sounds,omitempty"` // per event: a sound's name, an absolute path, Off or Default
-	Volume float64          `json:"volume,omitempty"` // minVolume..maxVolume of the system volume; 0 is full
+	On       bool             `json:"on"`
+	Patterns map[Event]string `json:"patterns,omitempty"` // per event: a pattern's name, Off or Default
+	Level    float64          `json:"level,omitempty"`    // MinLevel..MaxLevel; 0 is DefaultLevel
 }
 
-// Which sound an event has when the person chose none: macOS system sounds, short and distinct.
-var defaults = map[Event]string{Sent: "Pop", Received: "Glass", Retracted: "Funk"}
+// Pattern is a short run of taps. Args are the helper's arguments (see haptic.c): bursts of a soft thump
+// plus sine tones (hz, strength, ms), and waits between them. The motor is audible from about 100 Hz to
+// 4 kHz and is built for taps, not for sound, so a pattern stays under a third of a second.
+type Pattern struct {
+	Name string
+	Desc string
+	Args []string
+}
 
-// Name is the sound chosen for e, Default when none was (the setting as typed, not a path).
+var presets = []Pattern{
+	{"tick", "one short, light tap", []string{"0.3,6:2200,0.5,12"}},
+	{"tock", "one lower, rounder tap", []string{"0.4,8:700,0.6,18"}},
+	{"double", "two quick taps, the second higher", []string{"0.3,6:1400,0.5,14", "wait:90", "0.3,6:1900,0.5,14"}},
+	{"rise", "three taps stepping up", []string{"0.3,6:900,0.5,14", "wait:70", "0.3,6:1500,0.5,14", "wait:70", "0.3,6:2200,0.5,16"}},
+	{"fall", "a tap that drops, then a low thump", []string{"0.3,10:520,0.4,40:260,0.3,40", "wait:60", "0.3,10:180,0.6,70"}},
+	{"thud", "one heavy, low thump", []string{"0.3,14:130,0.7,60"}},
+	{"buzz", "two short low buzzes", []string{"0.2,10:150,0.7,100", "wait:50", "0.2,10:150,0.7,100"}},
+}
+
+// Which pattern an event has when the person chose none: a light tap out, two rising taps in, and a
+// drop for taking it back, so each is told apart by feel.
+var defaults = map[Event]string{Sent: "tick", Received: "double", Retracted: "fall"}
+
+// Presets lists the patterns a setting can name.
+func Presets() []Pattern { return append([]Pattern(nil), presets...) }
+
+// Name is the pattern chosen for e, Default when none was (the setting as typed).
 func (s Settings) Name(e Event) string {
-	if n := s.Sounds[e]; n != "" {
+	if n := s.Patterns[e]; n != "" {
 		return n
 	}
 	return Default
+}
+
+// level is the strength to play at.
+func (s Settings) level() float64 {
+	if s.Level >= MinLevel && s.Level <= MaxLevel {
+		return s.Level
+	}
+	return DefaultLevel
+}
+
+// ValidLevel reports whether v is a setting `sound level` takes.
+func ValidLevel(v float64) bool { return v >= MinLevel && v <= MaxLevel }
+
+var errSilent = errors.New("no pattern is set for this event")
+
+// Resolve turns a setting into the pattern to play: Default is e's own, a name is looked up (case does
+// not matter). Off is errSilent.
+func Resolve(name string, e Event) (Pattern, error) {
+	switch name = strings.ToLower(strings.TrimSpace(name)); name {
+	case Off:
+		return Pattern{}, errSilent
+	case "", Default:
+		name = defaults[e]
+	}
+	for _, p := range presets {
+		if p.Name == name {
+			return p, nil
+		}
+	}
+	names := make([]string, len(presets))
+	for i, p := range presets {
+		names[i] = p.Name
+	}
+	sort.Strings(names)
+	return Pattern{}, fmt.Errorf("no pattern named %q (%s, or off)", name, strings.Join(names, ", "))
 }
 
 // Load reads the saved settings; anything missing, unreadable or malformed means off.
@@ -107,8 +176,8 @@ func Update(edit func(*Settings) error) error {
 	})
 }
 
-// Enabled reports whether sounds are on for this process: AIVOICEBUS_SOUND when it says so, else
-// the saved setting. A machine nobody turned them on for (a node, a worker, CI) stays silent.
+// Enabled reports whether taps are on for this process: AIVOICEBUS_SOUND when it says so, else the saved
+// setting. A machine nobody turned them on for (a node, a worker, CI) stays still.
 func Enabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(envName))) {
 	case "0", "off", "false", "no":
@@ -119,7 +188,15 @@ func Enabled() bool {
 	return Load().On
 }
 
-// Seams for tests: the platform, the clock, and how a player is started.
+// Supported says whether taps can be made on this system.
+func Supported() error {
+	if goos != "darwin" {
+		return fmt.Errorf("the trackpad can be tapped on macOS only (this is %s)", goos)
+	}
+	return nil
+}
+
+// Seams for tests: the platform, the clock, how the helper is started, run and built.
 var (
 	goos  = runtime.GOOS
 	now   = time.Now
@@ -128,12 +205,16 @@ var (
 		if err := cmd.Start(); err != nil {
 			return err
 		}
-		go cmd.Wait() // the sound ends by itself; waiting only keeps a long-lived caller (the worker, the MCP server) free of zombies
+		go cmd.Wait() // the tap ends by itself; waiting only keeps a long-lived caller (the worker, the MCP server) free of zombies
 		return nil
 	}
-	run = func(cmd *exec.Cmd) error { return cmd.Run() }
-	// home is where a person's own sounds live.
-	home = func() string { h, _ := os.UserHomeDir(); return h }
+	run = func(cmd *exec.Cmd) ([]byte, error) { return cmd.CombinedOutput() }
+	// haveTools says whether the Mac has a developer toolchain: asking `cc` without one makes macOS open
+	// an installer dialog, so this is asked first.
+	haveTools = func() error { return exec.Command("xcode-select", "-p").Run() }
+	compile   = func(src, out string) ([]byte, error) {
+		return exec.Command("cc", "-O2", "-o", out, src, "-framework", "CoreFoundation").CombinedOutput()
+	}
 )
 
 var (
@@ -141,9 +222,9 @@ var (
 	played = map[Event]time.Time{}
 )
 
-// Play makes the sound for e, in the background, when sounds are on. Quiet hours (`aivoicebus quiet`)
-// silence it, except for urgent, which is what they let through for messages too. Several of one
-// event within a fraction of a second are one sound. It never reports a problem: see Test.
+// Play taps the trackpad for e, in the background, when taps are on. Quiet hours (`aivoicebus quiet`)
+// silence it, except for urgent, which is what they let through for messages too. Several of one event
+// within a fraction of a second are one tap. It never reports a problem: see Test.
 func Play(e Event, urgent bool) {
 	if !Enabled() || (!urgent && config.LoadQuiet().Active(now())) {
 		return
@@ -156,144 +237,169 @@ func Play(e Event, urgent bool) {
 	}
 	played[e] = t
 	gapMu.Unlock()
-	if cmd, err := command(Load(), e); err == nil {
-		_ = start(cmd)
+	s := Load()
+	if p, err := Resolve(s.Name(e), e); err == nil {
+		if cmd, err := command(s, p); err == nil {
+			_ = start(cmd)
+		}
 	}
 }
 
-// Test plays the sound for e now, whether or not sounds are on and whatever the hour, and waits for
-// it to end. The error says what is missing: no player on this system, a sound that is not there.
+// Test taps the pattern the person chose for e now, whether or not taps are on and whatever the hour, and
+// waits for it to end. The error says what is missing: no helper built, no trackpad, a pattern that is gone.
 func Test(e Event) error {
-	cmd, err := command(Load(), e)
+	s := Load()
+	p, err := Resolve(s.Name(e), e)
 	if err != nil {
 		return err
 	}
-	if err := run(cmd); err != nil {
-		return fmt.Errorf("the player failed: %v", err)
+	return TestPattern(p)
+}
+
+// TestPattern taps p now, at the saved level.
+func TestPattern(p Pattern) error {
+	cmd, err := command(Load(), p)
+	if err != nil {
+		return err
+	}
+	if out, err := run(cmd); err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return errors.New(strings.TrimPrefix(msg, helperName+": "))
+		}
+		return fmt.Errorf("the trackpad helper failed: %v", err)
 	}
 	return nil
 }
 
-var errSilent = errors.New("no sound is set for this event")
-
-// Supported says whether sounds can be played on this system.
-func Supported() error {
-	if goos != "darwin" {
-		return fmt.Errorf("sounds are played on macOS only so far (this is %s)", goos)
-	}
-	return nil
-}
-
-// Describe is the setting for e as the person gave it and the file it plays: path is "" for Off, and
-// err says why a setting plays nothing (a name or file that is not there, or no player on this system).
-func Describe(s Settings, e Event) (name, path string, err error) {
-	name = s.Name(e)
-	if err = Supported(); err != nil {
-		return name, "", err
-	}
-	if path, err = Resolve(name, e); errors.Is(err, errSilent) {
-		return name, "", nil
-	}
-	return name, path, err
-}
-
-// command is the player's command line for e under s, or the reason there is none.
-func command(s Settings, e Event) (*exec.Cmd, error) {
+// command is the helper's command line for p under s, or the reason there is none.
+func command(s Settings, p Pattern) (*exec.Cmd, error) {
 	if err := Supported(); err != nil {
 		return nil, err
 	}
-	path, err := Resolve(s.Name(e), e)
+	path, err := helperReady()
 	if err != nil {
 		return nil, err
 	}
-	args := []string{path}
-	if v := s.Volume; v > 0 && v < maxVolume {
-		args = append([]string{"-v", strconv.FormatFloat(v, 'f', 2, 64)}, args...)
-	}
-	return exec.Command("afplay", args...), nil
+	args := append([]string{"--level", strconv.FormatFloat(s.level(), 'f', 2, 64)}, p.Args...)
+	return exec.Command(path, args...), nil
 }
 
-// soundExts are the files the player takes.
-var soundExts = map[string]bool{".aiff": true, ".aif": true, ".wav": true, ".caf": true, ".mp3": true, ".m4a": true}
+// ---- the helper ----
 
-func soundDirs() []string {
-	d := []string{"/System/Library/Sounds", "/Library/Sounds"}
-	if h := home(); h != "" {
-		d = append([]string{filepath.Join(h, "Library", "Sounds")}, d...) // the person's own come first
+//go:embed helper/haptic.c
+var helperSource []byte
+
+const helperName = "aivoicebus-haptic"
+
+// helperPath is where the helper for this release lives: the name carries a hash of its source, so a
+// release with a changed helper builds its own and never runs an old one.
+func helperPath() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
 	}
-	return d
+	sum := sha256.Sum256(helperSource)
+	return filepath.Join(d, "bin", helperName+"-"+hex.EncodeToString(sum[:4]))
 }
 
-// Resolve turns a setting into the file to play: Default is e's own, a name is looked up (case does
-// not matter) among the person's sounds and the system's, and a path must be absolute and a sound
-// file that is there. Off is errSilent.
-func Resolve(name string, e Event) (string, error) {
-	switch name {
-	case Off:
-		return "", errSilent
-	case "", Default:
-		name = defaults[e]
+// helperReady returns the helper's path when it is built and is the person's own, not writable by others.
+func helperReady() (string, error) {
+	p := helperPath()
+	if p == "" {
+		return "", errors.New("no home directory to keep the helper in")
 	}
-	if strings.ContainsRune(name, '/') {
-		return checkFile(name)
-	}
-	if !validName(name) {
-		return "", fmt.Errorf("%q is not a sound's name (letters, digits, space, - and _), nor an absolute path", name)
-	}
-	for _, d := range soundDirs() {
-		ents, _ := os.ReadDir(d)
-		for _, ent := range ents {
-			ext := filepath.Ext(ent.Name())
-			if soundExts[strings.ToLower(ext)] && strings.EqualFold(strings.TrimSuffix(ent.Name(), ext), name) {
-				return filepath.Join(d, ent.Name()), nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no sound named %q (`aivoicebus sound list` shows them)", name)
-}
-
-func checkFile(p string) (string, error) {
-	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
-		return "", fmt.Errorf("%q: give the whole path, without ./ or ..", p)
-	}
-	if !soundExts[strings.ToLower(filepath.Ext(p))] {
-		return "", fmt.Errorf("%q is not a sound file (.aiff, .wav, .caf, .mp3 or .m4a)", p)
-	}
-	if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("%q is not a file here", p)
+	fi, err := os.Lstat(p)
+	switch {
+	case err != nil:
+		return "", errors.New("the trackpad helper is not built yet: run `aivoicebus sound setup`")
+	case !fi.Mode().IsRegular() || fi.Mode().Perm()&0o022 != 0 || fi.Mode().Perm()&0o100 == 0:
+		return "", fmt.Errorf("%s is not a private executable file; remove it and run `aivoicebus sound setup`", p)
 	}
 	return p, nil
 }
 
-func validName(s string) bool {
-	if s == "" || len(s) > 64 {
-		return false
+// Setup builds the helper from its embedded source unless this release's is there, and says which. It
+// needs the Mac's developer tools (Xcode or `xcode-select --install`) once; nothing is downloaded.
+func Setup() (path string, built bool, err error) {
+	if err := Supported(); err != nil {
+		return "", false, err
 	}
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ' || r == '-' || r == '_') {
-			return false
-		}
+	if p, err := helperReady(); err == nil {
+		return p, false, nil
 	}
-	return true
-}
-
-// List is the names of the sounds a setting can use, sorted, without repeats.
-func List() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, d := range soundDirs() {
-		ents, _ := os.ReadDir(d)
-		for _, ent := range ents {
-			ext := filepath.Ext(ent.Name())
-			if n := strings.TrimSuffix(ent.Name(), ext); soundExts[strings.ToLower(ext)] && validName(n) && !seen[strings.ToLower(n)] {
-				seen[strings.ToLower(n)] = true
-				out = append(out, n)
+	target := helperPath()
+	if target == "" {
+		return "", false, errors.New("no home directory to keep the helper in")
+	}
+	if haveTools() != nil {
+		return "", false, errors.New("building the trackpad helper needs the Mac's developer tools (Xcode, or run `xcode-select --install`); nothing else is needed")
+	}
+	dir := filepath.Dir(target)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", false, err
+	}
+	src, err := os.CreateTemp(dir, ".haptic-*.c")
+	if err != nil {
+		return "", false, err
+	}
+	defer os.Remove(src.Name())
+	if _, err := src.Write(helperSource); err != nil {
+		src.Close()
+		return "", false, err
+	}
+	if err := src.Close(); err != nil {
+		return "", false, err
+	}
+	tmp := target + ".build"
+	defer os.Remove(tmp)
+	if out, err := compile(src.Name(), tmp); err != nil {
+		return "", false, fmt.Errorf("the compiler failed: %s", strings.TrimSpace(string(out)))
+	}
+	if err := os.Chmod(tmp, 0o700); err != nil {
+		return "", false, err
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return "", false, err
+	}
+	if old, _ := filepath.Glob(filepath.Join(dir, helperName+"-*")); len(old) > 0 { // helpers of earlier releases
+		for _, o := range old {
+			if o != target {
+				_ = os.Remove(o)
 			}
 		}
 	}
-	sort.Strings(out)
-	return out
+	return target, true, nil
 }
 
-// ValidVolume reports whether v is a setting `sound volume` takes.
-func ValidVolume(v float64) bool { return v >= minVolume && v <= maxVolume }
+// Probe asks the helper which trackpad it finds, without tapping it: "" and an error when there is none.
+func Probe() (string, error) {
+	if err := Supported(); err != nil {
+		return "", err
+	}
+	path, err := helperReady()
+	if err != nil {
+		return "", err
+	}
+	out, err := run(exec.Command(path, "--probe"))
+	msg := strings.TrimSpace(string(out))
+	if err != nil {
+		return "", errors.New(strings.TrimPrefix(msg, helperName+": "))
+	}
+	return msg, nil
+}
+
+// Describe is what e does under s: name is the pattern it taps (a default is named too, so the person sees
+// which), or Off, and desc says what that feels like, "" for Off. err says why a setting plays nothing (a
+// pattern that is not there); name is then as it was typed. It is a lookup in the tables, so it answers the
+// same on every system: whether this one can tap at all is Supported and Probe.
+func Describe(s Settings, e Event) (name, desc string, err error) {
+	name = s.Name(e)
+	p, err := Resolve(name, e)
+	if errors.Is(err, errSilent) {
+		return Off, "", nil
+	}
+	if err != nil {
+		return name, "", err
+	}
+	return p.Name, p.Desc, nil
+}

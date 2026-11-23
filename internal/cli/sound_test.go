@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// soundHome gives the test a HOME of its own, with sounds not forced either way by the environment.
+// soundHome gives the test a HOME of its own, with taps not forced either way by the environment.
 func soundHome(t *testing.T) string {
 	t.Helper()
 	h := t.TempDir()
@@ -21,10 +21,11 @@ func soundHome(t *testing.T) string {
 type soundStatusJSON struct {
 	On     bool    `json:"on"`
 	Saved  bool    `json:"saved"`
-	Volume float64 `json:"volume"`
+	Level  float64 `json:"level"`
 	Events []struct {
-		Event string `json:"event"`
-		Sound string `json:"sound"`
+		Event   string `json:"event"`
+		Pattern string `json:"pattern"`
+		Chosen  bool   `json:"chosen"`
 	} `json:"events"`
 }
 
@@ -41,49 +42,26 @@ func soundJSON(t *testing.T) soundStatusJSON {
 func TestSoundIsOffUntilTheyTurnItOnAndOffAgain(t *testing.T) {
 	soundHome(t)
 	code, out, _ := run(t, "", "sound")
-	if code != 0 || !strings.Contains(out, "sounds: off") || !strings.Contains(out, "aivoicebus sound on") {
-		t.Fatalf("a fresh machine is silent and says how to change that: %d %q", code, out)
+	if code != 0 || !strings.Contains(out, "sounds: off") || !strings.Contains(out, "aivoicebus sound on") || !strings.Contains(out, "double (default)") {
+		t.Fatalf("a fresh machine is still and says how to change that: %d %q", code, out)
 	}
-	if st := soundJSON(t); st.On || len(st.Events) != 3 || st.Events[0].Event != "sent" || st.Events[1].Event != "received" || st.Events[2].Event != "retracted" {
+	if st := soundJSON(t); st.On || st.Level != 0.8 || len(st.Events) != 3 || st.Events[0].Event != "sent" || st.Events[1].Event != "received" || st.Events[2].Event != "retracted" {
 		t.Fatalf("%+v", st)
 	}
 	if runtime.GOOS != "darwin" {
-		// only a Mac plays: turning them on elsewhere is refused with the reason, and nothing is saved
-		if code, _, e := run(t, "", "sound", "on"); code != exitUsage || !strings.Contains(e, "macOS only") {
-			t.Fatalf("code %d, %q", code, e)
+		// only a Mac has the motor: turning it on elsewhere is refused with the reason, and nothing is saved
+		for _, w := range []string{"on", "toggle", "setup", "test"} {
+			if code, _, e := run(t, "", "sound", w); code != exitUsage || !strings.Contains(e, "macOS only") {
+				t.Fatalf("%s: code %d, %q", w, code, e)
+			}
 		}
 		if soundJSON(t).On {
 			t.Fatal("a refused `on` saved nothing")
 		}
-	} else {
-		if code, out, e := run(t, "", "sound", "on"); code != 0 || !strings.Contains(out, "sounds: on") {
-			t.Fatalf("on: %d %q %q", code, out, e)
-		}
-		if st := soundJSON(t); !st.On || !st.Saved {
-			t.Fatalf("%+v", st)
-		}
-		if code, out, _ := run(t, "", "sound", "toggle"); code != 0 || !strings.Contains(out, "sounds: off") || soundJSON(t).On {
-			t.Fatalf("toggle turns an on setting off: %d %q", code, out)
-		}
-		if code, out, _ := run(t, "", "sound", "toggle"); code != 0 || !strings.Contains(out, "sounds: on") || !soundJSON(t).On {
-			t.Fatalf("and an off one on: %d %q", code, out)
-		}
 	}
+	// `on`, `toggle` and `test` on a Mac build the helper and tap the real trackpad: not for a test
 	if code, out, _ := run(t, "", "sound", "off"); code != 0 || !strings.Contains(out, "sounds: off") || soundJSON(t).On {
-		t.Fatalf("off: %d %q", code, out)
-	}
-}
-
-func TestSoundOffWorksAnywhereAndToggleFromOff(t *testing.T) {
-	soundHome(t)
-	// `off` and `toggle` never need a player: toggling from off is the one that asks for one
-	if code, _, _ := run(t, "", "sound", "off"); code != 0 {
-		t.Fatal("off is always allowed")
-	}
-	if runtime.GOOS != "darwin" {
-		if code, _, e := run(t, "", "sound", "toggle"); code != exitUsage || !strings.Contains(e, "macOS only") {
-			t.Fatalf("toggle from off is a turn on, refused here: %d %q", code, e)
-		}
+		t.Fatalf("off is always allowed: %d %q", code, out)
 	}
 }
 
@@ -103,38 +81,57 @@ func TestTheEnvironmentOverridesTheSavedSettingAndStatusSaysSo(t *testing.T) {
 	}
 }
 
-func TestSoundSetAndVolumeAreCheckedAtOnce(t *testing.T) {
+func TestSoundSetAndLevelAreCheckedAtOnce(t *testing.T) {
 	h := soundHome(t)
 	for name, args := range map[string][]string{
-		"an unknown event":   {"sound", "set", "sneezed", "off"},
-		"too few arguments":  {"sound", "set", "sent"},
-		"a volume of nought": {"sound", "volume", "0"},
-		"a volume too high":  {"sound", "volume", "3"},
-		"not a number":       {"sound", "volume", "loud"},
-		"an unknown word":    {"sound", "shout"},
-		"a test of nothing":  {"sound", "test", "sneezed"},
+		"an unknown event":     {"sound", "set", "sneezed", "off"},
+		"an unknown pattern":   {"sound", "set", "sent", "klaxon"},
+		"too few arguments":    {"sound", "set", "sent"},
+		"a level of nought":    {"sound", "level", "0"},
+		"a level too high":     {"sound", "level", "3"},
+		"not a number":         {"sound", "level", "loud"},
+		"an unknown word":      {"sound", "shout"},
+		"too many to test":     {"sound", "test", "sent", "tick"},
+		"the old volume":       {"sound", "volume", "50%"},
+		"a path is no pattern": {"sound", "set", "sent", "/System/Library/Sounds/Pop.aiff"},
 	} {
 		if code, _, e := run(t, "", args...); code != exitUsage {
 			t.Errorf("%s: code %d, %q", name, code, e)
 		}
 	}
-	if code, _, _ := run(t, "", "sound", "set", "retracted", "off"); code != 0 {
-		t.Fatal("silencing one event is always allowed")
+	if code, out, _ := run(t, "", "sound", "set", "retracted", "THUD"); code != 0 || !strings.Contains(out, "retracted: thud") {
+		t.Fatalf("a pattern in any case: %d %q", code, out)
 	}
-	if st := soundJSON(t); st.Events[2].Sound != "off" || st.Events[0].Sound != "default" {
+	if st := soundJSON(t); st.Events[2].Pattern != "thud" || !st.Events[2].Chosen || st.Events[0].Pattern != "tick" || st.Events[0].Chosen {
 		t.Fatalf("%+v", st)
 	}
-	if code, _, _ := run(t, "", "sound", "set", "retracted", "default"); code != 0 || soundJSON(t).Events[2].Sound != "default" {
-		t.Fatal("default puts the release's own sound back")
+	if code, _, _ := run(t, "", "sound", "set", "retracted", "off"); code != 0 || soundJSON(t).Events[2].Pattern != "off" {
+		t.Fatal("silencing one event is always allowed")
 	}
-	if code, out, _ := run(t, "", "sound", "volume", "50%"); code != 0 || !strings.Contains(out, "0.50") || soundJSON(t).Volume != 0.5 {
-		t.Fatalf("a percentage is a volume: %d %q", code, out)
+	if code, _, _ := run(t, "", "sound", "set", "retracted", "default"); code != 0 || soundJSON(t).Events[2].Pattern != "fall" || soundJSON(t).Events[2].Chosen {
+		t.Fatal("default puts the release's own pattern back")
 	}
-	if code, out, _ := run(t, "", "sound", "volume", "full"); code != 0 || !strings.Contains(out, "full") || soundJSON(t).Volume != 1 {
-		t.Fatalf("full: %d %q", code, out)
+	if code, out, _ := run(t, "", "sound", "level", "50%"); code != 0 || !strings.Contains(out, "0.50") || soundJSON(t).Level != 0.5 {
+		t.Fatalf("a percentage is a level: %d %q", code, out)
+	}
+	if code, out, _ := run(t, "", "sound", "level", "default"); code != 0 || !strings.Contains(out, "default") || soundJSON(t).Level != 0.8 {
+		t.Fatalf("default: %d %q", code, out)
 	}
 	if b, err := os.ReadFile(filepath.Join(h, ".config", "aivoicebus", "sound")); err != nil || !strings.Contains(string(b), `"on"`) {
 		t.Fatalf("the setting is one small file: %q %v", b, err)
+	}
+}
+
+func TestSoundListNamesEveryPattern(t *testing.T) {
+	soundHome(t)
+	code, out, _ := run(t, "", "sound", "list")
+	if code != 0 {
+		t.Fatal(code)
+	}
+	for _, name := range []string{"tick", "tock", "double", "rise", "fall", "thud", "buzz"} {
+		if !strings.Contains(out, name+" ") {
+			t.Errorf("%s is not listed: %q", name, out)
+		}
 	}
 }
 

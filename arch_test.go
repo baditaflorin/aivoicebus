@@ -22,7 +22,7 @@ var allowed = map[string][]string{
 	"secrets":    {},
 	"credstore":  {},
 	"config":     {},
-	"sound":      {"config"}, // config: the settings file, quiet hours, and which messages already made a sound
+	"sound":      {"config"}, // config: the settings file, quiet hours, and where the trackpad helper is kept
 	"assets":     {},
 	"term":       {"view"}, // the one place that imports the colour library; only the program's own commands use it
 	"version":    {},
@@ -32,7 +32,7 @@ var allowed = map[string][]string{
 	"store":      {"msg"},
 	"sharestore": {"msg"},
 	"share":      {"attach", "client", "config", "msg", "outbox"},
-	"client":     {"config", "msg", "sound", "view"}, // view: a node's words reach callers only as safe lines; sound: the person's chimes for a send, an arrival and a retraction
+	"client":     {"config", "msg", "sound", "view"}, // view: a node's words reach callers only as safe lines; sound: the person's trackpad taps for a send, an arrival and a retraction
 	"server":     {"client", "config", "msg", "release", "secrets", "sharestore", "store", "version"},
 	"wants":      {"identity", "msg", "release", "version"},
 	"hook":       {"client", "config", "discovery", "identity", "msg", "outbox", "release", "tasks", "version", "view", "wants"}, // tasks: telling the person about a task nobody took

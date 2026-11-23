@@ -136,8 +136,8 @@ Read this only when you need to message another agent.
   when someone should stop and look now. `aivoicebus quiet 22:00-07:00` (or `quiet for 2h`)
   holds ask messages back at session start, and the radar and update notice, during those
   hours (urgent still arrives); `aivoicebus quiet off`.
-- The person may have turned on sounds (`aivoicebus sound`: a chime when a message is sent, arrives or is taken back,
-  off by default). Nothing for you to do; do not change that setting for them unless they ask.
+- The person may have turned on trackpad taps (`aivoicebus sound`: the trackpad taps when a message is sent, arrives or is
+  taken back, off by default). Nothing for you to do; do not change that setting for them unless they ask.
 - A session start shows a broadcast (`all`, a host, `*/tool`, a selector) that is over 600
   characters or older than 6 hours as its first line (160 characters) and `[aivoicebus thread ID
   for the rest]`; `inbox` and `thread` always show all of it. So put the point of a broadcast in
