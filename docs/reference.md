@@ -2029,6 +2029,7 @@ calls.) A Mac on a hard desk is louder than one on a lap.
     aivoicebus sound test [EVENT|PATTERN]   # tap one event's pattern, a pattern by name, or all three events
     aivoicebus sound set EVENT PATTERN  # EVENT: sent, received, retracted. PATTERN: a name from `sound list`, `off`, `default`
     aivoicebus sound level 0.1-1        # how hard the motor is driven (default 0.8; `default` puts it back); 50% works too
+    aivoicebus sound focus [follow|ignore]  # which Focus modes the Mac is in; follow (default) stays still during one
     aivoicebus sound list               # the patterns: tick, tock, double, rise, fall, thud, buzz
 
 A person who wants to feel the bus works turns this on once, at a terminal. Nothing is on by default, and a node, a
@@ -2053,6 +2054,15 @@ worker host or CI that nobody turned it on for stays still.
   (`retract --dry-run`) and a send a node refused make none.
 - **Quiet hours** (`aivoicebus quiet`) silence all of it, except that an urgent message arriving still taps. A message that
   arrived in quiet hours does not tap again when they end.
+- **A Focus silences it, read from the Mac itself.** While a macOS Focus is on (Sleep, Personal, Do Not Disturb, Work, one
+  the person made, or one shared from an iPhone), nothing taps, whatever the message and urgent ones included: the person
+  asked not to be disturbed, and nothing has to be set up for it. macOS keeps the Focus modes that are on in
+  `~/Library/DoNotDisturb/DB/Assertions.json`, and aivoicebus reads only the identifiers of the active ones there (never the
+  Focus configurations, which name the people and apps each one lets through). A message that arrived during a Focus does not
+  tap when it ends. `aivoicebus sound focus` (and `sound`) says which are on; `sound focus ignore` taps through them and
+  `follow` puts it back; `sound test` taps through a Focus and says that the real ones are silent. If macOS refuses the read
+  (it keeps that file private: give the terminal or app that runs aivoicebus Full Disk Access in System Settings > Privacy &
+  Security), the state counts as no Focus and `sound` says why, so a hook that cannot see it taps rather than going silent.
 - **The bus checking itself is still**: the test lane (`selftest`), the throwaway probe `join` and `selftest` send, and the
   protocol's own claims and leases.
 - **Per process:** `AIVOICEBUS_SOUND=0` (or `off`) silences one process whatever is saved, and `=1` (or `on`) turns it on

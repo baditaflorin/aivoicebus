@@ -19,10 +19,12 @@ func soundHome(t *testing.T) string {
 }
 
 type soundStatusJSON struct {
-	On     bool    `json:"on"`
-	Saved  bool    `json:"saved"`
-	Level  float64 `json:"level"`
-	Events []struct {
+	On          bool     `json:"on"`
+	Saved       bool     `json:"saved"`
+	Level       float64  `json:"level"`
+	FollowFocus bool     `json:"follow_focus"`
+	Focus       []string `json:"focus"`
+	Events      []struct {
 		Event   string `json:"event"`
 		Pattern string `json:"pattern"`
 		Chosen  bool   `json:"chosen"`
@@ -138,5 +140,57 @@ func TestSoundListNamesEveryPattern(t *testing.T) {
 func TestSoundIsInHelp(t *testing.T) {
 	if _, out, _ := run(t, "", "help"); !strings.Contains(out, "sound") {
 		t.Error("help lists the command")
+	}
+}
+
+func TestSoundFocusShowsAndSetsWhetherTapsWaitForAFocus(t *testing.T) {
+	soundHome(t)
+	code, out, _ := run(t, "", "sound", "focus")
+	if code != 0 || !strings.Contains(out, "focus: none is on") || !strings.Contains(out, "Sleep, Personal") {
+		t.Fatalf("by default taps follow the Mac's Focus: %d %q", code, out)
+	}
+	if st := soundJSON(t); !st.FollowFocus || st.Focus == nil || len(st.Focus) != 0 {
+		t.Fatalf("%+v", st)
+	}
+	if code, out, _ := run(t, "", "sound", "focus", "ignore"); code != 0 || !strings.Contains(out, "focus: ignored") || soundJSON(t).FollowFocus {
+		t.Fatalf("ignore: %d %q", code, out)
+	}
+	if _, out, _ := run(t, "", "sound"); !strings.Contains(out, "focus: ignored") {
+		t.Fatalf("status says it too: %q", out)
+	}
+	if code, out, _ := run(t, "", "sound", "focus", "FOLLOW"); code != 0 || !strings.Contains(out, "focus: none is on") || !soundJSON(t).FollowFocus {
+		t.Fatalf("follow: %d %q", code, out)
+	}
+	for _, args := range [][]string{{"sound", "focus", "maybe"}, {"sound", "focus", "follow", "ignore"}} {
+		if code, _, e := run(t, "", args...); code != exitUsage {
+			t.Errorf("%v: code %d, %q", args, code, e)
+		}
+	}
+}
+
+// On a Mac the state is read from the person's own library; elsewhere there is none, so this runs there.
+func TestSoundSaysWhichFocusModesAreOn(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only a Mac keeps a Focus state")
+	}
+	h := soundHome(t)
+	dir := filepath.Join(h, "Library", "DoNotDisturb", "DB")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state := `{"data":[{"storeAssertionRecords":[` +
+		`{"assertionUUID":"A","assertionDetails":{"assertionDetailsModeIdentifier":"com.apple.sleep.sleep-mode"}},` +
+		`{"assertionUUID":"B","assertionDetails":{"assertionDetailsModeIdentifier":"com.apple.focus.personal-time"}}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "Assertions.json"), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := run(t, "", "sound", "focus"); code != 0 || !strings.Contains(out, "focus: Personal, Sleep are on: taps are silent until it ends") {
+		t.Fatalf("%d %q", code, out)
+	}
+	if st := soundJSON(t); len(st.Focus) != 2 || st.Focus[0] != "Personal" || st.Focus[1] != "Sleep" {
+		t.Fatalf("%+v", st)
+	}
+	if _, out, _ := run(t, "", "sound"); !strings.Contains(out, "Personal, Sleep are on") {
+		t.Fatalf("status says it too: %q", out)
 	}
 }

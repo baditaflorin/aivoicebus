@@ -12,7 +12,7 @@ import (
 	"github.com/baditaflorin/aivoicebus/internal/sound"
 )
 
-const soundUsage = "usage: aivoicebus sound [on | off | toggle | setup | test [EVENT|PATTERN] | set EVENT PATTERN|off|default | level 0.1-1 | list]   (EVENT: sent, received, retracted)"
+const soundUsage = "usage: aivoicebus sound [on | off | toggle | setup | test [EVENT|PATTERN] | set EVENT PATTERN|off|default | level 0.1-1 | focus [follow|ignore] | list]   (EVENT: sent, received, retracted)"
 
 // soundCmd shows or changes the one setting for what a message does to the trackpad of this Mac: it
 // taps when a message is sent, when one arrives, when one is taken back. The sound comes from the
@@ -47,6 +47,8 @@ func soundCmd(args []string, s Streams) error {
 		return soundSet(rest, s)
 	case "level":
 		return soundLevel(rest, s)
+	case "focus":
+		return soundFocus(rest, s)
 	}
 	return outbox.Usagef("sound: %q is not a command here\n%s", word, soundUsage)
 }
@@ -128,9 +130,29 @@ func soundTest(rest []string, s Streams) error {
 		if err := sound.TestPattern(p); err != nil {
 			return fmt.Errorf("sound test: %v", err)
 		}
+		soundFocusNote(s)
 		return nil
 	}
-	return soundTapEvents(s, sound.Events)
+	if err := soundTapEvents(s, sound.Events); err != nil {
+		return err
+	}
+	soundFocusNote(s)
+	return nil
+}
+
+// soundFocusNote says, after a test, that the real taps are silent right now because a Focus is on: a test taps
+// through it, which would otherwise make the person think the real ones will.
+func soundFocusNote(s Streams) {
+	if sound.Load().IgnoreFocus {
+		return
+	}
+	if modes, _ := sound.ActiveFocus(); len(modes) > 0 {
+		if len(modes) > 1 {
+			fmt.Fprintf(s.Out, "note: %s are on, so the real taps are silent until they end (`aivoicebus sound focus ignore` taps through them)\n", strings.Join(modes, ", "))
+		} else {
+			fmt.Fprintf(s.Out, "note: %s is on, so the real taps are silent until it ends (`aivoicebus sound focus ignore` taps through it)\n", modes[0])
+		}
+	}
 }
 
 func soundTapEvents(s Streams, events []sound.Event) error {
@@ -152,6 +174,49 @@ func soundTapEvents(s Streams, events []sound.Event) error {
 		}
 	}
 	return nil
+}
+
+// soundFocus shows which Focus modes the Mac is in, or changes whether taps wait for them to end. The state is read
+// from the Mac itself (see internal/sound), so there is nothing to tell aivoicebus about Sleep or Personal.
+func soundFocus(rest []string, s Streams) error {
+	if len(rest) > 1 {
+		return outbox.Usagef("%s", soundUsage)
+	}
+	if len(rest) == 1 {
+		word := strings.ToLower(rest[0])
+		if word != "follow" && word != "ignore" {
+			return outbox.Usagef("sound focus: %q is not follow or ignore", rest[0])
+		}
+		if err := sound.Update(func(st *sound.Settings) error { st.IgnoreFocus = word == "ignore"; return nil }); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintln(s.Out, soundFocusLine(sound.Load()))
+	return nil
+}
+
+// soundFocusLine is the one line that says what the Mac's Focus does to the taps now.
+func soundFocusLine(st sound.Settings) string {
+	are := func(modes []string) string { // "Sleep is on", "Personal, Sleep are on"
+		if len(modes) > 1 {
+			return strings.Join(modes, ", ") + " are on"
+		}
+		return strings.Join(modes, ", ") + " is on"
+	}
+	modes, err := sound.ActiveFocus()
+	switch {
+	case st.IgnoreFocus:
+		line := "focus: ignored, taps do not wait for a Focus (`aivoicebus sound focus follow` makes them)"
+		if len(modes) > 0 {
+			line += "; " + are(modes) + " now"
+		}
+		return line
+	case err != nil:
+		return "!! focus: " + err.Error()
+	case len(modes) > 0:
+		return "focus: " + are(modes) + ": taps are silent until it ends"
+	}
+	return "focus: none is on; taps wait for one to end (Sleep, Personal, Do Not Disturb...)"
 }
 
 func soundSet(rest []string, s Streams) error {
@@ -232,6 +297,7 @@ func soundStatus(s Streams, asJSON bool) error {
 		rows = append(rows, r)
 	}
 	trackpad, probeErr := sound.Probe() // no tap: only which trackpad the helper finds
+	focus, focusErr := sound.ActiveFocus()
 	env := strings.TrimSpace(os.Getenv("AIVOICEBUS_SOUND"))
 	quiet := config.LoadQuiet().Active(time.Now())
 	level := st.Level
@@ -246,10 +312,21 @@ func soundStatus(s Streams, asJSON bool) error {
 			Quiet    bool    `json:"quiet_now"`
 			Trackpad string  `json:"trackpad,omitempty"`
 			Problem  string  `json:"problem,omitempty"`
-			Events   []row   `json:"events"`
-		}{on, st.On, level, quiet, trackpad, "", rows}
+			// FollowFocus: taps wait for a macOS Focus to end. Focus names the ones on now, FocusProblem
+			// says why that could not be read.
+			FollowFocus  bool     `json:"follow_focus"`
+			Focus        []string `json:"focus"`
+			FocusProblem string   `json:"focus_problem,omitempty"`
+			Events       []row    `json:"events"`
+		}{On: on, Saved: st.On, Level: level, Quiet: quiet, Trackpad: trackpad, FollowFocus: !st.IgnoreFocus, Focus: focus, Events: rows}
 		if probeErr != nil {
 			v.Problem = probeErr.Error()
+		}
+		if focusErr != nil {
+			v.FocusProblem = focusErr.Error()
+		}
+		if v.Focus == nil {
+			v.Focus = []string{}
 		}
 		return writeJSON(s.Out, v)
 	}
@@ -289,6 +366,7 @@ func soundStatus(s Streams, asJSON bool) error {
 	if quiet {
 		fmt.Fprintln(s.Out, "quiet hours are active now: only an urgent message arriving makes a tap")
 	}
+	fmt.Fprintln(s.Out, soundFocusLine(st))
 	if !on {
 		fmt.Fprintln(s.Out, "turn them on with `aivoicebus sound on`; `aivoicebus sound test` taps each one first")
 	}
