@@ -8,6 +8,7 @@ runs it on that machine with no model and no shell (see "Named commands" in docs
 | brightness | set the display brightness (macOS, Apple Silicon) | one number, 0 to 1 |
 | uptime | print uptime and load | none |
 | battery | print battery state (macOS) | none |
+| grokbot-token-handoff | fetch one allowlisted Fleet Secrets record over SSH into a private local file | none |
 
 ## Switch them on
 
